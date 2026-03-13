@@ -83,6 +83,21 @@ is_gmoney() {
     [[ "$sender_name" == "Govind Davis" ]]
 }
 
+# Function to check if this is a connection request message
+is_connection_request() {
+    local message_text="$1"
+    local sender_name="$2"
+    
+    # Check for connection request patterns
+    if [[ "$message_text" == *"as a Business Content Artist, I'm looking to help B2B SaaS and tech brands turn complex concepts into authentic, creative narratives"* ]] && [[ "$message_text" == *"I'm looking to connect with innovative marketing leaders like you"* ]]; then
+        # This is a connection request sent by GMoney
+        # The API incorrectly reports it as if recipient sent to themselves
+        return 0
+    fi
+    
+    return 1
+}
+
 # Function to convert \n to actual line breaks in markdown
 convert_line_breaks() {
     local content="$1"
@@ -283,8 +298,49 @@ else
         TIMESTAMP_SEC=$(($TIMESTAMP_MS / 1000))
         HUMAN_READABLE_TIMESTAMP=$(date -d "@$TIMESTAMP_SEC" "+%Y-%m-%d %H:%M:%S")
 
-        # Check if sender is GMoney
-        if is_gmoney "${SENDER_NAME}"; then
+        # Check if this is a connection request (sent by GMoney but API reports incorrectly)
+        if is_connection_request "${MESSAGE_TEXT}" "${SENDER_NAME}"; then
+            echo "--- Connection Request (GMoney's - no alert) ---"
+            echo "Conversation ID: ${CONVERSATION_ID}"
+            echo "From: ${SENDER_NAME} (actually GMoney's connection request)"
+            echo "Message: ${MESSAGE_TEXT}"
+            echo "Timestamp: ${HUMAN_READABLE_TIMESTAMP}"
+            echo "-------------------"
+            
+            # Extract recipient name from message (the person who received the connection request)
+            EXTRACTED_NAME=$(echo "$MESSAGE_TEXT" | grep -o '^Hi [^,]*,' | sed 's/^Hi //' | sed 's/,//' | head -1)
+            if [ -n "$EXTRACTED_NAME" ] && [ "$EXTRACTED_NAME" != "" ]; then
+                echo "Extracted recipient: ${EXTRACTED_NAME}"
+                
+                # Get full name for recipient
+                RECIPIENT_NAME=$(get_full_recipient_name "${EXTRACTED_NAME}")
+                echo "Full recipient name: ${RECIPIENT_NAME}"
+                
+                # Create contact for recipient (no LinkedIn profile)
+                CONTACT_ID=$(find_or_create_contact "${RECIPIENT_NAME}" "")
+                if [ -z "$CONTACT_ID" ]; then
+                    echo "Failed to find or create contact for recipient ${RECIPIENT_NAME}. Skipping note creation." >&2
+                    continue
+                fi
+                
+                NOTE_TITLE="LinkedIn Connection Request to ${RECIPIENT_NAME}"
+                NOTE_CONTENT="**Type:** Connection Request\\n**From:** Govind Davis\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**Message:**\\n${MESSAGE_TEXT}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
+                
+                # Convert line breaks for proper markdown formatting
+                FORMATTED_CONTENT=$(convert_line_breaks "${NOTE_CONTENT}")
+                
+                # Create note and link to recipient contact (no alert)
+                if create_linked_note "${CONTACT_ID}" "${NOTE_TITLE}" "${FORMATTED_CONTENT}"; then
+                    MESSAGE_COUNT=$((MESSAGE_COUNT + 1))
+                    echo "Logged GMoney's connection request to ${RECIPIENT_NAME} (no alert sent)"
+                else
+                    echo "Failed to create note for GMoney's connection request to ${RECIPIENT_NAME}" >&2
+                fi
+            else
+                echo "Could not extract recipient name from connection request. Skipping note creation." >&2
+            fi
+        # Check if sender is GMoney (regular messages)
+        elif is_gmoney "${SENDER_NAME}"; then
             echo "--- GMoney's Message (no alert) ---"
             echo "Conversation ID: ${CONVERSATION_ID}"
             echo "From: ${SENDER_NAME} (GMoney)"

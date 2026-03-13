@@ -32,7 +32,38 @@ save_last_cursor() {
 extract_recipient_name() {
     local message_text="$1"
     # Extract name from "Hey Name," pattern at the beginning of message
-    echo "$message_text" | grep -o '^Hey [^,]*,' | sed 's/^Hey //' | sed 's/,//' | head -1
+    local extracted_name=$(echo "$message_text" | grep -o '^Hey [^,]*,' | sed 's/^Hey //' | sed 's/,//' | head -1)
+    
+    if [ -n "$extracted_name" ]; then
+        echo "$extracted_name"
+    else
+        # Try other patterns
+        echo "$message_text" | grep -o '^Hi [^,]*,' | sed 's/^Hi //' | sed 's/,//' | head -1
+    fi
+}
+
+# Function to get full name for recipient
+get_full_recipient_name() {
+    local first_name="$1"
+    local mapping_file="/root/.nanobot/recipient_mappings.json"
+    
+    if [ -f "$mapping_file" ]; then
+        local full_name=$(jq -r ".mappings.\"$first_name\" // \"$first_name\"" "$mapping_file")
+        echo "$full_name"
+    else
+        echo "$first_name"
+    fi
+}
+
+# Function to try to find LinkedIn profile for recipient name
+find_linkedin_profile() {
+    local name="$1"
+    # This is a placeholder - in a real implementation, you might:
+    # 1. Search LinkedIn API for the name
+    # 2. Use a people search service
+    # 3. Maintain a mapping of known contacts
+    # For now, return empty since we don't have recipient LinkedIn data
+    echo ""
 }
 
 # Function to check if sender is GMoney
@@ -233,12 +264,19 @@ else
             echo "-------------------"
             
             # Extract recipient name from message
-            RECIPIENT_NAME=$(extract_recipient_name "${MESSAGE_TEXT}")
-            if [ -n "$RECIPIENT_NAME" ] && [ "$RECIPIENT_NAME" != "" ]; then
-                echo "Extracted recipient: ${RECIPIENT_NAME}"
+            EXTRACTED_NAME=$(extract_recipient_name "${MESSAGE_TEXT}")
+            if [ -n "$EXTRACTED_NAME" ] && [ "$EXTRACTED_NAME" != "" ]; then
+                echo "Extracted recipient: ${EXTRACTED_NAME}"
                 
-                # Create contact for recipient (no LinkedIn profile available)
-                CONTACT_ID=$(find_or_create_contact "${RECIPIENT_NAME}" "")
+                # Get full name for recipient
+                RECIPIENT_NAME=$(get_full_recipient_name "${EXTRACTED_NAME}")
+                echo "Full recipient name: ${RECIPIENT_NAME}"
+                
+                # Try to find LinkedIn profile for recipient
+                RECIPIENT_LINKEDIN=$(find_linkedin_profile "${RECIPIENT_NAME}")
+                
+                # Create contact for recipient
+                CONTACT_ID=$(find_or_create_contact "${RECIPIENT_NAME}" "${RECIPIENT_LINKEDIN}")
                 if [ -z "$CONTACT_ID" ]; then
                     echo "Failed to find or create contact for recipient ${RECIPIENT_NAME}. Skipping note creation." >&2
                     continue

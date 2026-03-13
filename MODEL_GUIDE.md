@@ -4,8 +4,8 @@ Tim has access to multiple AI models through the same Gemini API key. Each model
 
 ## Available Models
 
-### 1. Gemini 2.0 Flash Exp (Default - Fast)
-**Model**: `gemini/gemini-2.0-flash-exp`
+### 1. Gemini 3.1 Flash Lite Preview (Default - Fast)
+**Model**: `gemini/gemini-3.1-flash-lite-preview`
 
 **Best for**:
 - Quick responses
@@ -20,9 +20,10 @@ Tim has access to multiple AI models through the same Gemini API key. Each model
 - Cost-effective
 - Good for most tasks
 - 8K max tokens
+- Latest Gemini 3.1 generation
 
-### 2. Gemini 2.0 Flash Thinking Exp (Smart)
-**Model**: `gemini/gemini-2.0-flash-thinking-exp`
+### 2. Gemini 3.1 Pro Preview (Pro)
+**Model**: `gemini/gemini-3.1-pro-preview`
 
 **Best for**:
 - Complex reasoning
@@ -30,28 +31,14 @@ Tim has access to multiple AI models through the same Gemini API key. Each model
 - Analysis and planning
 - Code review
 - Strategic thinking
-
-**Characteristics**:
-- Shows reasoning process
-- Better for complex tasks
-- Slightly slower than Flash
-- More thorough responses
-
-### 3. Gemini Exp 1206 (Pro)
-**Model**: `gemini/gemini-exp-1206`
-
-**Best for**:
-- Most complex tasks
-- Long-form content
-- Deep analysis
 - Critical decisions
-- Research tasks
+- Long-form content
 
 **Characteristics**:
 - Highest capability
 - Best reasoning
-- Slower response time
-- Use sparingly for important tasks
+- More thorough responses
+- Latest Gemini 3.1 Pro model
 
 ### 4. Groq Llama 3.1 70B (Ultra Fast)
 **Model**: `groq/llama-3.1-70b-versatile`

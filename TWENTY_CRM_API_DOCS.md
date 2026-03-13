@@ -279,19 +279,29 @@ bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Follow up with Jo
 
 **Endpoint**: `POST /rest/notes`
 
-**Payload**:
+**IMPORTANT**: Notes only have a `title` field. There is NO `body` or `content` field in the REST API.
+
+**Minimal Payload**:
 ```json
 {
-  "title": "Meeting Notes",
-  "body": "Discussed partnership opportunities...",
+  "title": "Meeting Notes - Discussed partnership opportunities"
+}
+```
+
+**With Position**:
+```json
+{
+  "title": "Meeting Notes - Discussed partnership opportunities",
   "position": 0
 }
 ```
 
 **Example Command**:
 ```bash
-bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Meeting Notes","body":"Discussed partnership..."}'
+bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Meeting Notes - Discussed partnership opportunities"}'
 ```
+
+**Note**: The note object has a `bodyV2` field (RichTextV2 object) but it's not accessible via REST API create. Put all content in the `title` field.
 
 ## Calendar Events API
 

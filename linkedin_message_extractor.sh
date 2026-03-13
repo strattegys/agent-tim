@@ -87,8 +87,7 @@ find_or_create_contact() {
     last_name=$(echo "$full_name" | awk '{split($0,a," "); for(i=2;i<=length(a);i++) printf "%s%s", a[i], (i==length(a)?"":" ")}')
     
     if [ -z "$last_name" ]; then
-        last_name=$first_name
-        first_name="LinkedIn" # Fallback if only one name
+        last_name="" # Leave empty if only one name provided
     fi
 
     # 1. Try to find contact by LinkedIn profile URL (if available)
@@ -117,8 +116,14 @@ find_or_create_contact() {
             CREATE_PAYLOAD=$(jq -n --arg fn "$first_name" --arg ln "$last_name" --arg url "$linkedin_profile_url" \
                 '{"name": {"firstName": $fn, "lastName": $ln}, "linkedinLink": {"primaryLinkUrl": $url, "primaryLinkLabel": "LinkedIn"}}')
         else
-            CREATE_PAYLOAD=$(jq -n --arg fn "$first_name" --arg ln "$last_name" \
-                '{"name": {"firstName": $fn, "lastName": $ln}}')
+            # Handle case where last_name might be empty
+            if [ -n "$last_name" ]; then
+                CREATE_PAYLOAD=$(jq -n --arg fn "$first_name" --arg ln "$last_name" \
+                    '{"name": {"firstName": $fn, "lastName": $ln}}')
+            else
+                CREATE_PAYLOAD=$(jq -n --arg fn "$first_name" \
+                    '{"name": {"firstName": $fn, "lastName": ""}}')
+            fi
         fi
         
         CREATE_RESPONSE=$("$TWENTY_CRM_TOOL" create-contact "$CREATE_PAYLOAD")

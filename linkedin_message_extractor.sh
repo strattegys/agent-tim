@@ -31,14 +31,24 @@ save_last_cursor() {
 # Function to extract recipient name from message text
 extract_recipient_name() {
     local message_text="$1"
-    # Extract name from "Hey Name," pattern at the beginning of message
-    local extracted_name=$(echo "$message_text" | grep -o '^Hey [^,]*,' | sed 's/^Hey //' | sed 's/,//' | head -1)
+    local sender_name="$2"
     
-    if [ -n "$extracted_name" ]; then
-        echo "$extracted_name"
+    # Check if this is a connection acceptance message
+    if [[ "$message_text" == *"hoping we can connect"* ]] && [[ "$message_text" == *"It would be an honor to join your network"* ]]; then
+        # This is a connection acceptance - extract recipient from the first line
+        # Format: "Hi Name, hoping we can connect..."
+        local recipient=$(echo "$message_text" | grep -o '^Hi [^,]*,' | sed 's/^Hi //' | sed 's/,//' | head -1)
+        echo "$recipient"
     else
-        # Try other patterns
-        echo "$message_text" | grep -o '^Hi [^,]*,' | sed 's/^Hi //' | sed 's/,//' | head -1
+        # Regular message - extract from "Hey Name," pattern
+        local extracted_name=$(echo "$message_text" | grep -o '^Hey [^,]*,' | sed 's/^Hey //' | sed 's/,//' | head -1)
+        
+        if [ -n "$extracted_name" ]; then
+            echo "$extracted_name"
+        else
+            # Try other patterns
+            echo "$message_text" | grep -o '^Hi [^,]*,' | sed 's/^Hi //' | sed 's/,//' | head -1
+        fi
     fi
 }
 
@@ -264,7 +274,7 @@ else
             echo "-------------------"
             
             # Extract recipient name from message
-            EXTRACTED_NAME=$(extract_recipient_name "${MESSAGE_TEXT}")
+            EXTRACTED_NAME=$(extract_recipient_name "${MESSAGE_TEXT}" "${SENDER_NAME}")
             if [ -n "$EXTRACTED_NAME" ] && [ "$EXTRACTED_NAME" != "" ]; then
                 echo "Extracted recipient: ${EXTRACTED_NAME}"
                 

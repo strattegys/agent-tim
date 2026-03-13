@@ -6,8 +6,33 @@
 
 1. **ALWAYS use `bodyV2` with `markdown` property** - Never use `body` or `content`
 2. **Use nested objects** for complex fields (name, emails, phones, etc.)
-3. **Contact IDs are NOT assignee IDs** - Don't use contact IDs for task assignments
-4. **Test minimal payloads first** - Start with required fields only
+3. **Contact IDs ≠ Assignee IDs** - Contacts are people in CRM, assignees are workspace members
+4. **Tasks/Notes DON'T link directly to contacts** - Create them separately, they show up in contact timeline
+5. **Test minimal payloads first** - Start with required fields only
+
+## CRITICAL: Linking Tasks/Notes to Contacts
+
+**IMPORTANT**: Tasks and notes are NOT directly linked to contacts when created. They appear in the contact's timeline automatically based on context.
+
+**❌ WRONG - This will fail:**
+```bash
+# Contact ID is NOT an assignee ID
+bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Task","assigneeId":"2e9a0129-98b2-412c-91cf-866b3739a60e"}'
+```
+
+**✅ CORRECT - Create task without assignee:**
+```bash
+# Task will appear in timeline, no direct linking needed
+bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Follow up with Mike H","bodyV2":{"markdown":"Discussed partnership"}}'
+```
+
+**✅ CORRECT - Assign to workspace member (if needed):**
+```bash
+# Use workspace member ID (from list-workspace-members)
+bash /root/.nanobot/tools/twenty_crm.sh create-task '{"title":"Task","assigneeId":"417cca57-450e-436b-8e3f-0cb610f3e63b"}'
+```
+
+**Workspace Member ID**: `417cca57-450e-436b-8e3f-0cb610f3e63b` (Govind Davis)
 
 ## Contact Operations
 

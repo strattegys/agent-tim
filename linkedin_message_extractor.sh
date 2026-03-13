@@ -239,21 +239,13 @@ create_linked_note() {
 }
 
 # Main execution
-LAST_CURSOR=$(get_last_cursor)
+echo "Fetching LinkedIn messages (starting from newest)"
 
-echo "Fetching LinkedIn messages. Last cursor: ${LAST_CURSOR}"
-
-# Construct the API URL with optional nextCursor and limit
+# Construct the API URL with limit only (no cursor for newest messages)
 API_URL="${BASE_URL}/linkedin/messaging/recent-messages"
 PARAMS=""
-if [ -n "$LAST_CURSOR" ]; then
-    PARAMS="nextCursor=${LAST_CURSOR}"
-fi
 if [ -n "$MESSAGE_LIMIT" ]; then
-    if [ -n "$PARAMS" ]; then
-        PARAMS="${PARAMS}&"
-    fi
-    PARAMS="${PARAMS}limit=${MESSAGE_LIMIT}"
+    PARAMS="limit=${MESSAGE_LIMIT}"
 fi
 if [ -n "$PARAMS" ]; then
     API_URL="${API_URL}?${PARAMS}"
@@ -288,7 +280,7 @@ else
         # Check if a note already exists for this conversation ID
         local existing_note=$(bash "$TWENTY_CRM_TOOL" list-notes 2>/dev/null | jq -r '.[] | select(.bodyV2.markdown and (.bodyV2.markdown | contains("'$conversation_id'"))) | .id // empty')
         if [ -n "$existing_note" ]; then
-            echo "Conversation $conversation_id already processed - stopping"
+            echo "Conversation $conversation_id already processed - stopping batch"
             return 0
         fi
         return 1
@@ -470,12 +462,14 @@ find_contact_by_linkedin_url() {
         send_alert "Processed ${MESSAGE_COUNT} new LinkedIn messages and added them to Twenty CRM"
     fi
 
+    # Update cursor state to the oldest processed message (for next batch)
     if [ -n "$NEW_CURSOR" ]; then
-        save_last_cursor "$NEW_CURSOR"
-        echo "Updated last cursor to: ${NEW_CURSOR}"
+        echo "{\"last_cursor\": \"$NEW_CURSOR\"}" > "$STATE_FILE"
+        echo "Updated cursor to oldest processed message: $NEW_CURSOR"
     else
-        echo "No new cursor returned, keeping previous state."
+        echo "No new cursor returned"
     fi
+
 fi
 
 exit 0

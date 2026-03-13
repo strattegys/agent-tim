@@ -360,7 +360,7 @@ find_contact_by_linkedin_url() {
                 fi
                 
                 NOTE_TITLE="LinkedIn Connection Request to ${RECIPIENT_NAME}"
-                NOTE_CONTENT="**Type:** Connection Request\\n**From:** Govind Davis\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**Message:**\\n${MESSAGE_TEXT}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
+                NOTE_CONTENT="${MESSAGE_TEXT}\\n\\n**Type:** Connection Request\\n**From:** Govind Davis\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
                 
                 # Convert line breaks for proper markdown formatting
                 FORMATTED_CONTENT=$(convert_line_breaks "${NOTE_CONTENT}")
@@ -404,7 +404,7 @@ find_contact_by_linkedin_url() {
                 fi
                 
                 NOTE_TITLE="LinkedIn Message to ${RECIPIENT_NAME}"
-                NOTE_CONTENT="**From:** ${SENDER_NAME}\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**Message:**\\n${MESSAGE_TEXT}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
+                NOTE_CONTENT="${MESSAGE_TEXT}\\n\\n**From:** ${SENDER_NAME}\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
                 
                 # Convert line breaks for proper markdown formatting
                 FORMATTED_CONTENT=$(convert_line_breaks "${NOTE_CONTENT}")
@@ -441,7 +441,7 @@ find_contact_by_linkedin_url() {
             fi
 
             NOTE_TITLE="LinkedIn Message from ${SENDER_NAME}"
-            NOTE_CONTENT="**From:** ${SENDER_NAME}\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**Message:**\\n${MESSAGE_TEXT}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
+            NOTE_CONTENT="${MESSAGE_TEXT}\\n\\n**From:** ${SENDER_NAME}\\n**Date:** ${HUMAN_READABLE_TIMESTAMP}\\n**Conversation ID:** ${CONVERSATION_ID}\\n\\n**LinkedIn Profile:** ${SENDER_PROFILE_URL}"
             
             # Convert line breaks for proper markdown formatting
             FORMATTED_CONTENT=$(convert_line_breaks "${NOTE_CONTENT}")

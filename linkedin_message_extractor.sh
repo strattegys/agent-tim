@@ -280,6 +280,32 @@ else
         return 1
     }
 
+# Check if contact already exists by LinkedIn profile (handle ID mismatch)
+find_contact_by_linkedin_url() {
+    local linkedin_url="$1"
+    local search_name="$2"
+    
+    if [ -n "$linkedin_url" ]; then
+        # First try to find by exact LinkedIn URL match
+        local exact_match=$(bash "$TWENTY_CRM_TOOL" search-contacts "$search_name" 2>/dev/null | jq -r '.[] | select(.linkedinLink.primaryLinkUrl == "'"$linkedin_url"'") | .id // empty')
+        if [ -n "$exact_match" ]; then
+            echo "$exact_match"
+            return 0
+        fi
+        
+        # If no exact match, try to find contacts with LinkedIn profiles for this name
+        local contacts_with_linkedin=$(bash "$TWENTY_CRM_TOOL" search-contacts "$search_name" 2>/dev/null | jq -r '.[] | select(.linkedinLink.primaryLinkUrl) | {id: .id, url: .linkedinLink.primaryLinkUrl}')
+        
+        if [ -n "$contacts_with_linkedin" ]; then
+            # Return the first contact with LinkedIn profile (they might be the same person with different ID format)
+            echo "$contacts_with_linkedin" | jq -r '.id' | head -1
+            return 0
+        fi
+    fi
+    
+    return 1
+}
+
     echo "Found new conversations. Processing..."
     MESSAGE_COUNT=0
     
@@ -391,11 +417,17 @@ else
             echo "Timestamp: ${HUMAN_READABLE_TIMESTAMP}"
             echo "-------------------"
 
-            # Find or create contact for sender
-            CONTACT_ID=$(find_or_create_contact "${SENDER_NAME}" "${SENDER_PROFILE_URL}")
+            # Find or create contact for sender (with LinkedIn-aware duplicate detection)
+            CONTACT_ID=$(find_contact_by_linkedin_url "${SENDER_PROFILE_URL}" "${SENDER_NAME}")
             if [ -z "$CONTACT_ID" ]; then
-                echo "Failed to find or create contact for ${SENDER_NAME}. Skipping note creation." >&2
-                continue
+                # No existing contact found, create new one
+                CONTACT_ID=$(find_or_create_contact "${SENDER_NAME}" "${SENDER_PROFILE_URL}")
+                if [ -z "$CONTACT_ID" ]; then
+                    echo "Failed to find or create contact for ${SENDER_NAME}. Skipping note creation." >&2
+                    continue
+                fi
+            else
+                echo "Found existing contact for ${SENDER_NAME} by LinkedIn profile (ID: ${CONTACT_ID})"
             fi
 
             NOTE_TITLE="LinkedIn Message from ${SENDER_NAME}"
@@ -407,7 +439,7 @@ else
             # Create note and link to contact with alert
             if create_linked_note "${CONTACT_ID}" "${NOTE_TITLE}" "${FORMATTED_CONTENT}"; then
                 MESSAGE_COUNT=$((MESSAGE_COUNT + 1))
-                send_alert "New LinkedIn message from ${SENDER_NAME}: ${MESSAGE_TEXT:0:100}..."
+                send_alert "New LinkedIn message from ${SENDER_NAME}: ${MESSAGE_TEXT:0:100}... [${SENDER_PROFILE_URL}]"
             else
                 echo "Failed to create note for message from ${SENDER_NAME}" >&2
             fi

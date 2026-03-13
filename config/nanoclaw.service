@@ -1,0 +1,18 @@
+[Unit]
+Description=NanoClaw AI Assistant
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=nanoclaw
+WorkingDirectory=/opt/nanoclaw
+ExecStart=/usr/bin/node /opt/nanoclaw/dist/index.js
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nanoclaw
+
+[Install]
+WantedBy=multi-user.target

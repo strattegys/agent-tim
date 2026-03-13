@@ -439,7 +439,10 @@ find_contact_by_linkedin_url() {
             # Create note and link to contact with alert
             if create_linked_note "${CONTACT_ID}" "${NOTE_TITLE}" "${FORMATTED_CONTENT}"; then
                 MESSAGE_COUNT=$((MESSAGE_COUNT + 1))
-                send_alert "New LinkedIn message from ${SENDER_NAME}: ${MESSAGE_TEXT:0:100}... [${SENDER_PROFILE_URL}]"
+                # Convert timestamp to Pacific Time
+                PT_TIMESTAMP=$(TZ="America/Los_Angeles" date -d "@$TIMESTAMP_SEC" "+%Y-%m-%d %I:%M %p PT")
+                # Include more message content (500 chars) and PT time in alert
+                send_alert "🔔 ${PT_TIMESTAMP} - New LinkedIn message from ${SENDER_NAME}: ${MESSAGE_TEXT:0:500}... [${SENDER_PROFILE_URL}]"
             else
                 echo "Failed to create note for message from ${SENDER_NAME}" >&2
             fi

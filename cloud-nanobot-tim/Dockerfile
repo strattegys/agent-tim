@@ -26,6 +26,7 @@ RUN mkdir -p /app/workspace
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
 
-EXPOSE 8080
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
+    CMD pgrep -f "nanobot" > /dev/null || exit 1
 
 ENTRYPOINT ["/app/entrypoint.sh"]

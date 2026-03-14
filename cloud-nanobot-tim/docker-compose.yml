@@ -1,0 +1,16 @@
+services:
+  tim:
+    build: .
+    container_name: nanobot-tim
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - tim-workspace:/app/workspace
+      - tim-sessions:/root/.nanobot/sessions
+    ports:
+      - "8080:8080"
+
+volumes:
+  tim-workspace:
+  tim-sessions:

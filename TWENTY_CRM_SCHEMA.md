@@ -36,7 +36,7 @@ bash /root/.nanobot/tools/twenty_crm.sh create-task-target '{"taskId":"'$TASK_ID
 
 ### Junction Table Operations
 
-**NoteTarget** - Links notes to contacts/companies/opportunities
+**NoteTarget** - Links notes to contacts/companies/opportunities/tasks/work items
 ```bash
 # Link note to person
 bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>","targetPersonId":"<person-id>"}'
@@ -46,6 +46,12 @@ bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>
 
 # Link note to opportunity
 bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>","targetOpportunityId":"<opportunity-id>"}'
+
+# Link note to task
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>","targetTaskId":"<task-id>"}'
+
+# Link note to work item
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"<note-id>","targetWorkItemId":"<work-item-id>"}'
 ```
 
 **TaskTarget** - Links tasks to contacts/companies/opportunities
@@ -58,6 +64,32 @@ bash /root/.nanobot/tools/twenty_crm.sh create-task-target '{"taskId":"<task-id>
 
 # Link task to opportunity
 bash /root/.nanobot/tools/twenty_crm.sh create-task-target '{"taskId":"<task-id>","targetOpportunityId":"<opportunity-id>"}'
+```
+
+### How to Link a Note to a Task
+
+**Step 1**: Create the note
+```bash
+NOTE_RESPONSE=$(bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Task Update","bodyV2":{"markdown":"Progress update on task"}}')
+NOTE_ID=$(echo $NOTE_RESPONSE | jq -r '.data.createNote.id')
+```
+
+**Step 2**: Create a NoteTarget to link it to the task
+```bash
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"'$NOTE_ID'","targetTaskId":"<task-id>"}'
+```
+
+### How to Link a Note to a Work Item
+
+**Step 1**: Create the note
+```bash
+NOTE_RESPONSE=$(bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Work Item Update","bodyV2":{"markdown":"Progress update on work item"}}')
+NOTE_ID=$(echo $NOTE_RESPONSE | jq -r '.data.createNote.id')
+```
+
+**Step 2**: Create a NoteTarget to link it to the work item
+```bash
+bash /root/.nanobot/tools/twenty_crm.sh create-note-target '{"noteId":"'$NOTE_ID'","targetWorkItemId":"<work-item-id>"}'
 ```
 
 ## Person (Contact) Schema
@@ -142,6 +174,26 @@ bash /root/.nanobot/tools/twenty_crm.sh create-note '{"title":"Meeting Notes","b
   "position": 0
 }
 ```
+
+## Work Item Schema
+
+### Writable Fields
+
+```json
+{
+  "title": "string",
+  "bodyV2": {
+    "markdown": "string"
+  },
+  "dueAt": "ISO 8601 date",
+  "status": "TODO | IN_PROGRESS | DONE",
+  "assigneeId": "UUID (workspace member, NOT contact)",
+  "position": 0,
+  "label": "string"
+}
+```
+
+**Note**: Work Items are similar to Tasks but may have additional fields like `label` for categorization.
 
 **CRITICAL**:
 - Field is `bodyV2` NOT `body` or `content`

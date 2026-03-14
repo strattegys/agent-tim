@@ -83,12 +83,30 @@ is_gmoney() {
     [[ "$sender_name" == "Govind Davis" ]]
 }
 
+# Function to check if this is an emoji reaction (not a connection request)
+is_emoji_reaction() {
+    local message_text="$1"
+    
+    # Check for common emoji reactions
+    if [[ "$message_text" =~ ^[👍👎❤️😂😮😢🔥]$ ]]; then
+        echo "Emoji reaction detected: $message_text"
+        return 0
+    fi
+    
+    return 1
+}
+
 # Function to check if this is a connection request message
 is_connection_request() {
     local message_text="$1"
     local sender_name="$2"
     local participant_count="$3"
     local participant_name="$4"
+    
+    # Skip if it's an emoji reaction
+    if is_emoji_reaction "$message_text"; then
+        return 1
+    fi
     
     # Structural detection: Single participant + sender == participant = connection request
     # (API incorrectly reports recipient as sender for connection requests)

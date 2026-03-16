@@ -9,6 +9,8 @@ export interface Message {
   text: string;
   timestamp: number;
   replyTo?: { id: string; text: string; role: "user" | "model" };
+  delegatedFrom?: string; // comma-separated agent IDs (e.g. "scout")
+  fromAgent?: string;     // for inter-agent messages: who sent this
 }
 
 interface ChatWindowProps {
@@ -49,6 +51,8 @@ export default function ChatWindow({
           agentColor={agentColor}
           replyTo={msg.replyTo}
           onReply={onReply ? () => onReply(msg) : undefined}
+          delegatedFrom={msg.delegatedFrom}
+          fromAgent={msg.fromAgent}
         />
       ))}
       {isLoading && (

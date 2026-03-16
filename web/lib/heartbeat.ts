@@ -551,7 +551,7 @@ export async function runScoutHeartbeat(): Promise<void> {
       updateTask(task.id, { status: "in_progress" });
       console.log(`[heartbeat] Scout working on: ${task.task.slice(0, 80)}`);
 
-      const result = await autonomousChat("scout", task.task);
+      const result = await autonomousChat("scout", task.task, { fromAgent: task.from });
 
       updateTask(task.id, {
         status: "completed",

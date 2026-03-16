@@ -11,6 +11,8 @@ interface MessageBubbleProps {
   agentColor: string;
   replyTo?: { id: string; text: string; role: "user" | "model" };
   onReply?: () => void;
+  delegatedFrom?: string; // comma-separated agent IDs
+  fromAgent?: string;     // inter-agent: who sent this user message
 }
 
 export default function MessageBubble({
@@ -21,6 +23,8 @@ export default function MessageBubble({
   agentColor,
   replyTo,
   onReply,
+  delegatedFrom,
+  fromAgent,
 }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const isUser = role === "user";
@@ -69,9 +73,21 @@ export default function MessageBubble({
               <div className="truncate">{replyTo.text.slice(0, 100)}</div>
             </div>
           )}
+          {isUser && (
+            <div className="text-xs font-medium mb-1 text-white/70">
+              {fromAgent
+                ? fromAgent.charAt(0).toUpperCase() + fromAgent.slice(1)
+                : "You"}
+            </div>
+          )}
           {!isUser && (
             <div className="text-xs font-medium mb-1" style={{ color: agentColor }}>
               {agentName}
+              {delegatedFrom && (
+                <span className="text-[var(--text-secondary)] font-normal">
+                  {" "}(via {delegatedFrom.split(",").map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ")})
+                </span>
+              )}
             </div>
           )}
           <div className="text-[13px] leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-headings:my-1 prose-code:text-xs prose-pre:bg-[var(--bg-primary)] prose-pre:rounded">

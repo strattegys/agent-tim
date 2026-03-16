@@ -5,6 +5,8 @@ export interface ChatMessage {
   role: "user" | "model";
   text: string;
   timestamp: number;
+  delegatedFrom?: string; // agent ID(s) that produced the result (e.g. "scout")
+  fromAgent?: string;     // for inter-agent messages: who sent this (e.g. "tim")
 }
 
 interface JournalLine {
@@ -15,6 +17,8 @@ interface JournalLine {
   timestamp?: string | number;
   tool_calls?: unknown;
   last_consolidated?: number;
+  delegatedFrom?: string;
+  fromAgent?: string;
 }
 
 /**
@@ -51,13 +55,20 @@ export function getHistory(sessionFile: string): ChatMessage[] {
           content = entry.text;
         }
         if (!content) continue;
-        messages.push({
+        const msg: ChatMessage = {
           role: entry.role === "assistant" ? "model" : "user",
           text: content,
           timestamp: entry.timestamp
             ? new Date(entry.timestamp).getTime()
             : Date.now(),
-        });
+        };
+        if (entry.delegatedFrom) {
+          msg.delegatedFrom = entry.delegatedFrom;
+        }
+        if (entry.fromAgent) {
+          msg.fromAgent = entry.fromAgent;
+        }
+        messages.push(msg);
       } catch {
         // skip malformed lines
       }
@@ -80,11 +91,17 @@ export function addMessage(sessionFile: string, msg: ChatMessage): void {
     mkdirSync(dir, { recursive: true });
   }
 
-  const entry = {
+  const entry: Record<string, unknown> = {
     role: msg.role === "model" ? "assistant" : "user",
     content: msg.text,
     timestamp: new Date(msg.timestamp).toISOString(),
   };
+  if (msg.delegatedFrom) {
+    entry.delegatedFrom = msg.delegatedFrom;
+  }
+  if (msg.fromAgent) {
+    entry.fromAgent = msg.fromAgent;
+  }
   const line = JSON.stringify(entry) + "\n";
   writeFileSync(sessionFile, line, { flag: "a" });
 }

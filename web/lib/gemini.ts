@@ -53,6 +53,7 @@ export async function chat(
   contents.push({ role: "user", parts: [{ text: userMessage }] });
 
   const tools = buildGeminiTools(config.tools);
+  const delegatedAgents = new Set<string>();
 
   let iterations = 0;
 
@@ -80,6 +81,14 @@ export async function chat(
 
     if (functionCalls.length > 0) {
       contents.push({ role: "model", parts });
+
+      // Track delegate_task calls for attribution
+      for (const fc of functionCalls) {
+        if (fc.functionCall?.name === "delegate_task") {
+          const args = fc.functionCall.args as Record<string, string>;
+          if (args?.agent) delegatedAgents.add(args.agent);
+        }
+      }
 
       const functionResponses = await Promise.all(
         functionCalls.map(async (fc) => {
@@ -115,11 +124,16 @@ export async function chat(
         text: userMessage,
         timestamp: Date.now(),
       });
-      addMessage(config.sessionFile, {
+
+      const modelMsg: ChatMessage = {
         role: "model",
         text: replyText,
         timestamp: Date.now(),
-      });
+      };
+      if (delegatedAgents.size > 0) {
+        modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
+      }
+      addMessage(config.sessionFile, modelMsg);
 
       // Fire-and-forget: consolidate if session is long
       consolidateSession(agentId, config.sessionFile).catch(() => {});
@@ -143,7 +157,7 @@ export async function chat(
 export async function autonomousChat(
   agentId: string,
   triggerPrompt: string,
-  options?: { maxHistory?: number }
+  options?: { maxHistory?: number; fromAgent?: string }
 ): Promise<string> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
@@ -212,7 +226,15 @@ export async function autonomousChat(
     const replyText = textParts.map((p) => p.text).join("");
 
     if (replyText) {
-      // Only save the model response — trigger prompt is internal
+      // Save the trigger prompt if it came from another agent (inter-agent delegation)
+      if (options?.fromAgent) {
+        addMessage(config.sessionFile, {
+          role: "user",
+          text: triggerPrompt,
+          timestamp: Date.now(),
+          fromAgent: options.fromAgent,
+        });
+      }
       addMessage(config.sessionFile, {
         role: "model",
         text: replyText,
@@ -232,11 +254,16 @@ export async function autonomousChat(
  * Streaming chat: handles tool calls non-streaming, then streams the final text response.
  * Yields text chunks via the onChunk callback.
  */
+export interface ChatStreamResult {
+  text: string;
+  delegatedFrom?: string; // comma-separated agent IDs
+}
+
 export async function chatStream(
   agentId: string,
   userMessage: string,
   onChunk: (chunk: string) => void
-): Promise<string> {
+): Promise<ChatStreamResult> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
   const systemPrompt = getSystemPrompt(config.systemPromptFile, agentId);
@@ -256,6 +283,7 @@ export async function chatStream(
     maxOutputTokens: 4096,
     tools,
   };
+  const delegatedAgents = new Set<string>();
 
   let iterations = 0;
 
@@ -278,6 +306,14 @@ export async function chatStream(
     if (functionCalls.length === 0) break; // No more tool calls — stream the final response
 
     contents.push({ role: "model", parts });
+
+    // Track delegate_task calls for attribution
+    for (const fc of functionCalls) {
+      if (fc.functionCall?.name === "delegate_task") {
+        const args = fc.functionCall.args as Record<string, string>;
+        if (args?.agent) delegatedAgents.add(args.agent);
+      }
+    }
 
     const functionResponses = await Promise.all(
       functionCalls.map(async (fc) => {
@@ -322,15 +358,27 @@ export async function chatStream(
       text: userMessage,
       timestamp: Date.now(),
     });
-    addMessage(config.sessionFile, {
+
+    const modelMsg: ChatMessage = {
       role: "model",
       text: fullText,
       timestamp: Date.now(),
-    });
+    };
+    if (delegatedAgents.size > 0) {
+      modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
+    }
+    addMessage(config.sessionFile, modelMsg);
 
     // Fire-and-forget: consolidate if session is long
     consolidateSession(agentId, config.sessionFile).catch(() => {});
   }
 
-  return fullText || "I couldn't generate a response. Please try again.";
+  const delegatedFrom = delegatedAgents.size > 0
+    ? Array.from(delegatedAgents).join(",")
+    : undefined;
+
+  return {
+    text: fullText || "I couldn't generate a response. Please try again.",
+    delegatedFrom,
+  };
 }

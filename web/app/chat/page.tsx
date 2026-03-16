@@ -152,11 +152,13 @@ export default function ChatPage() {
         if (data.history && data.history.length > 0) {
           setMessages(
             data.history.map(
-              (msg: { role: string; text: string; timestamp: number }, i: number) => ({
+              (msg: { role: string; text: string; timestamp: number; delegatedFrom?: string; fromAgent?: string }, i: number) => ({
                 id: `history-${activeAgent}-${i}`,
                 role: msg.role as "user" | "model",
                 text: msg.text,
                 timestamp: msg.timestamp,
+                delegatedFrom: msg.delegatedFrom,
+                fromAgent: msg.fromAgent,
               })
             )
           );
@@ -252,6 +254,12 @@ export default function ChatPage() {
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === botMsgId ? { ...m, text: `Error: ${parsed.error}` } : m
+                  )
+                );
+              } else if (parsed.delegatedFrom) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === botMsgId ? { ...m, delegatedFrom: parsed.delegatedFrom } : m
                   )
                 );
               } else if (parsed.text) {

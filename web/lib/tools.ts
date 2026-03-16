@@ -12,22 +12,30 @@ export const toolDeclarations = [
   {
     name: "twenty_crm",
     description:
-      "Execute a Twenty CRM operation. IMPORTANT: To search for a person, use command='search-contacts' (not search-people). Available commands: list-contacts, search-contacts, get-contact, create-contact, update-contact, write-note, list-campaigns, get-campaign, create-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
+      "Execute a Twenty CRM operation. IMPORTANT: To search for a person, use command='search-contacts' (not search-people). For create-contact, use flat JSON fields like {\"firstName\":\"John\",\"lastName\":\"Doe\",\"jobTitle\":\"CEO\",\"email\":\"j@co.com\",\"linkedinUrl\":\"https://linkedin.com/in/slug\",\"companyId\":\"uuid\"} — the tool auto-wraps into Twenty's composite format. For write-note, arg1=title, arg2=markdown content (supports full markdown). Available commands: list-contacts, search-contacts, get-contact, create-contact, update-contact, write-note, search-companies, create-company, get-company, list-campaigns, get-campaign, create-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "The command to run. Use 'search-contacts' to find people by name. Other commands: list-contacts, get-contact, create-contact, update-contact, write-note, list-campaigns, get-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
+            "The command to run. Key commands: search-contacts (find people by name), create-contact (accepts flat JSON with firstName, lastName, jobTitle, email, linkedinUrl, companyId), write-note (arg1=title, arg2=content, optionally arg1=title arg2=content for linked notes use the format: 'title' 'content' 'targetType' 'targetId'), search-companies, create-company, list-campaigns, get-campaign, add-to-campaign.",
         },
         arg1: {
           type: "string",
-          description: "First argument (query string, ID, or JSON payload)",
+          description: "First argument: query string for search, JSON payload for create-contact/create-company, title for write-note, or record ID for get/update",
         },
         arg2: {
           type: "string",
-          description: "Second argument (JSON payload for update operations)",
+          description: "Second argument: JSON payload for update, markdown content for write-note",
+        },
+        arg3: {
+          type: "string",
+          description: "Third argument: for write-note linked to a record, the target type (person or company)",
+        },
+        arg4: {
+          type: "string",
+          description: "Fourth argument: for write-note linked to a record, the target record ID",
         },
       },
       required: ["command"],
@@ -203,7 +211,7 @@ export async function executeTool(
     }
 
     if (name === "twenty_crm") {
-      const cmdArgs = [args.command, args.arg1, args.arg2].filter(Boolean);
+      const cmdArgs = [args.command, args.arg1, args.arg2, args.arg3, args.arg4].filter(Boolean);
       return execFileSync(join(TOOL_SCRIPTS_PATH, "twenty_crm.sh"), cmdArgs, {
         timeout: TOOL_TIMEOUT,
         env: getToolEnv(),
@@ -287,7 +295,7 @@ export async function executeTool(
         // Synchronous: call the target agent directly and return the result
         // Dynamic import to avoid circular dependency with gemini.ts
         const { autonomousChat } = await import("./gemini");
-        const result = await autonomousChat(targetAgent, taskDesc);
+        const result = await autonomousChat(targetAgent, taskDesc, { fromAgent: agentId });
         return result || "The agent completed the task but returned no response.";
       } else {
         // Async: queue the task for the target agent's heartbeat to pick up

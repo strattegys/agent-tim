@@ -137,7 +137,7 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
       {/* Inspect overlay */}
       {showInspect && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+          <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl w-[70%] max-h-[85vh] flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2">

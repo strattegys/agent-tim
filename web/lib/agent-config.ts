@@ -27,6 +27,12 @@ const AGENTS: Record<string, AgentBackendConfig> = {
         logFile: "/root/.nanobot/linkedin_alerts.log",
       },
       {
+        name: "Scheduled Message Processor",
+        schedule: "* * * * *",
+        description: "Sends due scheduled LinkedIn messages from the queue",
+        logFile: "/root/.nanobot/scheduled_messages.log",
+      },
+      {
         name: "CRM Backup",
         schedule: "0 2 * * *",
         description: "Nightly backup of Twenty CRM database",

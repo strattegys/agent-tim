@@ -1,7 +1,7 @@
 {
   "name": "Strattegys Command Central",
   "short_name": "Command Central",
-  "description": "AI Agent Hub — Tim, Suzi, Rainbow",
+  "description": "Strattegys AI Agent Hub — Tim, Suzi, Rainbow",
   "start_url": "/chat",
   "display": "standalone",
   "background_color": "#0a0f18",

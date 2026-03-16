@@ -13,12 +13,17 @@ interface Notification {
 export default function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [lastSeen, setLastSeen] = useState(0);
+  const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("notif_last_seen") || "";
+    }
+    return "";
+  });
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const unreadCount = notifications.filter(
-    (_, i) => i < notifications.length - lastSeen
-  ).length;
+  const unreadCount = lastSeenTimestamp
+    ? notifications.filter((n) => n.timestamp > lastSeenTimestamp).length
+    : notifications.length;
 
   const fetchNotifications = useCallback(() => {
     fetch("/api/notifications")
@@ -51,8 +56,10 @@ export default function NotificationBell() {
 
   const handleOpen = () => {
     setIsOpen(!isOpen);
-    if (!isOpen) {
-      setLastSeen(notifications.length);
+    if (!isOpen && notifications.length > 0) {
+      const latest = notifications[0].timestamp; // notifications are reverse-sorted
+      setLastSeenTimestamp(latest);
+      localStorage.setItem("notif_last_seen", latest);
     }
   };
 

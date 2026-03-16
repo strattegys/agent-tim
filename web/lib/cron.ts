@@ -167,19 +167,20 @@ export function initCronJobs(): void {
     }
   );
 
-  // Heartbeat: Tim
+  // Heartbeat: Tim — full autonomous task checking
   registerJob(
     {
       id: "heartbeat-tim",
       name: "Heartbeat",
       schedule: "*/30 * * * *",
-      description: "Periodic health check and pending task scan",
+      description:
+        "Checks unactioned LinkedIn alerts, due reminders, failed scheduled messages, campaign health",
       agentId: "tim",
       enabled: true,
     },
     async () => {
-      // Phase 3: Start simple — just log OK
-      console.log("[heartbeat] Tim heartbeat OK");
+      const { runTimHeartbeat } = await import("./heartbeat");
+      await runTimHeartbeat();
     }
   );
 
@@ -194,7 +195,8 @@ export function initCronJobs(): void {
       enabled: true,
     },
     async () => {
-      console.log("[heartbeat] Suzi heartbeat OK");
+      const { runSimpleHeartbeat } = await import("./heartbeat");
+      await runSimpleHeartbeat("suzi");
     }
   );
 
@@ -209,7 +211,8 @@ export function initCronJobs(): void {
       enabled: true,
     },
     async () => {
-      console.log("[heartbeat] Rainbow heartbeat OK");
+      const { runSimpleHeartbeat } = await import("./heartbeat");
+      await runSimpleHeartbeat("rainbow");
     }
   );
 

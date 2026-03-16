@@ -8,6 +8,7 @@ export interface Message {
   role: "user" | "model";
   text: string;
   timestamp: number;
+  replyTo?: { id: string; text: string; role: "user" | "model" };
 }
 
 interface ChatWindowProps {
@@ -15,6 +16,7 @@ interface ChatWindowProps {
   isLoading: boolean;
   agentName: string;
   agentColor: string;
+  onReply?: (msg: Message) => void;
 }
 
 export default function ChatWindow({
@@ -22,6 +24,7 @@ export default function ChatWindow({
   isLoading,
   agentName,
   agentColor,
+  onReply,
 }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -44,6 +47,8 @@ export default function ChatWindow({
           timestamp={msg.timestamp}
           agentName={agentName}
           agentColor={agentColor}
+          replyTo={msg.replyTo}
+          onReply={onReply ? () => onReply(msg) : undefined}
         />
       ))}
       {isLoading && (

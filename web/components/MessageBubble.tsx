@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface MessageBubbleProps {
@@ -8,6 +9,8 @@ interface MessageBubbleProps {
   timestamp: number;
   agentName: string;
   agentColor: string;
+  replyTo?: { id: string; text: string; role: "user" | "model" };
+  onReply?: () => void;
 }
 
 export default function MessageBubble({
@@ -16,7 +19,10 @@ export default function MessageBubble({
   timestamp,
   agentName,
   agentColor,
+  replyTo,
+  onReply,
 }: MessageBubbleProps) {
+  const [hovered, setHovered] = useState(false);
   const isUser = role === "user";
   const time = new Date(timestamp).toLocaleTimeString([], {
     hour: "2-digit",
@@ -24,7 +30,11 @@ export default function MessageBubble({
   });
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`}>
+    <div
+      className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1 group relative`}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       <div
         className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 break-words overflow-hidden ${
           isUser
@@ -32,6 +42,19 @@ export default function MessageBubble({
             : "bg-[var(--bg-tertiary)] text-[var(--text-primary)] rounded-bl-sm"
         }`}
       >
+        {/* Reply context */}
+        {replyTo && (
+          <div className={`text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 ${
+            isUser
+              ? "bg-white/10 border-white/40 text-white/70"
+              : "bg-[var(--bg-primary)] border-[var(--accent-blue)] text-[var(--text-secondary)]"
+          }`}>
+            <div className="font-medium text-[10px] mb-0.5">
+              {replyTo.role === "user" ? "You" : agentName}
+            </div>
+            <div className="truncate">{replyTo.text.slice(0, 100)}</div>
+          </div>
+        )}
         {!isUser && (
           <div
             className="text-xs font-medium mb-1"
@@ -51,6 +74,20 @@ export default function MessageBubble({
           {time}
         </div>
       </div>
+
+      {/* Reply button — appears on hover */}
+      {hovered && onReply && (
+        <button
+          onClick={onReply}
+          className={`absolute top-1 ${isUser ? "left-0 -translate-x-8" : "right-0 translate-x-8"} p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-colors`}
+          title="Reply"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9,17 4,12 9,7" />
+            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

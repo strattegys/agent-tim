@@ -176,6 +176,17 @@ export async function autonomousChat(
 
   const tools = buildGeminiTools(config.tools);
 
+  // Save the trigger prompt immediately if it came from another agent,
+  // so it appears in the target agent's chat history even if execution fails
+  if (options?.fromAgent) {
+    addMessage(config.sessionFile, {
+      role: "user",
+      text: triggerPrompt,
+      timestamp: Date.now(),
+      fromAgent: options.fromAgent,
+    });
+  }
+
   let iterations = 0;
 
   while (iterations < MAX_TOOL_ITERATIONS) {
@@ -226,15 +237,6 @@ export async function autonomousChat(
     const replyText = textParts.map((p) => p.text).join("");
 
     if (replyText) {
-      // Save the trigger prompt if it came from another agent (inter-agent delegation)
-      if (options?.fromAgent) {
-        addMessage(config.sessionFile, {
-          role: "user",
-          text: triggerPrompt,
-          timestamp: Date.now(),
-          fromAgent: options.fromAgent,
-        });
-      }
       addMessage(config.sessionFile, {
         role: "model",
         text: replyText,
@@ -245,6 +247,18 @@ export async function autonomousChat(
     }
 
     break;
+  }
+
+  // If we got here with no text response but this was a delegated task,
+  // save a note so the agent's session reflects the attempt
+  if (options?.fromAgent && iterations > 0) {
+    const fallbackMsg = "(Task was processed but no summary was generated)";
+    addMessage(config.sessionFile, {
+      role: "model",
+      text: fallbackMsg,
+      timestamp: Date.now(),
+    });
+    return fallbackMsg;
   }
 
   return "";

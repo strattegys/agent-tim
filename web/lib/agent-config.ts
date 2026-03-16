@@ -18,7 +18,7 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     id: "tim",
     sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.nanobot/system-prompt.md",
-    tools: ["twenty_crm", "linkedin", "web_search"],
+    tools: ["twenty_crm", "linkedin", "schedule_message", "web_search"],
     routines: [
       {
         name: "LinkedIn Message Sync",

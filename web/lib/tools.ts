@@ -10,14 +10,14 @@ export const toolDeclarations = [
   {
     name: "twenty_crm",
     description:
-      "Execute a Twenty CRM operation. Supports contacts, companies, opportunities, tasks, work items, notes, calendar events, messages, activities, attachments, favorites, workflows.",
+      "Execute a Twenty CRM operation. IMPORTANT: To search for a person, use command='search-contacts' (not search-people). Available commands: list-contacts, search-contacts, get-contact, create-contact, update-contact, write-note, list-campaigns, get-campaign, create-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "The command to run, e.g. 'list-contacts', 'search-contacts', 'create-contact', 'get-contact', 'update-contact', 'delete-contact', etc.",
+            "The command to run. Use 'search-contacts' to find people by name. Other commands: list-contacts, get-contact, create-contact, update-contact, write-note, list-campaigns, get-campaign, add-to-campaign, remove-from-campaign, get-campaign-context, list-campaign-members.",
         },
         arg1: {
           type: "string",
@@ -33,7 +33,7 @@ export const toolDeclarations = [
   },
   {
     name: "linkedin",
-    description: "Execute a LinkedIn operation via ConnectSafely API.",
+    description: "Execute a LinkedIn operation via ConnectSafely API. IMPORTANT: ONLY use send-message or send-connection when the user explicitly says 'send it now'. NEVER send messages without explicit approval.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -49,6 +49,43 @@ export const toolDeclarations = [
         arg2: {
           type: "string",
           description: "Second argument (message text for send-message, or connection note for send-connection)",
+        },
+      },
+      required: ["command"],
+    },
+  },
+  {
+    name: "schedule_message",
+    description:
+      "Schedule a LinkedIn message to be sent at a future time. IMPORTANT: ONLY use this tool when the user explicitly says 'schedule it now' or 'send it now'. NEVER schedule or send a message without explicit user approval. Commands: schedule, list, cancel.",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        command: {
+          type: "string",
+          description:
+            "The command: 'schedule' to queue a message, 'list' to show pending messages, 'cancel' to cancel a scheduled message.",
+        },
+        recipient_slug: {
+          type: "string",
+          description: "LinkedIn vanity slug of the recipient (for schedule command)",
+        },
+        recipient_name: {
+          type: "string",
+          description: "Display name of the recipient (for schedule command)",
+        },
+        message: {
+          type: "string",
+          description: "The message text to send (for schedule command)",
+        },
+        send_at: {
+          type: "string",
+          description:
+            "ISO 8601 datetime when to send, e.g. '2026-03-17T10:07:00-04:00'. Use the user's timezone (US Eastern).",
+        },
+        message_id: {
+          type: "string",
+          description: "Message ID to cancel (for cancel command)",
         },
       },
       required: ["command"],
@@ -99,6 +136,39 @@ export function executeTool(
         env: getToolEnv(),
         encoding: "utf-8",
       });
+    }
+
+    if (name === "schedule_message") {
+      const cmd = args.command;
+      if (cmd === "schedule") {
+        const cmdArgs = [
+          "schedule",
+          args.recipient_slug,
+          args.recipient_name,
+          args.message,
+          args.send_at,
+        ].filter(Boolean);
+        return execFileSync(
+          "python3",
+          [join(TOOL_SCRIPTS_PATH, "scheduled_messages.py"), ...cmdArgs],
+          { timeout: TOOL_TIMEOUT, env: getToolEnv(), encoding: "utf-8" }
+        );
+      }
+      if (cmd === "list") {
+        return execFileSync(
+          "python3",
+          [join(TOOL_SCRIPTS_PATH, "scheduled_messages.py"), "list"],
+          { timeout: TOOL_TIMEOUT, env: getToolEnv(), encoding: "utf-8" }
+        );
+      }
+      if (cmd === "cancel") {
+        return execFileSync(
+          "python3",
+          [join(TOOL_SCRIPTS_PATH, "scheduled_messages.py"), "cancel", args.message_id],
+          { timeout: TOOL_TIMEOUT, env: getToolEnv(), encoding: "utf-8" }
+        );
+      }
+      return "Unknown schedule_message command. Use: schedule, list, cancel";
     }
 
     if (name === "web_search") {

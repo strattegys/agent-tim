@@ -31,10 +31,26 @@ export default function MessageBubble({
 
   return (
     <div
-      className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1 group relative`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      className={`flex ${isUser ? "justify-end" : "justify-start"} mb-1`}
     >
+      <div
+        className="relative group flex items-start gap-1"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {/* Reply button — left side for user messages */}
+        {isUser && onReply && (
+          <button
+            onClick={onReply}
+            className={`shrink-0 self-center p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-all ${hovered ? "opacity-100" : "opacity-0"} group-hover:opacity-100`}
+            title="Reply"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9,17 4,12 9,7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+          </button>
+        )}
       <div
         className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 break-words overflow-hidden ${
           isUser
@@ -75,19 +91,20 @@ export default function MessageBubble({
         </div>
       </div>
 
-      {/* Reply button — appears on hover/tap */}
-      {onReply && (
-        <button
-          onClick={onReply}
-          className={`absolute top-1 ${isUser ? "left-0 -translate-x-8" : "right-0 translate-x-8"} p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-all ${hovered ? "opacity-100" : "opacity-0 sm:opacity-0"} sm:group-hover:opacity-100`}
-          title="Reply"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="9,17 4,12 9,7" />
-            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-          </svg>
-        </button>
-      )}
+        {/* Reply button — right side for agent messages */}
+        {!isUser && onReply && (
+          <button
+            onClick={onReply}
+            className={`shrink-0 self-center p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-all ${hovered ? "opacity-100" : "opacity-0"} group-hover:opacity-100`}
+            title="Reply"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9,17 4,12 9,7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+          </button>
+        )}
+      </div>
     </div>
   );
 }

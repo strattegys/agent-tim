@@ -48,7 +48,12 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} "
             cd /opt/agent-tim/cloud-nanobot-tim/web &&
-            sed -i \"s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=${GEMINI_KEY}|\" .env.local
+            touch .env.local &&
+            if grep -q '^GEMINI_API_KEY=' .env.local; then
+              sed -i \"s|^GEMINI_API_KEY=.*|GEMINI_API_KEY=${GEMINI_KEY}|\" .env.local
+            else
+              echo \"GEMINI_API_KEY=${GEMINI_KEY}\" >> .env.local
+            fi
           "
 
       - name: Install production deps and restart

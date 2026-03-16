@@ -115,9 +115,22 @@ function getToolEnv(): NodeJS.ProcessEnv {
   };
 }
 
+const APPROVAL_PHRASES = [
+  "send it now",
+  "schedule it now",
+  "go ahead and send",
+  "go ahead and schedule",
+];
+
+function hasUserApproval(lastUserMessage: string): boolean {
+  const lower = lastUserMessage.toLowerCase();
+  return APPROVAL_PHRASES.some((phrase) => lower.includes(phrase));
+}
+
 export function executeTool(
   name: string,
-  args: Record<string, string>
+  args: Record<string, string>,
+  lastUserMessage = ""
 ): string {
   try {
     if (name === "twenty_crm") {
@@ -130,6 +143,10 @@ export function executeTool(
     }
 
     if (name === "linkedin") {
+      const dangerousCmds = ["send-message", "send-connection"];
+      if (dangerousCmds.includes(args.command) && !hasUserApproval(lastUserMessage)) {
+        return "BLOCKED: Cannot send messages without explicit user approval. The user must say 'send it now' before you can send. Present your draft and wait for approval.";
+      }
       const cmdArgs = [args.command, args.arg1, args.arg2].filter(Boolean);
       return execFileSync(join(TOOL_SCRIPTS_PATH, "linkedin.sh"), cmdArgs, {
         timeout: LINKEDIN_TIMEOUT,
@@ -141,6 +158,9 @@ export function executeTool(
     if (name === "schedule_message") {
       const cmd = args.command;
       if (cmd === "schedule") {
+        if (!hasUserApproval(lastUserMessage)) {
+          return "BLOCKED: Cannot schedule messages without explicit user approval. The user must say 'schedule it now' before you can schedule. Present your draft and wait for approval.";
+        }
         const cmdArgs = [
           "schedule",
           args.recipient_slug,

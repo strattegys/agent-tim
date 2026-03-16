@@ -10,8 +10,9 @@ export interface ChatMessage {
 interface JournalLine {
   _type?: string;
   role?: string;
-  content?: string | null;
-  timestamp?: string;
+  content?: string | Array<{ type?: string; text?: string }> | null;
+  text?: string; // alternate field name
+  timestamp?: string | number;
   tool_calls?: unknown;
   last_consolidated?: number;
 }
@@ -39,12 +40,25 @@ export function getHistory(sessionFile: string): ChatMessage[] {
     for (let i = Math.max(1, startIdx); i < lines.length; i++) {
       try {
         const entry: JournalLine = JSON.parse(lines[i]);
-        if (!entry.role || !entry.content || entry.tool_calls || entry._type) {
+        if (!entry.role || entry.tool_calls || entry._type) {
           continue;
         }
+        // Normalize content: handle string, array of parts, or fallback to text field
+        let content: string | undefined;
+        if (typeof entry.content === "string") {
+          content = entry.content;
+        } else if (Array.isArray(entry.content)) {
+          content = entry.content
+            .filter((p) => p.type === "text" && p.text)
+            .map((p) => p.text)
+            .join("\n");
+        } else if (typeof entry.text === "string") {
+          content = entry.text;
+        }
+        if (!content) continue;
         messages.push({
           role: entry.role === "assistant" ? "model" : "user",
-          text: entry.content,
+          text: content,
           timestamp: entry.timestamp
             ? new Date(entry.timestamp).getTime()
             : Date.now(),

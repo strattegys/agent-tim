@@ -14,12 +14,12 @@ const AGENTS: Record<string, AgentBackendConfig> = {
   },
   suzi: {
     id: "suzi",
-    sessionFile: "/root/.suzibot/workspace/sessions/telegram_5289013326.jsonl",
+    sessionFile: "/root/.suzibot/workspace/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.suzibot/system-prompt.md",
     tools: ["web_search"],
   },
-  ava: {
-    id: "ava",
+  rainbow: {
+    id: "rainbow",
     sessionFile: "/root/.avabot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.avabot/system-prompt.md",
     tools: ["web_search"],

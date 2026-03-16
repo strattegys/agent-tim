@@ -75,11 +75,11 @@ export default function MessageBubble({
         </div>
       </div>
 
-      {/* Reply button — appears on hover */}
-      {hovered && onReply && (
+      {/* Reply button — appears on hover/tap */}
+      {onReply && (
         <button
           onClick={onReply}
-          className={`absolute top-1 ${isUser ? "left-0 -translate-x-8" : "right-0 translate-x-8"} p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-colors`}
+          className={`absolute top-1 ${isUser ? "left-0 -translate-x-8" : "right-0 translate-x-8"} p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-all ${hovered ? "opacity-100" : "opacity-0 sm:opacity-0"} sm:group-hover:opacity-100`}
           title="Reply"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

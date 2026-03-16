@@ -123,3 +123,103 @@ export async function chat(
 
   return "I couldn't generate a response. Please try again.";
 }
+
+/**
+ * Streaming chat: handles tool calls non-streaming, then streams the final text response.
+ * Yields text chunks via the onChunk callback.
+ */
+export async function chatStream(
+  agentId: string,
+  userMessage: string,
+  onChunk: (chunk: string) => void
+): Promise<string> {
+  const ai = getClient();
+  const config = getAgentConfig(agentId);
+  const systemPrompt = getSystemPrompt(config.systemPromptFile);
+  const history = getHistory(config.sessionFile);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const contents: any[] = history.map((msg: ChatMessage) => ({
+    role: msg.role,
+    parts: [{ text: msg.text }],
+  }));
+  contents.push({ role: "user", parts: [{ text: userMessage }] });
+
+  const tools = buildGeminiTools(config.tools);
+  const geminiConfig = {
+    systemInstruction: systemPrompt,
+    temperature: 0.7,
+    maxOutputTokens: 4096,
+    tools,
+  };
+
+  let iterations = 0;
+
+  // Handle tool call loop (non-streaming — need full response to execute tools)
+  while (iterations < MAX_TOOL_ITERATIONS) {
+    iterations++;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents,
+      config: geminiConfig,
+    });
+
+    const candidate = response.candidates?.[0];
+    if (!candidate?.content?.parts) break;
+
+    const parts = candidate.content.parts;
+    const functionCalls = parts.filter((p) => p.functionCall);
+
+    if (functionCalls.length === 0) break; // No more tool calls — stream the final response
+
+    contents.push({ role: "model", parts });
+
+    const functionResponses = functionCalls.map((fc) => {
+      const result = executeTool(
+        fc.functionCall!.name!,
+        (fc.functionCall!.args as Record<string, string>) || {}
+      );
+      return {
+        functionResponse: {
+          name: fc.functionCall!.name!,
+          response: { result },
+        },
+      };
+    });
+
+    contents.push({ role: "user", parts: functionResponses });
+  }
+
+  // Stream the final text response
+  let fullText = "";
+
+  const stream = await ai.models.generateContentStream({
+    model: "gemini-2.5-flash",
+    contents,
+    config: geminiConfig,
+  });
+
+  for await (const chunk of stream) {
+    const text = chunk.text;
+    if (text) {
+      fullText += text;
+      onChunk(text);
+    }
+  }
+
+  if (fullText) {
+    addMessage(config.sessionFile, {
+      role: "user",
+      text: userMessage,
+      timestamp: Date.now(),
+    });
+    addMessage(config.sessionFile, {
+      role: "model",
+      text: fullText,
+      timestamp: Date.now(),
+    });
+  }
+
+  return fullText || "I couldn't generate a response. Please try again.";
+}

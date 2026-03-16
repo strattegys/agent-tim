@@ -1,21 +1,38 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import PushToTalk from "./PushToTalk";
+
+export interface ReplyContext {
+  id: string;
+  text: string;
+  role: "user" | "model";
+}
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  replyTo?: ReplyContext | null;
+  onCancelReply?: () => void;
+  agentName?: string;
 }
 
 export default function ChatInput({
   onSend,
   disabled,
   placeholder = "Type a message...",
+  replyTo,
+  onCancelReply,
+  agentName,
 }: ChatInputProps) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Focus input when reply context is set
+  useEffect(() => {
+    if (replyTo) inputRef.current?.focus();
+  }, [replyTo]);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -30,6 +47,9 @@ export default function ChatInput({
       e.preventDefault();
       handleSend();
     }
+    if (e.key === "Escape" && replyTo && onCancelReply) {
+      onCancelReply();
+    }
   };
 
   const handleTranscript = useCallback(
@@ -42,8 +62,33 @@ export default function ChatInput({
   );
 
   return (
-    <div className="border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-3">
-      <div className="flex items-end gap-2">
+    <div className="border-t border-[var(--border-color)] bg-[var(--bg-secondary)]">
+      {/* Reply context bar */}
+      {replyTo && (
+        <div className="flex items-center gap-2 px-4 pt-2 pb-1">
+          <div className="flex-1 flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-primary)] rounded-lg px-3 py-1.5 border-l-2 border-[var(--accent-blue)]">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <polyline points="9,17 4,12 9,7" />
+              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+            </svg>
+            <span className="font-medium shrink-0">
+              {replyTo.role === "user" ? "You" : agentName || "Agent"}
+            </span>
+            <span className="truncate">{replyTo.text.slice(0, 80)}</span>
+          </div>
+          <button
+            onClick={onCancelReply}
+            className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1"
+            title="Cancel reply"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+      )}
+      <div className="flex items-end gap-2 px-4 py-3">
         <textarea
           ref={inputRef}
           value={text}

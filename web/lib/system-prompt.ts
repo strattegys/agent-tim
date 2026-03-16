@@ -2,6 +2,14 @@ import { readFileSync } from "fs";
 
 const promptCache = new Map<string, string>();
 
+export function clearPromptCache(path?: string) {
+  if (path) {
+    promptCache.delete(path);
+  } else {
+    promptCache.clear();
+  }
+}
+
 export function getSystemPrompt(promptFile?: string): string {
   const path = promptFile || "/root/.nanobot/system-prompt.md";
 

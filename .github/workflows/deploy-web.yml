@@ -1,0 +1,60 @@
+name: Deploy Command Central
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-web.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: cd web && npm ci
+
+      - name: Build
+        run: cd web && npm run build
+
+      - name: Set up SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        run: |
+          rsync -az --delete \
+            --exclude='.env*' \
+            --exclude='node_modules' \
+            web/ root@${{ secrets.DEPLOY_HOST }}:/opt/agent-tim/cloud-nanobot-tim/web/
+
+      - name: Install production deps and restart
+        run: |
+          ssh root@${{ secrets.DEPLOY_HOST }} "
+            cd /opt/agent-tim/cloud-nanobot-tim/web &&
+            npm ci --production &&
+            pm2 restart command-central --update-env &&
+            pm2 save
+          "
+
+      - name: Health check
+        run: |
+          sleep 5
+          ssh root@${{ secrets.DEPLOY_HOST }} "curl -sf http://localhost:3001 > /dev/null" || {
+            echo "Health check failed! App may not be running."
+            ssh root@${{ secrets.DEPLOY_HOST }} "pm2 logs command-central --lines 20 --nostream"
+            exit 1
+          }
+          echo "Health check passed - Command Central is running."

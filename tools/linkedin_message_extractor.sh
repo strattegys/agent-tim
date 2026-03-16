@@ -259,7 +259,7 @@ create_linked_note() {
 # Main execution
 echo "Fetching LinkedIn messages (starting from newest)"
 
-# Construct the API URL with limit only (no cursor for newest messages)
+# Always start without cursor to get newest messages
 API_URL="${BASE_URL}/linkedin/messaging/recent-messages"
 PARAMS=""
 if [ -n "$MESSAGE_LIMIT" ]; then
@@ -297,7 +297,7 @@ else
         local conversation_id="$1"
         # Check if a note already exists for this conversation ID
         local existing_note=$(bash "$TWENTY_CRM_TOOL" list-notes 2>/dev/null | jq -r '.[] | select(.bodyV2.markdown and (.bodyV2.markdown | contains("'$conversation_id'"))) | .id // empty')
-        if [ -n "$existing_note" ]; then
+        if [ -n "$existing_note" ] && [ "$existing_note" != "null" ]; then
             echo "Conversation $conversation_id already processed - stopping batch"
             return 0
         fi
@@ -335,22 +335,24 @@ find_contact_by_linkedin_url() {
     
     echo "$CONVERSATIONS" | while IFS= read -r conversation; do
         CONVERSATION_ID=$(echo "$conversation" | jq -r '.conversationId')
-        if is_already_processed "$CONVERSATION_ID"; then
-            echo "Stopping due to already processed conversation"
-            break
-        fi
         SENDER_NAME=$(echo "$conversation" | jq -r '.latestMessage.senderName // "Unknown Sender"')
         MESSAGE_TEXT=$(echo "$conversation" | jq -r '.latestMessage.text // "No message text"')
-        TIMESTAMP_MS=$(echo "$conversation" | jq -r '.latestMessage.sentAt // 0') # Unix timestamp in milliseconds
-        SENDER_PROFILE_URL=$(echo "$conversation" | jq -r '.latestMessage.senderProfileUrl // empty')
+        TIMESTAMP_MS=$(echo "$conversation" | jq -r '.latestMessage.sentAt // 0')
+        
+        # Convert timestamp to human-readable format
+        TIMESTAMP_SEC=$(($TIMESTAMP_MS / 1000))
+        HUMAN_READABLE_TIMESTAMP=$(date -d "@$TIMESTAMP_SEC" "+%Y-%m-%d %H:%M:%S")
+        
+        echo "Checking conversation: $CONVERSATION_ID from $SENDER_NAME at $HUMAN_READABLE_TIMESTAMP"
+        
+        if is_already_processed "$CONVERSATION_ID"; then
+            echo "✅ Stopping - conversation $CONVERSATION_ID already processed"
+            break
+        fi
         
         # Extract participant information for structural detection
         PARTICIPANT_COUNT=$(echo "$conversation" | jq '.participants | length')
         PARTICIPANT_NAME=$(echo "$conversation" | jq -r '.participants[0].name // empty')
-
-        # Convert timestamp to human-readable format
-        TIMESTAMP_SEC=$(($TIMESTAMP_MS / 1000))
-        HUMAN_READABLE_TIMESTAMP=$(date -d "@$TIMESTAMP_SEC" "+%Y-%m-%d %H:%M:%S")
 
         # Check if this is a connection request (using structural detection)
         if is_connection_request "${MESSAGE_TEXT}" "${SENDER_NAME}" "${PARTICIPANT_COUNT}" "${PARTICIPANT_NAME}"; then

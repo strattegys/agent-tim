@@ -115,7 +115,7 @@ function getToolEnv(): NodeJS.ProcessEnv {
   };
 }
 
-const APPROVAL_PHRASES = [
+export const APPROVAL_PHRASES = [
   "send it now",
   "schedule it now",
   "go ahead and send",

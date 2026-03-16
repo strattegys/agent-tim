@@ -28,10 +28,19 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null);
+  const [approvalPhrases, setApprovalPhrases] = useState<string[]>([]);
 
   useEffect(() => {
     setPromptText("");
     setBackendConfig(null);
+    setApprovalPhrases([]);
+    // Load approval phrases for sidebar display
+    fetch(`/api/agent-config?agent=${agent.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.approvalPhrases) setApprovalPhrases(data.approvalPhrases);
+      })
+      .catch(() => {});
   }, [agent.id]);
 
   const loadInspectData = () => {
@@ -111,11 +120,15 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
           </div>
         </div>
 
-        {agent.id === "tim" && (
+        {approvalPhrases.length > 0 && (
           <div className="px-4 pb-4 border-t border-[var(--border-color)] pt-3">
-            <div className="text-xs font-medium text-[var(--text-secondary)] mb-1.5">Send command</div>
-            <div className="text-xs px-2 py-1.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono" style={{ color: "#1D9E75" }}>
-              &quot;send it now&quot;
+            <div className="text-xs font-medium text-[var(--text-secondary)] mb-1.5">Approval commands</div>
+            <div className="flex flex-col gap-1">
+              {approvalPhrases.map((phrase) => (
+                <div key={phrase} className="text-[11px] px-2 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] font-mono" style={{ color: "#1D9E75" }}>
+                  &quot;{phrase}&quot;
+                </div>
+              ))}
             </div>
           </div>
         )}

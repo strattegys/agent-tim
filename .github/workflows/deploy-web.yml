@@ -27,17 +27,18 @@ jobs:
         run: cd web && npm run build
 
       - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PASS: ${{ secrets.SSH_PASSPHRASE }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key_enc
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key_enc
           chmod 600 ~/.ssh/deploy_key_enc
-          # Decrypt passphrase-protected key to unencrypted key for non-interactive use
-          ssh-keygen -p -f ~/.ssh/deploy_key_enc -P "${{ secrets.SSH_PASSPHRASE }}" -N ""
+          ssh-keygen -p -f ~/.ssh/deploy_key_enc -P "$SSH_PASS" -N ""
           mv ~/.ssh/deploy_key_enc ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.DEPLOY_HOST }} >> ~/.ssh/known_hosts
-          eval $(ssh-agent -s)
-          ssh-add ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy to server
         run: |

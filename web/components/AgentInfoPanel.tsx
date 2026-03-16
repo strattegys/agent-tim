@@ -327,6 +327,80 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
                 )}
               </div>
 
+              {/* Heartbeat Checks */}
+              {(() => {
+                const heartbeatJob = cronJobs.find((j) => j.id === `heartbeat-${agent.id}`);
+                if (!heartbeatJob) return null;
+
+                const checks: { name: string; desc: string; priority: string }[] =
+                  agent.id === "tim"
+                    ? [
+                        { name: "LinkedIn Alerts", desc: "Flags inbound messages with no user response in last 2 hours", priority: "high" },
+                        { name: "Memory Reminders", desc: "Scans memory for follow-ups, todos, and deadlines due today", priority: "medium" },
+                        { name: "Scheduled Messages", desc: "Detects failed or overdue scheduled LinkedIn messages", priority: "high" },
+                        { name: "Campaign Health", desc: "Checks for empty or inactive campaigns in CRM", priority: "low" },
+                      ]
+                    : [];
+
+                return (
+                  <div>
+                    <div className="text-xs font-medium text-[var(--text-secondary)] mb-2">Heartbeat Checks</div>
+                    <div className="bg-[var(--bg-primary)] rounded-lg p-3 border border-[var(--border-color)] space-y-3">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{
+                              background: !heartbeatJob.lastRun
+                                ? "#888"
+                                : heartbeatJob.lastResult === "success"
+                                ? "#1D9E75"
+                                : "#E54D2E",
+                            }}
+                          />
+                          <span className="text-[var(--text-primary)] font-medium">
+                            {heartbeatJob.lastRun ? "Active" : "Waiting for first run"}
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--accent-blue)]">
+                          {heartbeatJob.schedule}
+                        </span>
+                      </div>
+                      {heartbeatJob.lastRun && (
+                        <div className="text-[10px] text-[var(--text-tertiary)]">
+                          Last run: {new Date(heartbeatJob.lastRun).toLocaleString("en-US", { timeZone: "America/Los_Angeles", dateStyle: "short", timeStyle: "short" })}
+                        </div>
+                      )}
+                      {checks.length > 0 ? (
+                        <div className="space-y-1.5 pt-1 border-t border-[var(--border-color)]">
+                          {checks.map((c) => (
+                            <div key={c.name} className="flex items-start gap-2">
+                              <span
+                                className="text-[9px] font-bold uppercase px-1 py-0.5 rounded shrink-0 mt-0.5"
+                                style={{
+                                  background: c.priority === "high" ? "#E54D2E22" : c.priority === "medium" ? "#F5A62322" : "#88888822",
+                                  color: c.priority === "high" ? "#E54D2E" : c.priority === "medium" ? "#F5A623" : "#888",
+                                }}
+                              >
+                                {c.priority}
+                              </span>
+                              <div>
+                                <div className="text-[11px] text-[var(--text-primary)] font-medium">{c.name}</div>
+                                <div className="text-[10px] text-[var(--text-tertiary)]">{c.desc}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-[10px] text-[var(--text-tertiary)] pt-1 border-t border-[var(--border-color)]">
+                          Health check only
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* System Prompt */}
               <div>
                 <div className="flex items-center justify-between mb-2">

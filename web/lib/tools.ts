@@ -57,18 +57,18 @@ export const toolDeclarations = [
   },
   {
     name: "linkedin",
-    description: "Execute a LinkedIn operation via ConnectSafely API. IMPORTANT: ONLY use send-message or send-connection when the user explicitly says 'send it now'. NEVER send messages without explicit approval.",
+    description: "Execute a LinkedIn operation via Unipile API. IMPORTANT: ONLY use send-message or send-connection when the user explicitly says 'send it now'. NEVER send messages without explicit approval. For send-message, use the ACoAAA provider ID from the contact's LinkedIn URL in the CRM — vanity slugs may not work for all profiles.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "The command: fetch-profile, send-message, recent-messages, send-connection, account-info",
+            "The command: fetch-profile, send-message, recent-messages, send-connection, account-info, get-chat-messages",
         },
         arg1: {
           type: "string",
-          description: "First argument (profile vanity slug, e.g. 'rajat-gupta-104391')",
+          description: "First argument: LinkedIn provider ID (ACoAAA...), vanity slug (e.g. 'rajat-gupta-104391'), or full LinkedIn URL. For send-message, prefer the ACoAAA ID from the CRM contact's linkedinLink.",
         },
         arg2: {
           type: "string",

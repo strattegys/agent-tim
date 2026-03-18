@@ -193,29 +193,41 @@ export async function executeSlackTool(
 
       case "set-reminder": {
         if (!args.text) return "Error: text is required";
-        if (!args.time) return "Error: time is required (unix timestamp or natural language like 'in 15 minutes', 'tomorrow at 9am')";
+        if (!args.time) return "Error: time is required (unix timestamp, e.g. '1773890400')";
+        if (!args.channel) return "Error: channel is required (channel to post the reminder in)";
 
-        const result = await client.reminders.add({
-          text: args.text,
-          time: args.time,
-          ...(args.user_id ? { user: args.user_id } : {}),
+        const channelId = await resolveChannel(client, args.channel);
+        if (!channelId) return `Error: Could not find channel "${args.channel}"`;
+
+        // Parse time: accept unix timestamp (seconds)
+        const postAt = parseInt(args.time, 10);
+        if (isNaN(postAt)) return "Error: time must be a unix timestamp in seconds";
+
+        const result = await client.chat.scheduleMessage({
+          channel: channelId,
+          text: formatForSlack(args.text),
+          post_at: postAt,
         });
-        const reminder = result.reminder;
-        const when = reminder?.time ? new Date(reminder.time * 1000).toISOString() : "scheduled";
-        return `Reminder set: "${reminder?.text}" at ${when}`;
+        const when = new Date(postAt * 1000).toISOString();
+        return `Scheduled message set for ${when} in <#${channelId}> (id: ${result.scheduled_message_id})`;
       }
 
       case "list-reminders": {
-        const result = await client.reminders.list();
-        const reminders = result.reminders;
-        if (!reminders || reminders.length === 0) {
-          return "No pending reminders";
+        if (!args.channel) return "Error: channel is required";
+        const channelId = await resolveChannel(client, args.channel);
+        if (!channelId) return `Error: Could not find channel "${args.channel}"`;
+
+        const result = await client.chat.scheduledMessages.list({
+          channel: channelId,
+        });
+        const messages = result.scheduled_messages;
+        if (!messages || messages.length === 0) {
+          return "No scheduled messages";
         }
 
-        const lines = reminders.map((r) => {
-          const when = r.time ? new Date(r.time * 1000).toISOString() : "no time";
-          const status = r.complete_ts ? "done" : "pending";
-          return `[${status}] "${r.text}" — ${when}`;
+        const lines = messages.map((m) => {
+          const when = m.post_at ? new Date(m.post_at * 1000).toISOString() : "no time";
+          return `[${m.id}] "${m.text}" — ${when}`;
         });
         return lines.join("\n");
       }

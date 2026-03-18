@@ -150,14 +150,14 @@ export const toolDeclarations = [
   {
     name: "slack",
     description:
-      "Interact with Slack workspace. You can post messages to channels, read channel history, reply in threads, react to messages, list channels, DM users, and set reminders. You are IN Slack — when a user talks to you in a channel or DM, your response is already posted there. Use this tool when you need to proactively reach out to a DIFFERENT channel, start a new thread, read what's happening elsewhere, or set a reminder.",
+      "Interact with Slack workspace. You can post messages to channels, read channel history, reply in threads, react to messages, list channels, DM users, and schedule messages. You are IN Slack — when a user talks to you in a channel or DM, your response is already posted there. Use this tool when you need to proactively reach out to a DIFFERENT channel, start a new thread, read what's happening elsewhere, or schedule a future message.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "The command: 'post-message' (post to a channel), 'read-channel' (read recent messages), 'reply-thread' (reply in a thread), 'react' (add emoji reaction), 'list-channels' (list workspace channels), 'dm-user' (DM a specific user), 'read-thread' (read thread replies), 'set-reminder' (create a Slack reminder), 'list-reminders' (list pending reminders)",
+            "The command: 'post-message' (post to a channel), 'read-channel' (read recent messages), 'reply-thread' (reply in a thread), 'react' (add emoji reaction), 'list-channels' (list workspace channels), 'dm-user' (DM a specific user), 'read-thread' (read thread replies), 'set-reminder' (schedule a message to be posted at a future time — requires channel and unix timestamp), 'list-reminders' (list scheduled messages in a channel)",
         },
         channel: {
           type: "string",
@@ -186,11 +186,11 @@ export const toolDeclarations = [
         },
         user_id: {
           type: "string",
-          description: "Slack user ID (for dm-user, or optional for set-reminder to remind a specific user)",
+          description: "Slack user ID (for dm-user)",
         },
         time: {
           type: "string",
-          description: "When to trigger the reminder (for set-reminder). Unix timestamp or natural language like 'in 15 minutes', 'tomorrow at 9am', '2026-03-20T10:00:00'",
+          description: "Unix timestamp in seconds for when to post the scheduled message (for set-reminder). Tim must convert natural language times to unix timestamps before calling.",
         },
       },
       required: ["command"],

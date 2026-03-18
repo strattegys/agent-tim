@@ -190,7 +190,7 @@ export const toolDeclarations = [
         },
         time: {
           type: "string",
-          description: "Unix timestamp in seconds for when to post the scheduled message (for set-reminder). Tim must convert natural language times to unix timestamps before calling.",
+          description: "When to post the scheduled message (for set-reminder). Use ISO 8601 format with timezone, e.g. '2026-03-19T10:00:00-07:00' for 10am Pacific. ALWAYS include the timezone offset.",
         },
       },
       required: ["command"],

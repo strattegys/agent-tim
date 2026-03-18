@@ -193,7 +193,7 @@ export async function executeSlackTool(
 
       case "set-reminder": {
         if (!args.text) return "Error: text is required";
-        if (!args.time) return "Error: time is required (unix timestamp, e.g. '1773890400')";
+        if (!args.time) return "Error: time is required (ISO 8601 datetime, e.g. '2026-03-19T10:00:00-07:00')";
         const target = args.channel || args.user_id;
         if (!target) return "Error: channel or user_id is required";
 
@@ -207,9 +207,18 @@ export async function executeSlackTool(
         }
         if (!targetChannelId) return `Error: Could not resolve target "${target}"`;
 
-        // Parse time: accept unix timestamp (seconds)
-        const postAt = parseInt(args.time, 10);
-        if (isNaN(postAt)) return "Error: time must be a unix timestamp in seconds";
+        // Parse time: accept ISO 8601 datetime string or unix timestamp
+        let postAt: number;
+        if (/^\d+$/.test(args.time)) {
+          postAt = parseInt(args.time, 10);
+        } else {
+          const parsed = new Date(args.time);
+          if (isNaN(parsed.getTime())) return `Error: could not parse time "${args.time}". Use ISO 8601 format like '2026-03-19T10:00:00-07:00'`;
+          postAt = Math.floor(parsed.getTime() / 1000);
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        if (postAt <= now) return `Error: time is in the past. Current server time is ${new Date().toISOString()}. Please provide a future time.`;
 
         const result = await client.chat.scheduleMessage({
           channel: targetChannelId,

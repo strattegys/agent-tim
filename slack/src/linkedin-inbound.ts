@@ -53,6 +53,9 @@ interface UnipileWebhookPayload {
   };
   timestamp: string;
   webhook_name?: string;
+  // new_relation event fields (invitation acceptance)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
 }
 
 /**
@@ -61,8 +64,15 @@ interface UnipileWebhookPayload {
 export async function handleUnipileWebhook(payload: UnipileWebhookPayload): Promise<void> {
   const event = payload.event;
 
+  // Handle invitation acceptance (new connection)
+  if (event === "new_relation") {
+    console.log(`[linkedin] new_relation event — full payload:`, JSON.stringify(payload, null, 2));
+    await handleNewRelation(payload);
+    return;
+  }
+
   if (event !== "message_received") {
-    console.log(`[linkedin] Ignoring event: ${event}`);
+    console.log(`[linkedin] Ignoring event: ${event} — payload:`, JSON.stringify(payload, null, 2));
     return;
   }
 
@@ -122,6 +132,75 @@ export async function handleUnipileWebhook(payload: UnipileWebhookPayload): Prom
   await postSlackAlert(senderName, messageText, linkedinUrl, chatId, contactId, timestamp, triage);
 
   console.log(`[linkedin] Processed inbound from ${senderName} → contact ${contactId}`);
+}
+
+/**
+ * Handle invitation acceptance (new_relation event).
+ * The payload structure may vary — we extract what we can and post to Slack.
+ */
+async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> {
+  // Unipile new_relation payloads may have different field names.
+  // Try common patterns to extract the new connection's info.
+  const senderName =
+    payload.sender?.attendee_name ||
+    payload.relation_name ||
+    payload.name ||
+    payload.user_name ||
+    "Unknown";
+  const senderProviderId =
+    payload.sender?.attendee_provider_id ||
+    payload.relation_provider_id ||
+    payload.provider_id ||
+    payload.user_provider_id ||
+    "";
+  const chatId = payload.chat_id || "";
+  const timestamp = payload.timestamp || new Date().toISOString();
+
+  console.log(`[linkedin] Invitation accepted by ${senderName} (${senderProviderId})`);
+
+  // Find or create CRM contact
+  const contactId = senderName !== "Unknown" || senderProviderId
+    ? await findOrCreateContact(senderName, senderProviderId)
+    : null;
+
+  const linkedinUrl = senderProviderId
+    ? `https://www.linkedin.com/in/${senderProviderId}`
+    : "";
+
+  // Log CRM note if we have a contact
+  if (contactId) {
+    const noteTitle = `LinkedIn Connection Accepted — ${senderName}`;
+    const noteContent = [
+      `${senderName} accepted your LinkedIn connection invitation.`,
+      "",
+      "**Type:** LinkedIn Invitation Accepted",
+      `**Date:** ${formatTime(timestamp)}`,
+      chatId ? `**Chat ID:** ${chatId}` : "",
+      linkedinUrl ? `**LinkedIn Profile:** ${linkedinUrl}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    writeNote(noteTitle, noteContent, "person", contactId);
+  }
+
+  // Triage and post to Slack
+  const acceptMessage = `[Connection invitation accepted by ${senderName}]`;
+  const triage = contactId
+    ? await triageLinkedInMessage(senderName, acceptMessage, contactId, linkedinUrl)
+    : { personSummary: "", campaignInfo: "", suggestedReply: "" };
+
+  await postSlackAlert(
+    senderName,
+    acceptMessage,
+    linkedinUrl,
+    chatId,
+    contactId,
+    timestamp,
+    triage
+  );
+
+  console.log(`[linkedin] Processed invitation acceptance from ${senderName}`);
 }
 
 /**

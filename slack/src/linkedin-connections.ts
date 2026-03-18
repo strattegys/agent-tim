@@ -158,7 +158,7 @@ function findOrCreateCrmContact(
  * Fetch a full LinkedIn profile via Unipile for enrichment.
  * Uses public_identifier (vanity slug) or member_id.
  */
-function fetchLinkedInProfile(identifier: string): Record<string, unknown> | null {
+export function fetchLinkedInProfile(identifier: string): Record<string, unknown> | null {
   try {
     const result = execFileSync("bash", [LINKEDIN_TOOL, "fetch-profile", identifier], {
       timeout: 30000,
@@ -175,7 +175,7 @@ function fetchLinkedInProfile(identifier: string): Record<string, unknown> | nul
  * Enrich a CRM contact using LinkedIn profile data from Unipile.
  * Updates: jobTitle, city, email, company (find or create).
  */
-function enrichContactFromLinkedIn(
+export function enrichContactFromLinkedIn(
   contactId: string,
   profile: Record<string, unknown>
 ): void {

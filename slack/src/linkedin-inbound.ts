@@ -13,6 +13,7 @@ import type { WebClient } from "@slack/web-api";
 import { getChannelId } from "./config.js";
 import { triageLinkedInMessage, type TriageResult } from "./linkedin-triage.js";
 import { buildLinkedInMessageBlocks } from "./linkedin-blocks.js";
+import { fetchLinkedInProfile, enrichContactFromLinkedIn } from "./linkedin-connections.js";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
 const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
@@ -166,6 +167,14 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
   const linkedinUrl = senderProviderId
     ? `https://www.linkedin.com/in/${senderProviderId}`
     : "";
+
+  // Enrich contact from LinkedIn profile
+  if (contactId && senderProviderId) {
+    const profile = fetchLinkedInProfile(senderProviderId);
+    if (profile) {
+      enrichContactFromLinkedIn(contactId, profile);
+    }
+  }
 
   // Log CRM note if we have a contact
   if (contactId) {

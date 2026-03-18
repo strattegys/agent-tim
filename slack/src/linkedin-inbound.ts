@@ -197,7 +197,8 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
     chatId,
     contactId,
     timestamp,
-    triage
+    triage,
+    "accepted_connection"
   );
 
   console.log(`[linkedin] Processed invitation acceptance from ${senderName}`);
@@ -337,7 +338,8 @@ async function postSlackAlert(
   chatId: string,
   contactId: string | null,
   timestamp: string,
-  triage: TriageResult
+  triage: TriageResult,
+  messageType: "new_reply" | "accepted_connection" = "new_reply"
 ): Promise<void> {
   const channel = getChannelId("linkedin");
 
@@ -353,6 +355,7 @@ async function postSlackAlert(
     chatId,
     contactId,
     timestamp,
+    messageType,
     triage: triage.personSummary || triage.campaignInfo || triage.suggestedReply
       ? triage
       : undefined,

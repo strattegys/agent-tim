@@ -8,6 +8,7 @@ import {
   buildLinkedInReplyModal,
   type ButtonMetadata,
   type LinkedInMessageParams,
+  type LinkedInMessageType,
 } from "../linkedin-blocks.js";
 import { sendLinkedInReply, sendNewLinkedInMessage, logReplyNote, scheduleLinkedInReply } from "../linkedin-reply.js";
 
@@ -312,6 +313,16 @@ function extractParamsFromBlocks(
       }
     }
 
+    // Detect message type from the header block
+    let messageType: LinkedInMessageType = "new_reply";
+    const headerBlock = blocks[0];
+    const headerText = headerBlock?.text?.text || "";
+    if (headerText.includes(":handshake:")) {
+      messageType = "new_connection";
+    } else if (headerText.includes(":white_check_mark:") && headerText.includes("Accepted")) {
+      messageType = "accepted_connection";
+    }
+
     return {
       senderName: metadata.sender_name,
       messageText,
@@ -319,6 +330,7 @@ function extractParamsFromBlocks(
       chatId: metadata.chat_id,
       contactId: metadata.contact_id,
       timestamp,
+      messageType,
       triage:
         personSummary || campaignInfo || suggestedReply
           ? { personSummary, campaignInfo, suggestedReply }

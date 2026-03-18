@@ -211,6 +211,7 @@ export async function checkNewConnections(slackClient?: WebClient): Promise<numb
       chatId: "", // no chat yet — Reply will use send-message
       contactId,
       timestamp: new Date(conn.created_at).toISOString(),
+      messageType: "new_connection",
       triage: triage.personSummary || triage.campaignInfo || triage.suggestedReply
         ? triage
         : undefined,

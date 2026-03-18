@@ -5,6 +5,8 @@ import type { KnownBlock } from "@slack/types";
 import type { ModalView } from "@slack/types";
 import type { TriageResult } from "./linkedin-triage.js";
 
+export type LinkedInMessageType = "new_reply" | "new_connection" | "accepted_connection";
+
 export interface LinkedInMessageParams {
   senderName: string;
   messageText: string;
@@ -13,6 +15,7 @@ export interface LinkedInMessageParams {
   contactId: string | null;
   timestamp: string;
   triage?: TriageResult;
+  messageType?: LinkedInMessageType;
 }
 
 export interface ButtonMetadata {
@@ -31,18 +34,25 @@ export function buildLinkedInMessageBlocks(
   params: LinkedInMessageParams,
   status?: { text: string; userId?: string }
 ): KnownBlock[] {
-  const { senderName, messageText, linkedinUrl, chatId, contactId, timestamp, triage } = params;
+  const { senderName, messageText, linkedinUrl, chatId, contactId, timestamp, triage, messageType } = params;
 
   const profileLink = linkedinUrl
     ? `<${linkedinUrl}|${senderName}>`
     : senderName;
+
+  const headerMap: Record<string, string> = {
+    new_reply: `:incoming_envelope: *New Reply from ${profileLink}*`,
+    new_connection: `:handshake: *New Connection: ${profileLink}*`,
+    accepted_connection: `:white_check_mark: *Accepted Connection: ${profileLink}*`,
+  };
+  const headerText = headerMap[messageType || "new_reply"];
 
   const blocks: KnownBlock[] = [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:incoming_envelope: *LinkedIn Message from ${profileLink}*`,
+        text: headerText,
       },
     },
   ];

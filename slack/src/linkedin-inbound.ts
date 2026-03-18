@@ -9,7 +9,10 @@ import { execFileSync } from "child_process";
 import { join } from "path";
 import https from "https";
 import http from "http";
+import type { WebClient } from "@slack/web-api";
 import { getChannelId } from "./config.js";
+import { triageLinkedInMessage, type TriageResult } from "./linkedin-triage.js";
+import { buildLinkedInMessageBlocks } from "./linkedin-blocks.js";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
 const CRM_TOOL = join(TOOL_SCRIPTS_PATH, "twenty_crm.sh");
@@ -23,10 +26,16 @@ const UNIPILE_ACCOUNT_ID = process.env.UNIPILE_ACCOUNT_ID || "";
 // Govind's LinkedIn provider ID — used to identify outbound messages
 const SELF_PROVIDER_ID = process.env.LINKEDIN_SELF_PROVIDER_ID || "ACoAAAFQFlkB-uguiq0-0980Ud_J2pdFMjzpQl8";
 
-// Slack bot token for posting alerts (set by app.ts)
+// Slack client for posting alerts (set by app.ts)
+let slackClient: WebClient | undefined;
 let slackBotToken: string | undefined;
+
 export function setSlackBotToken(token: string) {
   slackBotToken = token;
+}
+
+export function setSlackClient(client: WebClient) {
+  slackClient = client;
 }
 
 interface UnipileWebhookPayload {
@@ -105,8 +114,12 @@ export async function handleUnipileWebhook(payload: UnipileWebhookPayload): Prom
 
   writeNote(noteTitle, noteContent, "person", contactId);
 
-  // Post Slack alert
-  await postSlackAlert(senderName, messageText, linkedinUrl);
+  // Triage via Tim's AI — get person summary, campaign context, suggested reply
+  console.log(`[linkedin] Running triage for ${senderName}...`);
+  const triage = await triageLinkedInMessage(senderName, messageText, contactId, linkedinUrl);
+
+  // Post Slack alert with triage context and action buttons
+  await postSlackAlert(senderName, messageText, linkedinUrl, chatId, contactId, timestamp, triage);
 
   console.log(`[linkedin] Processed inbound from ${senderName} → contact ${contactId}`);
 }
@@ -241,23 +254,60 @@ async function findOrCreateContact(
 async function postSlackAlert(
   senderName: string,
   messageText: string,
-  linkedinUrl: string
+  linkedinUrl: string,
+  chatId: string,
+  contactId: string | null,
+  timestamp: string,
+  triage: TriageResult
 ): Promise<void> {
-  const token = slackBotToken || process.env.SLACK_TIM_BOT_TOKEN;
   const channel = getChannelId("linkedin");
 
-  if (!token || !channel) {
-    console.warn("[linkedin] No Slack token or linkedin channel configured — skipping alert");
+  if (!channel) {
+    console.warn("[linkedin] No linkedin channel configured — skipping alert");
     return;
   }
 
-  const profileLine = linkedinUrl ? `\n*Profile:* ${linkedinUrl}` : "";
-  const text = `:incoming_envelope: *LinkedIn Message*\n*From:* ${senderName}${profileLine}\n\n>${messageText.slice(0, 500)}`;
+  const blocks = buildLinkedInMessageBlocks({
+    senderName,
+    messageText,
+    linkedinUrl,
+    chatId,
+    contactId,
+    timestamp,
+    triage: triage.personSummary || triage.campaignInfo || triage.suggestedReply
+      ? triage
+      : undefined,
+  });
+
+  const fallbackText = `:incoming_envelope: LinkedIn message from ${senderName}: ${messageText.slice(0, 200)}`;
+
+  // Prefer Bolt WebClient (supports blocks + interactivity routing)
+  if (slackClient) {
+    try {
+      await slackClient.chat.postMessage({
+        channel,
+        text: fallbackText,
+        blocks,
+        unfurl_links: false,
+      });
+      return;
+    } catch (err) {
+      console.error("[linkedin] Slack WebClient alert error:", err);
+    }
+  }
+
+  // Fallback to raw HTTPS if no WebClient available
+  const token = slackBotToken || process.env.SLACK_TIM_BOT_TOKEN;
+  if (!token) {
+    console.warn("[linkedin] No Slack token configured — skipping alert");
+    return;
+  }
 
   try {
     const body = JSON.stringify({
       channel,
-      text,
+      text: fallbackText,
+      blocks,
       unfurl_links: false,
     });
 

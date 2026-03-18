@@ -5,7 +5,8 @@ import { registerMessageHandlers } from "./handlers/message.js";
 import { registerApprovalHandlers } from "./handlers/approval.js";
 import { registerSlashCommands } from "./handlers/commands.js";
 import { startWebhookServer } from "./webhook-server.js";
-import { setSlackBotToken } from "./linkedin-inbound.js";
+import { setSlackBotToken, setSlackClient } from "./linkedin-inbound.js";
+import { registerLinkedInActionHandlers } from "./handlers/linkedin-actions.js";
 import cron from "node-cron";
 
 interface BotApp {
@@ -37,9 +38,10 @@ async function main() {
     registerMessageHandlers(app, config.agentId);
     registerApprovalHandlers(app, config.agentId);
 
-    // Slash commands only on Tim (primary agent)
+    // Slash commands and LinkedIn actions only on Tim (primary agent)
     if (config.agentId === "tim") {
       registerSlashCommands(app);
+      registerLinkedInActionHandlers(app);
     }
 
     await app.start();
@@ -61,10 +63,14 @@ async function main() {
   const { executeSlackTool } = await import("./slack-tools.js");
   setSlackExecutor(executeSlackTool);
 
-  // Pass Tim's bot token to the LinkedIn inbound handler for Slack alerts
+  // Pass Tim's bot token and WebClient to the LinkedIn inbound handler for Slack alerts
   const timConfig = configs.find((c) => c.agentId === "tim");
+  const timApp = botApps.find((b) => b.agentId === "tim");
   if (timConfig) {
     setSlackBotToken(timConfig.botToken);
+  }
+  if (timApp) {
+    setSlackClient(timApp.app.client);
   }
 
   // Start webhook server for Unipile LinkedIn webhooks

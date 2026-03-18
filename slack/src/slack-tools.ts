@@ -230,12 +230,19 @@ export async function executeSlackTool(
       }
 
       case "list-reminders": {
-        if (!args.channel) return "Error: channel is required";
-        const channelId = await resolveChannel(client, args.channel);
-        if (!channelId) return `Error: Could not find channel "${args.channel}"`;
+        const listTarget = args.channel || args.user_id;
+        let listChannelId: string | undefined;
+        if (listTarget) {
+          if (/^U[A-Z0-9]+$/.test(listTarget)) {
+            const conv = await client.conversations.open({ users: listTarget });
+            listChannelId = conv.channel?.id;
+          } else {
+            listChannelId = await resolveChannel(client, listTarget);
+          }
+        }
 
         const result = await client.chat.scheduledMessages.list({
-          channel: channelId,
+          ...(listChannelId ? { channel: listChannelId } : {}),
         });
         const messages = result.scheduled_messages;
         if (!messages || messages.length === 0) {

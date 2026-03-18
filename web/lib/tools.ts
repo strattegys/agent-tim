@@ -157,7 +157,7 @@ export const toolDeclarations = [
         command: {
           type: "string",
           description:
-            "The command: 'post-message' (post to a channel), 'read-channel' (read recent messages), 'reply-thread' (reply in a thread), 'react' (add emoji reaction), 'list-channels' (list workspace channels), 'dm-user' (DM a specific user), 'read-thread' (read thread replies), 'set-reminder' (schedule a message to be posted at a future time — requires channel and unix timestamp), 'list-reminders' (list scheduled messages in a channel)",
+            "The command: 'post-message' (post to a channel), 'read-channel' (read recent messages), 'reply-thread' (reply in a thread), 'react' (add emoji reaction), 'list-channels' (list workspace channels), 'dm-user' (DM a specific user), 'read-thread' (read thread replies), 'set-reminder' (schedule a message — pass channel or user_id, time as ISO 8601, and text), 'list-reminders' (list scheduled messages — optional channel or user_id), 'cancel-reminder' (cancel a scheduled message — requires channel or user_id and message_id)",
         },
         channel: {
           type: "string",
@@ -191,6 +191,10 @@ export const toolDeclarations = [
         time: {
           type: "string",
           description: "When to post the scheduled message (for set-reminder). Use ISO 8601 format with timezone, e.g. '2026-03-19T10:00:00-07:00' for 10am Pacific. ALWAYS include the timezone offset.",
+        },
+        message_id: {
+          type: "string",
+          description: "Scheduled message ID to cancel (for cancel-reminder)",
         },
       },
       required: ["command"],

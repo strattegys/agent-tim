@@ -256,8 +256,29 @@ export async function executeSlackTool(
         return lines.join("\n");
       }
 
+      case "cancel-reminder": {
+        if (!args.message_id) return "Error: message_id is required (the scheduled message ID)";
+        const cancelTarget = args.channel || args.user_id;
+        if (!cancelTarget) return "Error: channel or user_id is required";
+
+        let cancelChannelId: string | undefined;
+        if (/^U[A-Z0-9]+$/.test(cancelTarget)) {
+          const conv = await client.conversations.open({ users: cancelTarget });
+          cancelChannelId = conv.channel?.id;
+        } else {
+          cancelChannelId = await resolveChannel(client, cancelTarget);
+        }
+        if (!cancelChannelId) return `Error: Could not resolve target "${cancelTarget}"`;
+
+        await client.chat.deleteScheduledMessage({
+          channel: cancelChannelId,
+          scheduled_message_id: args.message_id,
+        });
+        return `Cancelled scheduled message ${args.message_id}`;
+      }
+
       default:
-        return `Unknown slack command: "${command}". Available: post-message, read-channel, reply-thread, react, list-channels, dm-user, read-thread, set-reminder, list-reminders`;
+        return `Unknown slack command: "${command}". Available: post-message, read-channel, reply-thread, react, list-channels, dm-user, read-thread, set-reminder, list-reminders, cancel-reminder`;
     }
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);

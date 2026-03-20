@@ -6,6 +6,7 @@ import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
 import NotificationBell from "@/components/NotificationBell";
+import Link from "next/link";
 
 export interface AgentConfig {
   id: string;
@@ -470,6 +471,17 @@ export default function ChatPage() {
                 </svg>
               </button>
             )}
+            <Link
+              href="/kanban"
+              className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+              title="Pipeline board"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="5" height="18" rx="1" />
+                <rect x="10" y="3" width="5" height="12" rx="1" />
+                <rect x="17" y="3" width="5" height="8" rx="1" />
+              </svg>
+            </Link>
             <NotificationBell />
           </div>
         </div>

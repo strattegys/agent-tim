@@ -129,6 +129,8 @@ export default function ChatPage() {
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const loadedAgentRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const agents = useMemo(() =>
     AGENTS.map((a) => avatarOverrides[a.id] ? { ...a, avatar: avatarOverrides[a.id] } : a),
@@ -138,6 +140,43 @@ export default function ChatPage() {
   const handleAvatarChange = useCallback((agentId: string, newUrl: string) => {
     setAvatarOverrides((prev) => ({ ...prev, [agentId]: newUrl }));
   }, []);
+
+  const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 25 * 1024 * 1024) { alert("Image must be under 25MB"); return; }
+    setAvatarUploading(true);
+    try {
+      // Compress
+      const img = new Image();
+      const blob: Blob = await new Promise((resolve, reject) => {
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          const MAX = 512;
+          let w = img.width, h = img.height;
+          if (w > MAX || h > MAX) {
+            if (w > h) { h = Math.round(h * MAX / w); w = MAX; } else { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+          canvas.toBlob((b) => b ? resolve(b) : reject(new Error("Compress failed")), "image/png", 0.85);
+        };
+        img.onerror = () => reject(new Error("Failed to load image"));
+        img.src = URL.createObjectURL(file);
+      });
+      const form = new FormData();
+      form.append("file", new File([blob], `${activeAgent}-avatar.png`, { type: "image/png" }));
+      form.append("agentId", activeAgent);
+      const res = await fetch("/api/agent-avatar", { method: "POST", body: form });
+      if (!res.ok) { alert("Upload failed"); return; }
+      const data = await res.json();
+      if (data.avatarUrl) handleAvatarChange(activeAgent, data.avatarUrl);
+    } catch { alert("Upload failed"); }
+    finally {
+      setAvatarUploading(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = "";
+    }
+  }, [activeAgent, handleAvatarChange]);
 
   // On mount, check for custom uploaded avatars (cache-bust to avoid stale 200s)
   useEffect(() => {
@@ -607,14 +646,34 @@ export default function ChatPage() {
         {/* Persistent agent header + nav icons */}
         <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-3 flex items-center gap-3">
           <div
-            className="w-[74px] h-[74px] rounded-full flex items-center justify-center overflow-hidden shrink-0"
+            className="w-[74px] h-[74px] rounded-full flex items-center justify-center overflow-hidden shrink-0 relative group cursor-pointer"
             style={{ background: agent.color }}
+            onClick={() => avatarInputRef.current?.click()}
           >
             {agent.avatar ? (
               <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
             ) : (
               <span className="text-xl font-medium text-white">{agent.name[0]}</span>
             )}
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+              {avatarUploading ? (
+                <svg className="w-6 h-6 text-white animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+              )}
+            </div>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarUpload}
+            />
           </div>
           <div className="min-w-0">
             <span className="text-sm font-semibold truncate block" style={{ color: agent.color }}>

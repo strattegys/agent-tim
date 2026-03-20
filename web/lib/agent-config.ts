@@ -99,6 +99,14 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     tools: ["web_search", "kanban", "memory"],
     routines: [],
   },
+  marni: {
+    id: "marni",
+    sessionFile: "/root/.marnibot/sessions/web_govind.jsonl",
+    systemPromptFile: "/root/.marnibot/system-prompt.md",
+    memoryDir: "/root/.marnibot/memory",
+    tools: ["web_search", "memory"],
+    routines: [],
+  },
 };
 
 export function getAgentConfig(agentId: string): AgentBackendConfig {

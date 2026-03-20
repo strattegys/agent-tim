@@ -90,6 +90,17 @@ const AGENTS: AgentConfig[] = [
     category: "ContentOps",
   },
   {
+    id: "marni",
+    name: "Marni",
+    role: "Content Distribution",
+    color: "#D4A017",
+    avatar: "/marni-avatar.png",
+    online: true,
+    capabilities: ["Content distribution", "Post execution", "Engagement & commenting"],
+    connections: [{ label: "LinkedIn", connected: false }],
+    category: "ContentOps",
+  },
+  {
     id: "rainbow",
     name: "Rainbow",
     role: "Abby's Magical AI Friend",

@@ -606,8 +606,27 @@ export default function ChatPage() {
       <div className="hidden md:flex flex-1 min-w-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-secondary)]">
         {/* Persistent agent header + nav icons */}
         <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-3 flex items-center gap-3">
-          {/* Panel nav icons - left of avatar */}
-          <div className="flex flex-col items-center gap-1">
+          <div
+            className="w-[74px] h-[74px] rounded-full flex items-center justify-center overflow-hidden shrink-0"
+            style={{ background: agent.color }}
+          >
+            {agent.avatar ? (
+              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-xl font-medium text-white">{agent.name[0]}</span>
+            )}
+          </div>
+          <div className="min-w-0">
+            <span className="text-sm font-semibold truncate block" style={{ color: agent.color }}>
+              {agent.name}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: agent.online ? "#1D9E75" : "#555" }} />
+              <span className="text-[10px] text-[var(--text-secondary)]">{agent.role}</span>
+            </div>
+          </div>
+          {/* Panel nav icons - right of text */}
+          <div className="flex items-center gap-1 ml-6">
             {agentHasKanban(activeAgent) && (
               <button
                 onClick={() => setRightPanel("kanban")}
@@ -618,7 +637,7 @@ export default function ChatPage() {
                 }`}
                 title="Pipeline board"
               >
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="5" height="18" rx="1" />
                   <rect x="10" y="3" width="5" height="12" rx="1" />
                   <rect x="17" y="3" width="5" height="8" rx="1" />
@@ -634,31 +653,12 @@ export default function ChatPage() {
               }`}
               title="Agent info"
             >
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
             </button>
-          </div>
-          <div
-            className="w-[74px] h-[74px] rounded-full flex items-center justify-center overflow-hidden shrink-0"
-            style={{ background: agent.color }}
-          >
-            {agent.avatar ? (
-              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-xl font-medium text-white">{agent.name[0]}</span>
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <span className="text-sm font-semibold truncate block" style={{ color: agent.color }}>
-              {agent.name}
-            </span>
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: agent.online ? "#1D9E75" : "#555" }} />
-              <span className="text-[10px] text-[var(--text-secondary)]">{agent.role}</span>
-            </div>
           </div>
         </div>
         {/* Panel content */}

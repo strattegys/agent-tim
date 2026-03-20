@@ -56,10 +56,12 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
     setAgentSummary("");
     setPromptCollapsed(true);
 
-    fetch(`/api/agent-summary?agent=${agent.id}`)
-      .then((res) => res.json())
-      .then((data) => { if (data.summary) setAgentSummary(data.summary); })
-      .catch(() => {});
+    if (agent.id === "tim") {
+      fetch(`/api/agent-summary?agent=${agent.id}`)
+        .then((res) => res.json())
+        .then((data) => { if (data.summary) setAgentSummary(data.summary); })
+        .catch(() => {});
+    }
 
     fetch(`/api/agent-config?agent=${agent.id}`)
       .then((res) => res.json())
@@ -199,7 +201,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
 
           {/* Agent Summary */}
           {agentSummary && (
-            <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
+            <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
               {agentSummary}
             </div>
           )}

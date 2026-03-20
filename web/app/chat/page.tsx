@@ -531,14 +531,29 @@ export default function ChatPage() {
       <div className="hidden md:flex w-[384px] min-w-[320px] flex-col min-h-0 bg-[var(--bg-primary)]">
         {/* Top bar */}
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+          {/* Agent avatar + name */}
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-sm font-medium truncate" style={{ color: agent.color }}>
-              {agent.name}
-            </span>
-            <span className="text-xs text-[var(--text-secondary)] truncate">
-              {agent.role}
-            </span>
+            <div
+              className="w-7 h-7 rounded-full flex items-center justify-center overflow-hidden shrink-0"
+              style={{ background: agent.color }}
+            >
+              {agent.avatar ? (
+                <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs font-medium text-white">{agent.name[0]}</span>
+              )}
+            </div>
+            <div className="min-w-0">
+              <span className="text-sm font-medium truncate block" style={{ color: agent.color }}>
+                {agent.name}
+              </span>
+              <span className="text-[10px] text-[var(--text-secondary)] truncate block leading-tight">
+                {agent.role}
+              </span>
+            </div>
           </div>
+
+          {/* Action icons */}
           <div className="flex items-center gap-1">
             {isSearching ? (
               <input
@@ -574,7 +589,7 @@ export default function ChatPage() {
               <>
                 {/* Desktop: toggle inline Kanban */}
                 <button
-                  onClick={() => setRightPanel(rightPanel === "kanban" ? "info" : "kanban")}
+                  onClick={() => setRightPanel("kanban")}
                   className={`hidden md:block p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                     rightPanel === "kanban"
                       ? "text-[var(--accent-green)]"
@@ -602,6 +617,22 @@ export default function ChatPage() {
                 </Link>
               </>
             )}
+            {/* Info panel toggle */}
+            <button
+              onClick={() => setRightPanel("info")}
+              className={`hidden md:block p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                rightPanel === "info"
+                  ? "text-[var(--accent-green)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              title="Agent info"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+            </button>
           </div>
         </div>
 

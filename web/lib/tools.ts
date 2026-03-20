@@ -227,8 +227,7 @@ export async function executeTool(
         return `Saved to memory: ${args.content}`;
       }
       if (cmd === "replace") {
-        if (!args.content) return "Error: content is required for replace";
-        replaceMemory(agentId, args.content);
+        replaceMemory(agentId, args.content || "");
         return "Memory replaced successfully";
       }
       return "Unknown memory command. Use: read, save_fact, replace";

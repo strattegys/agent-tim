@@ -94,12 +94,17 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
       form.append("file", file);
       form.append("agentId", agent.id);
       const res = await fetch("/api/agent-avatar", { method: "POST", body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Upload failed" }));
+        console.error("Avatar upload failed:", err);
+        return;
+      }
       const data = await res.json();
       if (data.avatarUrl && onAvatarChange) {
         onAvatarChange(agent.id, data.avatarUrl);
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error("Avatar upload error:", err);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";

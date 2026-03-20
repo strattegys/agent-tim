@@ -56,12 +56,10 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
     setAgentSummary("");
     setPromptCollapsed(true);
 
-    if (agent.id === "tim") {
-      fetch(`/api/agent-summary?agent=${agent.id}`)
-        .then((res) => res.json())
-        .then((data) => { if (data.summary) setAgentSummary(data.summary); })
-        .catch(() => {});
-    }
+    fetch(`/api/agent-summary?agent=${agent.id}`)
+      .then((res) => res.json())
+      .then((data) => { if (data.summary) setAgentSummary(data.summary); })
+      .catch(() => {});
 
     fetch(`/api/agent-config?agent=${agent.id}`)
       .then((res) => res.json())

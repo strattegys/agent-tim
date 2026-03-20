@@ -55,10 +55,11 @@ export default function ChatInput({
   const handleTranscript = useCallback(
     (transcript: string) => {
       if (transcript && !disabled) {
-        onSend(transcript);
+        setText((prev) => (prev ? prev + " " + transcript : transcript));
+        inputRef.current?.focus();
       }
     },
-    [onSend, disabled]
+    [disabled]
   );
 
   return (

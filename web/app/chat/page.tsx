@@ -451,7 +451,6 @@ export default function ChatPage() {
             <div className="text-sm font-medium truncate">{agent.name}</div>
             <div className="text-[11px] text-[var(--text-secondary)] truncate">{agent.role}</div>
           </div>
-          <NotificationBell />
         </div>
 
         <ChatWindow
@@ -566,7 +565,6 @@ export default function ChatPage() {
                 </Link>
               </>
             )}
-            <NotificationBell />
           </div>
         </div>
 

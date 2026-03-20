@@ -23,7 +23,7 @@ export default function NotificationBell() {
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Only show global alerts — not per-agent chat/reminder notifications
-  const ALERT_TYPES = ["linkedin_inbound", "campaign", "schedule"];
+  const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "schedule"];
   const alerts = notifications.filter((n) => ALERT_TYPES.includes(n.type));
 
   const unreadCount = lastSeenEpoch

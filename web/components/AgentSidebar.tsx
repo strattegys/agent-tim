@@ -2,6 +2,7 @@
 
 import type { AgentConfig } from "@/app/chat/page";
 import { AGENT_CATEGORIES } from "@/app/chat/page";
+import NotificationBell from "./NotificationBell";
 
 interface AgentSidebarProps {
   agents: AgentConfig[];
@@ -18,8 +19,11 @@ export default function AgentSidebar({
 }: AgentSidebarProps) {
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
-      <div className="px-4 py-3 text-sm font-medium border-b border-[var(--border-color)]">
-        Agents
+      <div className="px-4 py-3 text-sm font-medium border-b border-[var(--border-color)] flex items-center">
+        <span>Agents</span>
+        <div className="ml-auto">
+          <NotificationBell />
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {AGENT_CATEGORIES.map((category) => {
@@ -38,8 +42,8 @@ export default function AgentSidebar({
                     onClick={() => onSelect(agent.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
                       activeAgent === agent.id
-                        ? "bg-[var(--bg-primary)]"
-                        : "hover:bg-[var(--bg-primary)]"
+                        ? "bg-[var(--bg-primary)] border border-[#4a9eca]"
+                        : "hover:bg-[var(--bg-primary)] border border-transparent"
                     }`}
                   >
                     <div className="relative shrink-0">

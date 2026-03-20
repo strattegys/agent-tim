@@ -29,9 +29,17 @@ export default function ChatWindow({
   onReply,
 }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const prevCountRef = useRef(0);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // On initial load or agent switch (message count jumps), scroll instantly
+    // On new individual messages, scroll smoothly
+    const isInitialLoad = prevCountRef.current === 0 && messages.length > 0;
+    const isBigJump = Math.abs(messages.length - prevCountRef.current) > 2;
+    const behavior = isInitialLoad || isBigJump ? "instant" : "smooth";
+
+    bottomRef.current?.scrollIntoView({ behavior: behavior as ScrollBehavior });
+    prevCountRef.current = messages.length;
   }, [messages, isLoading]);
 
   return (

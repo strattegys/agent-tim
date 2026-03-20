@@ -8,7 +8,10 @@ import ContactDetailPanel from "@/components/kanban/ContactDetailPanel";
 import type { Person, PersonAlert } from "@/components/kanban/KanbanCard";
 
 export default function KanbanPage() {
-  const [campaignId, setCampaignId] = useState("");
+  const [campaignId, setCampaignId] = useState(() => {
+    if (typeof window !== "undefined") return localStorage.getItem("kanban_campaign") || "";
+    return "";
+  });
   const [people, setPeople] = useState<Person[]>([]);
   const [alerts, setAlerts] = useState<Record<string, PersonAlert>>({});
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
@@ -41,6 +44,7 @@ export default function KanbanPage() {
   useEffect(() => {
     setSelectedPerson(null);
     fetchPeople(campaignId);
+    if (campaignId) localStorage.setItem("kanban_campaign", campaignId);
   }, [campaignId, fetchPeople]);
 
   return (

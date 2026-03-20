@@ -29,7 +29,7 @@ export default function KanbanCard({ person, alert, isSelected, onClick }: Kanba
   return (
     <button
       onClick={onClick}
-      className={`w-full h-full text-left p-3 rounded-lg border transition-colors cursor-pointer flex flex-col ${
+      className={`w-full h-full text-left p-3 rounded-lg border transition-colors cursor-pointer flex flex-col overflow-hidden ${
         isSelected
           ? "bg-[var(--bg-tertiary)] border-[var(--accent-blue)]"
           : "bg-[var(--bg-secondary)] border-[var(--border-color)] hover:border-[var(--text-tertiary)]"

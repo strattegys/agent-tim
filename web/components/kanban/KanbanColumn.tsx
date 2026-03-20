@@ -41,7 +41,7 @@ export default function KanbanColumn({
   const visible = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
-    <div className="flex flex-col min-w-[220px] w-[220px] shrink-0">
+    <div className="flex flex-col min-w-[220px] w-[220px] shrink-0 overflow-hidden">
       {/* Column header */}
       <div className="flex items-center gap-2 px-2 py-2">
         <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: stage.color }} />
@@ -57,9 +57,9 @@ export default function KanbanColumn({
       </div>
 
       {/* Cards — fixed 6-row grid so all cards are identical height */}
-      <div className="grid grid-rows-6 flex-1 min-h-0 px-1 gap-2">
+      <div className="grid grid-rows-6 flex-1 min-h-0 px-1 gap-2 overflow-hidden">
         {visible.map((person) => (
-          <div key={person.id} className="min-h-0 flex">
+          <div key={person.id} className="min-h-0 overflow-hidden">
             <KanbanCard
               person={person}
               alert={alerts[person.id]}

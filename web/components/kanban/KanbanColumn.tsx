@@ -56,10 +56,10 @@ export default function KanbanColumn({
         <span className="text-xs text-[var(--text-tertiary)] ml-auto">{people.length}</span>
       </div>
 
-      {/* Cards — equal height */}
-      <div className="flex flex-col flex-1 min-h-0 px-1 gap-2">
+      {/* Cards — fixed 6-row grid so all cards are identical height */}
+      <div className="grid grid-rows-6 flex-1 min-h-0 px-1 gap-2">
         {visible.map((person) => (
-          <div key={person.id} className="flex-1 flex min-h-0 max-h-[calc(100%/6)]">
+          <div key={person.id} className="min-h-0 flex">
             <KanbanCard
               person={person}
               alert={alerts[person.id]}

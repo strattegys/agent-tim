@@ -1,6 +1,3 @@
-"use client";
-
-import { useState } from "react";
 import KanbanCard, { type Person, type PersonAlert } from "./KanbanCard";
 
 export interface StageConfig {
@@ -9,12 +6,11 @@ export interface StageConfig {
   color: string;
 }
 
-const PAGE_SIZE = 8;
-
 interface KanbanColumnProps {
   stage: StageConfig;
   people: Person[];
   alerts: Record<string, PersonAlert>;
+  visibleCount: number;
   selectedPersonId: string | null;
   onSelectPerson: (person: Person) => void;
 }
@@ -23,10 +19,10 @@ export default function KanbanColumn({
   stage,
   people,
   alerts,
+  visibleCount,
   selectedPersonId,
   onSelectPerson,
 }: KanbanColumnProps) {
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const alertCount = people.filter((p) => alerts[p.id]).length;
 
   // Sort: people with alerts first, then alphabetical
@@ -38,7 +34,6 @@ export default function KanbanColumn({
   });
 
   const visible = sorted.slice(0, visibleCount);
-  const remaining = people.length - visibleCount;
 
   return (
     <div className="flex flex-col min-w-[250px] w-[250px] shrink-0">
@@ -57,7 +52,7 @@ export default function KanbanColumn({
       </div>
 
       {/* Cards */}
-      <div className="flex flex-col gap-2 px-1 pb-4 overflow-y-auto flex-1 min-h-0">
+      <div className="flex flex-col gap-2 px-1 pb-2 overflow-y-auto flex-1 min-h-0">
         {visible.map((person) => (
           <KanbanCard
             key={person.id}
@@ -67,14 +62,6 @@ export default function KanbanColumn({
             onClick={() => onSelectPerson(person)}
           />
         ))}
-        {remaining > 0 && (
-          <button
-            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-            className="text-xs text-[var(--accent-blue)] hover:underline py-2 cursor-pointer"
-          >
-            Show more ({remaining} remaining)
-          </button>
-        )}
         {people.length === 0 && (
           <div className="text-xs text-[var(--text-tertiary)] text-center py-4 italic">
             No contacts

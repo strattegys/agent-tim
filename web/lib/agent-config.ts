@@ -8,6 +8,7 @@ export interface Routine {
 export interface AgentBackendConfig {
   id: string;
   modelName?: string;
+  hasKanban?: boolean;
   sessionFile: string;
   systemPromptFile: string;
   memoryDir: string;
@@ -18,6 +19,7 @@ export interface AgentBackendConfig {
 const AGENTS: Record<string, AgentBackendConfig> = {
   tim: {
     id: "tim",
+    hasKanban: true,
     sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.nanobot/system-prompt.md",
     memoryDir: "/root/.nanobot/memory",
@@ -85,4 +87,8 @@ const AGENTS: Record<string, AgentBackendConfig> = {
 
 export function getAgentConfig(agentId: string): AgentBackendConfig {
   return AGENTS[agentId] || AGENTS.tim;
+}
+
+export function agentHasKanban(agentId: string): boolean {
+  return AGENTS[agentId]?.hasKanban ?? false;
 }

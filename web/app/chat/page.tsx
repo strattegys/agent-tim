@@ -5,7 +5,9 @@ import ChatWindow, { type Message } from "@/components/ChatWindow";
 import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
+import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import NotificationBell from "@/components/NotificationBell";
+import { agentHasKanban } from "@/lib/agent-config";
 import Link from "next/link";
 
 export interface AgentConfig {
@@ -86,6 +88,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState("tim");
+  const [rightPanel, setRightPanel] = useState<"info" | "kanban">("info");
   const [mobileShowChat, setMobileShowChat] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -349,6 +352,7 @@ export default function ChatPage() {
                     loadedAgentRef.current = null;
                     setReplyTo(null);
                     setActiveAgent(a.id);
+                    setRightPanel("info");
                   }
                   setMobileShowChat(true);
                 }}
@@ -452,6 +456,7 @@ export default function ChatPage() {
               loadedAgentRef.current = null;
               setReplyTo(null);
               setActiveAgent(id);
+              setRightPanel("info");
             }
           }}
         />
@@ -500,17 +505,38 @@ export default function ChatPage() {
                 </svg>
               </button>
             )}
-            <Link
-              href="/kanban"
-              className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
-              title="Pipeline board"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="5" height="18" rx="1" />
-                <rect x="10" y="3" width="5" height="12" rx="1" />
-                <rect x="17" y="3" width="5" height="8" rx="1" />
-              </svg>
-            </Link>
+            {agentHasKanban(activeAgent) && (
+              <>
+                {/* Desktop: toggle inline Kanban */}
+                <button
+                  onClick={() => setRightPanel(rightPanel === "kanban" ? "info" : "kanban")}
+                  className={`hidden md:block p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                    rightPanel === "kanban"
+                      ? "text-[var(--accent-green)]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                  title="Pipeline board"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="5" height="18" rx="1" />
+                    <rect x="10" y="3" width="5" height="12" rx="1" />
+                    <rect x="17" y="3" width="5" height="8" rx="1" />
+                  </svg>
+                </button>
+                {/* Mobile: navigate to full page */}
+                <Link
+                  href="/kanban"
+                  className="md:hidden p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+                  title="Pipeline board"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="5" height="18" rx="1" />
+                    <rect x="10" y="3" width="5" height="12" rx="1" />
+                    <rect x="17" y="3" width="5" height="8" rx="1" />
+                  </svg>
+                </Link>
+              </>
+            )}
             <NotificationBell />
           </div>
         </div>
@@ -535,9 +561,13 @@ export default function ChatPage() {
         />
       </div>
 
-      {/* Desktop: Dashboard panel */}
+      {/* Desktop: Dashboard panel or Kanban */}
       <div className="hidden md:flex flex-1 min-w-0">
-        <AgentInfoPanel agent={agent} />
+        {rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
+          <KanbanInlinePanel onClose={() => setRightPanel("info")} />
+        ) : (
+          <AgentInfoPanel agent={agent} />
+        )}
       </div>
 
     </div>

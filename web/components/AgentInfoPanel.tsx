@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AgentConfig } from "@/app/chat/page";
 import SystemPromptEditor from "@/components/SystemPromptEditor";
 
@@ -34,15 +34,18 @@ interface BackendConfig {
 
 interface AgentInfoPanelProps {
   agent: AgentConfig;
+  onAvatarChange?: (agentId: string, newUrl: string) => void;
 }
 
-export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
+export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanelProps) {
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [backendConfig, setBackendConfig] = useState<BackendConfig | null>(null);
   const [approvalPhrases, setApprovalPhrases] = useState<string[]>([]);
   const [cronJobs, setCronJobs] = useState<CronJobStatus[]>([]);
   const [promptCollapsed, setPromptCollapsed] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load all dashboard data on agent change
   useEffect(() => {
@@ -82,20 +85,61 @@ export default function AgentInfoPanel({ agent }: AgentInfoPanelProps) {
         ]
       : [];
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("agentId", agent.id);
+      const res = await fetch("/api/agent-avatar", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.avatarUrl && onAvatarChange) {
+        onAvatarChange(agent.id, data.avatarUrl);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <>
       <div className="flex-1 border-l border-[var(--border-color)] bg-[var(--bg-secondary)] flex flex-col overflow-y-auto">
         {/* Header */}
         <div className="shrink-0 border-b border-[var(--border-color)] px-5 py-3 flex items-center gap-3">
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden shrink-0"
+            className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden shrink-0 relative group cursor-pointer"
             style={{ background: agent.color }}
+            onClick={() => fileInputRef.current?.click()}
           >
             {agent.avatar ? (
               <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
             ) : (
               <span className="text-lg font-medium text-white">{agent.name[0]}</span>
             )}
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+              {uploading ? (
+                <svg className="w-4 h-4 text-white animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
+                  <circle cx="12" cy="13" r="4" />
+                </svg>
+              )}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarUpload}
+            />
           </div>
           <div className="min-w-0">
             <div className="font-medium text-sm">{agent.name}</div>

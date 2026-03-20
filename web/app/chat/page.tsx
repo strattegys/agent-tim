@@ -19,33 +19,12 @@ export interface AgentConfig {
   online: boolean;
   capabilities: string[];
   connections: { label: string; connected: boolean }[];
+  category: "Utility" | "MarkOps" | "Toys";
 }
 
+export const AGENT_CATEGORIES = ["Utility", "MarkOps", "Toys"] as const;
+
 const AGENTS: AgentConfig[] = [
-  {
-    id: "tim",
-    name: "Tim",
-    role: "Marketing & Sales Assistant",
-    color: "#1D9E75",
-    avatar: "/tim-avatar.png?v=2",
-    online: true,
-    capabilities: ["LinkedIn DMs", "CRM search", "Follow-ups", "Campaigns"],
-    connections: [
-      { label: "CRM", connected: true },
-      { label: "LinkedIn", connected: true },
-      { label: "Web search", connected: true },
-    ],
-  },
-  {
-    id: "rainbow",
-    name: "Rainbow",
-    role: "Abby's Magical AI Friend",
-    color: "#534AB7",
-    avatar: "/rainbow-avatar.png",
-    online: true,
-    capabilities: ["Stories", "Learning", "Games", "Creativity"],
-    connections: [{ label: "Web search", connected: true }],
-  },
   {
     id: "suzi",
     name: "Suzi",
@@ -55,19 +34,7 @@ const AGENTS: AgentConfig[] = [
     online: true,
     capabilities: ["Web search", "Summaries", "Relay messages", "Message Susan"],
     connections: [{ label: "Web search", connected: true }],
-  },
-  {
-    id: "scout",
-    name: "Scout",
-    role: "Intelligence & Research",
-    color: "#2563EB",
-    avatar: "/scout-avatar.svg",
-    online: true,
-    capabilities: ["Web research", "Company intel", "Contact discovery", "Market analysis"],
-    connections: [
-      { label: "Web search", connected: true },
-      { label: "CRM", connected: true },
-    ],
+    category: "Utility",
   },
   {
     id: "friday",
@@ -81,6 +48,47 @@ const AGENTS: AgentConfig[] = [
       { label: "Web search", connected: true },
       { label: "Slack", connected: true },
     ],
+    category: "Utility",
+  },
+  {
+    id: "tim",
+    name: "Tim",
+    role: "Marketing & Sales Assistant",
+    color: "#1D9E75",
+    avatar: "/tim-avatar.png?v=2",
+    online: true,
+    capabilities: ["LinkedIn DMs", "CRM search", "Follow-ups", "Campaigns"],
+    connections: [
+      { label: "CRM", connected: true },
+      { label: "LinkedIn", connected: true },
+      { label: "Web search", connected: true },
+    ],
+    category: "MarkOps",
+  },
+  {
+    id: "scout",
+    name: "Scout",
+    role: "Intelligence & Research",
+    color: "#2563EB",
+    avatar: "/scout-avatar.svg",
+    online: true,
+    capabilities: ["Web research", "Company intel", "Contact discovery", "Market analysis"],
+    connections: [
+      { label: "Web search", connected: true },
+      { label: "CRM", connected: true },
+    ],
+    category: "MarkOps",
+  },
+  {
+    id: "rainbow",
+    name: "Rainbow",
+    role: "Abby's Magical AI Friend",
+    color: "#534AB7",
+    avatar: "/rainbow-avatar.png",
+    online: true,
+    capabilities: ["Stories", "Learning", "Games", "Creativity"],
+    connections: [{ label: "Web search", connected: true }],
+    category: "Toys",
   },
 ];
 
@@ -97,10 +105,20 @@ export default function ChatPage() {
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [lastSeenCounts, setLastSeenCounts] = useState<Record<string, number>>({});
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
+  const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const loadedAgentRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const agent = AGENTS.find((a) => a.id === activeAgent) || AGENTS[0];
+  const agents = useMemo(() =>
+    AGENTS.map((a) => avatarOverrides[a.id] ? { ...a, avatar: avatarOverrides[a.id] } : a),
+    [avatarOverrides]
+  );
+
+  const handleAvatarChange = useCallback((agentId: string, newUrl: string) => {
+    setAvatarOverrides((prev) => ({ ...prev, [agentId]: newUrl }));
+  }, []);
+
+  const agent = agents.find((a) => a.id === activeAgent) || agents[0];
 
   // Filter messages by search query
   const filteredMessages = useMemo(() => {
@@ -341,57 +359,68 @@ export default function ChatPage() {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {AGENTS.map((a) => {
-            const unread = unreadCounts[a.id] || 0;
-            const preview = lastMessages[a.id] || "";
+          {AGENT_CATEGORIES.map((category) => {
+            const categoryAgents = agents.filter((a) => a.category === category);
+            if (categoryAgents.length === 0) return null;
             return (
-              <button
-                key={a.id}
-                onClick={() => {
-                  if (a.id !== activeAgent) {
-                    loadedAgentRef.current = null;
-                    setReplyTo(null);
-                    setActiveAgent(a.id);
-                    setRightPanel("info");
-                  }
-                  setMobileShowChat(true);
-                }}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left border-b border-[var(--border-color)] ${
-                  activeAgent === a.id ? "bg-[var(--bg-primary)]" : "hover:bg-[var(--bg-primary)]"
-                }`}
-              >
-                <div className="relative shrink-0">
-                  <div
-                    className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
-                    style={{ background: a.color }}
-                  >
-                    {a.avatar ? (
-                      <img src={a.avatar} alt={a.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-base font-medium text-white">{a.name[0]}</span>
-                    )}
-                  </div>
-                  <span
-                    className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-secondary)]"
-                    style={{ background: a.online ? "#1D9E75" : "#555" }}
-                  />
+              <div key={category}>
+                <div className="px-4 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                  {category}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <span className={`text-sm font-medium ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}>
-                      {a.name}
-                    </span>
-                    {unread > 0 && (
-                      <span className="min-w-[20px] h-[20px] rounded-full bg-[var(--accent-orange)] text-white text-[11px] font-bold flex items-center justify-center px-1">
-                        {unread > 99 ? "99+" : unread}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
-                    {preview ? preview.slice(0, 60) + (preview.length > 60 ? "..." : "") : a.role}
-                  </div>
-                </div>
-              </button>
+                {categoryAgents.map((a) => {
+                  const unread = unreadCounts[a.id] || 0;
+                  const preview = lastMessages[a.id] || "";
+                  return (
+                    <button
+                      key={a.id}
+                      onClick={() => {
+                        if (a.id !== activeAgent) {
+                          loadedAgentRef.current = null;
+                          setReplyTo(null);
+                          setActiveAgent(a.id);
+                          setRightPanel("info");
+                        }
+                        setMobileShowChat(true);
+                      }}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-left border-b border-[var(--border-color)] ${
+                        activeAgent === a.id ? "bg-[var(--bg-primary)]" : "hover:bg-[var(--bg-primary)]"
+                      }`}
+                    >
+                      <div className="relative shrink-0">
+                        <div
+                          className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
+                          style={{ background: a.color }}
+                        >
+                          {a.avatar ? (
+                            <img src={a.avatar} alt={a.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-base font-medium text-white">{a.name[0]}</span>
+                          )}
+                        </div>
+                        <span
+                          className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-secondary)]"
+                          style={{ background: a.online ? "#1D9E75" : "#555" }}
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-sm font-medium ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}>
+                            {a.name}
+                          </span>
+                          {unread > 0 && (
+                            <span className="min-w-[20px] h-[20px] rounded-full bg-[var(--accent-orange)] text-white text-[11px] font-bold flex items-center justify-center px-1">
+                              {unread > 99 ? "99+" : unread}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
+                          {preview ? preview.slice(0, 60) + (preview.length > 60 ? "..." : "") : a.role}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             );
           })}
         </div>
@@ -448,7 +477,7 @@ export default function ChatPage() {
       {/* Desktop: Sidebar */}
       <div className="hidden md:flex">
         <AgentSidebar
-          agents={AGENTS}
+          agents={agents}
           activeAgent={activeAgent}
           unreadCounts={unreadCounts}
           onSelect={(id) => {
@@ -566,7 +595,7 @@ export default function ChatPage() {
         {rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
           <KanbanInlinePanel onClose={() => setRightPanel("info")} />
         ) : (
-          <AgentInfoPanel agent={agent} />
+          <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
         )}
       </div>
 

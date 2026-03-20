@@ -4,7 +4,7 @@ import path from "path";
 
 // Resolve uploads dir at request time, not module load time
 function getUploadsDir() {
-  return path.join(process.cwd(), "uploads", "avatars");
+  return process.env.AVATAR_DIR || path.join(process.cwd(), "uploads", "avatars");
 }
 
 export async function POST(req: NextRequest) {

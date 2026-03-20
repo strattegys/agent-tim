@@ -95,6 +95,7 @@ export default function ChatPage() {
   const [lastSeenCounts, setLastSeenCounts] = useState<Record<string, number>>({});
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const loadedAgentRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   const agent = AGENTS.find((a) => a.id === activeAgent) || AGENTS[0];
 
@@ -215,10 +216,14 @@ export default function ChatPage() {
       setIsLoading(true);
 
       try {
+        const controller = new AbortController();
+        abortRef.current = controller;
+
         const res = await fetch("/api/chat/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: apiMessage, agent: activeAgent }),
+          signal: controller.signal,
         });
 
         if (res.status === 401) {
@@ -307,11 +312,16 @@ export default function ChatPage() {
           },
         ]);
       } finally {
+        abortRef.current = null;
         setIsLoading(false);
       }
     },
     [isLoading, activeAgent, replyTo]
   );
+
+  const stopResponse = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden">
@@ -418,6 +428,8 @@ export default function ChatPage() {
         <ChatInput
           onSend={sendMessage}
           disabled={isLoading || !agent.online}
+          isLoading={isLoading}
+          onStop={stopResponse}
           placeholder={agent.online ? `Message ${agent.name}...` : `${agent.name} is offline`}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
@@ -510,6 +522,8 @@ export default function ChatPage() {
         <ChatInput
           onSend={sendMessage}
           disabled={isLoading || !agent.online}
+          isLoading={isLoading}
+          onStop={stopResponse}
           placeholder={agent.online ? `Message ${agent.name}...` : `${agent.name} is offline`}
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}

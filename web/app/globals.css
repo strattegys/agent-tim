@@ -49,3 +49,9 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #3a4a5a;
 }
+
+/* Voice waveform animation */
+@keyframes waveform {
+  0%, 100% { height: 6px; }
+  50% { height: 18px; }
+}

@@ -12,6 +12,8 @@ export interface ReplyContext {
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  isLoading?: boolean;
+  onStop?: () => void;
   placeholder?: string;
   replyTo?: ReplyContext | null;
   onCancelReply?: () => void;
@@ -21,6 +23,8 @@ interface ChatInputProps {
 export default function ChatInput({
   onSend,
   disabled,
+  isLoading,
+  onStop,
   placeholder = "Type a message...",
   replyTo,
   onCancelReply,
@@ -102,27 +106,39 @@ export default function ChatInput({
           style={{ minHeight: "40px" }}
         />
         <PushToTalk onTranscript={handleTranscript} disabled={disabled} />
-        <button
-          onClick={handleSend}
-          disabled={disabled || !text.trim()}
-          className="w-10 h-10 rounded-full bg-[var(--accent-green)] hover:brightness-110 flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-          title="Send"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="text-white"
+        {isLoading ? (
+          <button
+            onClick={onStop}
+            className="w-10 h-10 rounded-full bg-[var(--accent-orange)] hover:brightness-110 flex items-center justify-center transition-all shrink-0 cursor-pointer"
+            title="Stop response"
           >
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22,2 15,22 11,13 2,9" />
-          </svg>
-        </button>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-white">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
+        ) : (
+          <button
+            onClick={handleSend}
+            disabled={disabled || !text.trim()}
+            className="w-10 h-10 rounded-full bg-[var(--accent-green)] hover:brightness-110 flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+            title="Send"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-white"
+            >
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22,2 15,22 11,13 2,9" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

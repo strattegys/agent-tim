@@ -152,41 +152,6 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
   return (
     <>
       <div className="flex-1 bg-[var(--bg-secondary)] flex flex-col overflow-y-auto">
-        {/* Avatar upload (compact) */}
-        <div className="shrink-0 px-5 pt-4 pb-3 flex items-center gap-3">
-          <div
-            className="w-16 h-16 rounded-full flex items-center justify-center overflow-hidden shrink-0 relative group cursor-pointer"
-            style={{ background: agent.color }}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {agent.avatar ? (
-              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-xl font-medium text-white">{agent.name[0]}</span>
-            )}
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
-              {uploading ? (
-                <svg className="w-6 h-6 text-white animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-6 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
-                  <circle cx="12" cy="13" r="4" />
-                </svg>
-              )}
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleAvatarUpload}
-            />
-          </div>
-          <div className="text-xs text-[var(--text-secondary)]">Click to change avatar</div>
-        </div>
-
         {/* Dashboard content */}
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
 

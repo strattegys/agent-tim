@@ -531,27 +531,7 @@ export default function ChatPage() {
       <div className="hidden md:flex w-[384px] min-w-[320px] flex-col min-h-0 bg-[var(--bg-primary)]">
         {/* Top bar */}
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-          {/* Agent avatar + name */}
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center overflow-hidden shrink-0"
-              style={{ background: agent.color }}
-            >
-              {agent.avatar ? (
-                <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
-              ) : (
-                <span className="text-xs font-medium text-white">{agent.name[0]}</span>
-              )}
-            </div>
-            <div className="min-w-0">
-              <span className="text-sm font-medium truncate block" style={{ color: agent.color }}>
-                {agent.name}
-              </span>
-              <span className="text-[10px] text-[var(--text-secondary)] truncate block leading-tight">
-                {agent.role}
-              </span>
-            </div>
-          </div>
+          <div className="flex-1 min-w-0" />
 
           {/* Action icons */}
           <div className="flex items-center gap-1">
@@ -625,15 +605,15 @@ export default function ChatPage() {
       {/* Desktop: Right panel with persistent agent header */}
       <div className="hidden md:flex flex-1 min-w-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-secondary)]">
         {/* Persistent agent header + nav icons */}
-        <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-2.5 flex items-center gap-3">
+        <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-3 flex items-center gap-3">
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden shrink-0"
+            className="w-[74px] h-[74px] rounded-full flex items-center justify-center overflow-hidden shrink-0"
             style={{ background: agent.color }}
           >
             {agent.avatar ? (
               <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
             ) : (
-              <span className="text-sm font-medium text-white">{agent.name[0]}</span>
+              <span className="text-xl font-medium text-white">{agent.name[0]}</span>
             )}
           </div>
           <div className="min-w-0 flex-1">

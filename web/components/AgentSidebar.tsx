@@ -19,7 +19,7 @@ export default function AgentSidebar({
 }: AgentSidebarProps) {
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
-      <div className="px-4 py-3 text-sm font-medium border-b border-[var(--border-color)] flex items-center">
+      <div className="h-11 shrink-0 px-4 text-sm font-medium border-b border-[var(--border-color)] flex items-center">
         <span>Agents</span>
         <div className="ml-auto">
           <NotificationBell />

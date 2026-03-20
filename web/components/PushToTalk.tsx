@@ -24,7 +24,7 @@ function WaveformBars() {
   );
 }
 
-const SILENCE_TIMEOUT_MS = 2000;
+const SILENCE_TIMEOUT_MS = 5000;
 
 export default function PushToTalk({ onTranscript, disabled }: PushToTalkProps) {
   const [isListening, setIsListening] = useState(false);
@@ -94,7 +94,6 @@ export default function PushToTalk({ onTranscript, disabled }: PushToTalkProps) 
     recognition.start();
     recognitionRef.current = recognition;
     setIsListening(true);
-    resetSilenceTimer();
   }, [onTranscript, disabled, resetSilenceTimer, clearSilenceTimer]);
 
   const toggle = useCallback(() => {

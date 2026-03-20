@@ -301,16 +301,20 @@ export default function ChatPage() {
         } catch {
           // ignore audio errors
         }
-      } catch {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `error-${Date.now()}`,
-            role: "model",
-            text: "Failed to connect. Please try again.",
-            timestamp: Date.now(),
-          },
-        ]);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          // User cancelled — keep partial response as-is
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `error-${Date.now()}`,
+              role: "model",
+              text: "Failed to connect. Please try again.",
+              timestamp: Date.now(),
+            },
+          ]);
+        }
       } finally {
         abortRef.current = null;
         setIsLoading(false);

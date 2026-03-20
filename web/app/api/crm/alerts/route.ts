@@ -19,12 +19,12 @@ export async function GET(request: NextRequest) {
       query CampaignAlerts($campaignId: UUID!) {
         people(
           filter: { activeCampaignId: { eq: $campaignId } }
-          limit: 200
+          first: 200
         ) {
           edges {
             node {
               id
-              noteTargets(limit: 1, orderBy: { createdAt: DescNullsLast }) {
+              noteTargets(first: 1, orderBy: { createdAt: DescNullsLast }) {
                 edges {
                   node {
                     note {

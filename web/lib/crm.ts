@@ -2,7 +2,7 @@ const CRM_BASE = process.env.TWENTY_CRM_URL || "http://localhost:3000";
 const CRM_KEY = process.env.TWENTY_CRM_API_KEY;
 
 export async function crmGraphQL(query: string, variables?: Record<string, unknown>) {
-  const res = await fetch(`${CRM_BASE}/api`, {
+  const res = await fetch(`${CRM_BASE}/graphql`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${CRM_KEY}`,

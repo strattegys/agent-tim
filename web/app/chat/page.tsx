@@ -67,6 +67,19 @@ const AGENTS: AgentConfig[] = [
       { label: "CRM", connected: true },
     ],
   },
+  {
+    id: "friday",
+    name: "Friday",
+    role: "Agent Architect",
+    color: "#9B59B6",
+    online: true,
+    capabilities: ["Build agents", "Manage prompts", "Agent status", "Restart services"],
+    connections: [
+      { label: "Agent Manager", connected: true },
+      { label: "Web search", connected: true },
+      { label: "Slack", connected: true },
+    ],
+  },
 ];
 
 export default function ChatPage() {

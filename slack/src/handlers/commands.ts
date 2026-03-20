@@ -2,7 +2,7 @@ import type { App } from "@slack/bolt";
 import { readMemory } from "../../../web/lib/memory";
 import { getAgentConfig } from "../../../web/lib/agent-config";
 
-const VALID_AGENTS = ["tim", "scout", "suzi", "rainbow"];
+const VALID_AGENTS = ["tim", "scout", "suzi", "rainbow", "friday"];
 
 function resolveAgent(text: string): string {
   const arg = text.trim().toLowerCase();

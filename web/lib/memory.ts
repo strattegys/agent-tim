@@ -172,7 +172,7 @@ Conversation to analyze:
 ${messages.slice(-100).join("\n")}`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: getAgentConfig(agentId).modelName || "gemini-2.5-flash",
       contents: [{ role: "user", parts: [{ text: consolidationPrompt }] }],
       config: { temperature: 0.3, maxOutputTokens: 1024 },
     });

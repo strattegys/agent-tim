@@ -5,7 +5,7 @@ export interface SlackAgentConfig {
   signingSecret: string;
 }
 
-const AGENTS = ["tim", "scout", "suzi", "rainbow"] as const;
+const AGENTS = ["tim", "scout", "suzi", "rainbow", "friday"] as const;
 export type AgentId = (typeof AGENTS)[number];
 
 export function getSlackAgentConfigs(): SlackAgentConfig[] {

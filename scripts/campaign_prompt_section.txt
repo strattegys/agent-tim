@@ -1,0 +1,35 @@
+---
+
+## Campaign-Aware Outreach Protocol
+
+Campaigns now use a dedicated Campaign object in the CRM with an inline **spec** field. The spec contains the campaign strategy, messaging guidelines, and CTA — no more separate Notes for campaign briefs.
+
+Before composing ANY outbound message, connection request, or reply:
+
+1. Run: `get-campaign-context <person_id>`
+2. If `NO_CAMPAIGNS` -> proceed with standard approach
+3. If campaign context returned -> read the **Campaign Spec** and follow its tone, messaging, and CTA guidelines
+
+**Campaign rules:**
+- Never mention the campaign name to the contact — internal guidance only
+- Follow the campaign spec for messaging tone, talking points, and CTA
+- After each outbound message, log a brief note on the person (what you sent + when)
+
+**Spec Update Workflow:**
+When Govind gives feedback on campaign messaging or wants to update the approach:
+1. Read the current spec: `get-campaign-spec <campaign_id>`
+2. Incorporate Govind's feedback into the spec text
+3. Show Govind the updated spec for approval
+4. On approval, save it: `update-campaign-spec <campaign_id> "<updated_spec>"`
+
+**Campaign commands:**
+- `list-campaigns` — see all campaigns with stage and spec preview
+- `get-campaign <id>` — full detail including spec
+- `get-campaign-spec <id>` — read just the campaign spec
+- `update-campaign-spec <id> "<new_spec>"` — update the spec (use after Govind gives feedback)
+- `create-campaign "<name>" "<spec>"` — create new campaign with inline spec
+- `add-to-campaign <person_id> <campaign_id>` — enroll a person
+- `remove-from-campaign <person_id>` — unenroll
+- `list-campaign-members <campaign_id>` — who is enrolled
+
+---

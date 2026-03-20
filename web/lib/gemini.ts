@@ -68,7 +68,7 @@ export async function chat(
     iterations++;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: config.modelName || "gemini-2.5-flash",
       contents,
       config: {
         systemInstruction: systemPrompt,
@@ -200,7 +200,7 @@ export async function autonomousChat(
     iterations++;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: config.modelName || "gemini-2.5-flash",
       contents,
       config: {
         systemInstruction: systemPrompt,
@@ -313,7 +313,7 @@ export async function chatStream(
     iterations++;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: config.modelName || "gemini-2.5-flash",
       contents,
       config: geminiConfig,
     });
@@ -360,7 +360,7 @@ export async function chatStream(
   let fullText = "";
 
   const stream = await ai.models.generateContentStream({
-    model: "gemini-2.5-flash",
+    model: config.modelName || "gemini-2.5-flash",
     contents,
     config: geminiConfig,
   });

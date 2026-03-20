@@ -7,6 +7,7 @@ export interface Routine {
 
 export interface AgentBackendConfig {
   id: string;
+  modelName?: string;
   sessionFile: string;
   systemPromptFile: string;
   memoryDir: string;
@@ -64,6 +65,15 @@ const AGENTS: Record<string, AgentBackendConfig> = {
     systemPromptFile: "/root/.scoutbot/system-prompt.md",
     memoryDir: "/root/.scoutbot/memory",
     tools: ["web_search", "twenty_crm", "memory"],
+    routines: [],
+  },
+  friday: {
+    id: "friday",
+    modelName: "gemini-2.5-pro",
+    sessionFile: "/root/.fridaybot/sessions/web_govind.jsonl",
+    systemPromptFile: "/root/.fridaybot/system-prompt.md",
+    memoryDir: "/root/.fridaybot/memory",
+    tools: ["agent_manager", "web_search", "memory", "slack", "delegate_task"],
     routines: [],
   },
 };

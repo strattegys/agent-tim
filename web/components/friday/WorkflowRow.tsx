@@ -13,11 +13,33 @@ const ITEM_TYPE_COLORS: Record<string, string> = {
   content: "#9B59B6",
 };
 
-function resolveOwnerAgents(spec: string): { name: string; color: string }[] {
+/** Try to match a workflow to a template by slug, then by itemType */
+function resolveTemplate(spec: string, itemType: string): string | null {
+  // Direct slug match
+  if (WORKFLOW_TYPES[spec]) return WORKFLOW_TYPES[spec].label;
+  // Fall back: find first template matching itemType
+  for (const t of Object.values(WORKFLOW_TYPES)) {
+    if (t.itemType === itemType) return t.label;
+  }
+  return null;
+}
+
+/** Find agents whose workflowTypes match the workflow's itemType-based templates */
+function resolveOwnerAgents(spec: string, itemType: string): { name: string; color: string }[] {
   const owners: { name: string; color: string }[] = [];
   for (const agent of Object.values(AGENT_REGISTRY)) {
+    // Direct slug match
     if (agent.workflowTypes.includes(spec)) {
       owners.push({ name: agent.name, color: agent.color });
+      continue;
+    }
+    // Match by itemType — check if agent has any template of this itemType
+    for (const wt of agent.workflowTypes) {
+      const tmpl = WORKFLOW_TYPES[wt];
+      if (tmpl && tmpl.itemType === itemType) {
+        owners.push({ name: agent.name, color: agent.color });
+        break;
+      }
     }
   }
   return owners;
@@ -42,8 +64,9 @@ interface WorkflowCardProps {
 }
 
 export default function WorkflowCard({ workflow }: WorkflowCardProps) {
-  const template = WORKFLOW_TYPES[workflow.spec];
-  const owners = resolveOwnerAgents(workflow.spec);
+  const templateLabel = resolveTemplate(workflow.spec, workflow.itemType);
+  const boardLabel = workflow.boardName;
+  const owners = resolveOwnerAgents(workflow.spec, workflow.itemType);
   const stages = workflow.boardStages || [];
 
   return (
@@ -60,7 +83,7 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
         )}
       </div>
 
-      {/* Item type + template */}
+      {/* Item type + board/template */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
           className="text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium"
@@ -68,9 +91,9 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
         >
           {ITEM_TYPE_LABELS[workflow.itemType] || workflow.itemType}
         </span>
-        {template && (
+        {(boardLabel || templateLabel) && (
           <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium">
-            {template.label}
+            {boardLabel || templateLabel}
           </span>
         )}
       </div>

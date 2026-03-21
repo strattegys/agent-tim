@@ -1,6 +1,5 @@
-const CACHE_NAME = 'command-central-v2';
+const CACHE_NAME = 'command-central-v3';
 const STATIC_ASSETS = [
-  '/chat',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
 ];
@@ -22,18 +21,13 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first for API calls, cache-first for static assets
-  if (event.request.url.includes('/api/')) {
-    return; // Let API calls go to network normally
+  // Never cache pages, API calls, or JS chunks — only icons
+  const url = event.request.url;
+  if (url.includes('/api/') || url.includes('/_next/') || url.includes('/chat')) {
+    return; // Let browser handle normally
   }
 
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        return response;
-      })
-      .catch(() => caches.match(event.request))
+    caches.match(event.request).then((cached) => cached || fetch(event.request))
   );
 });

@@ -43,7 +43,7 @@ export default function ChatWindow({
   }, [messages, isLoading]);
 
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-3 space-y-2.5">
       {messages.length === 0 && !isLoading && (
         <div className="flex items-center justify-center h-full text-[var(--text-secondary)] text-sm">
           Send a message to {agentName}

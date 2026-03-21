@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import WorkflowCard, { type WorkflowStat } from "./WorkflowRow";
+import ToolsPanel from "./ToolsPanel";
 import { panelBus } from "@/lib/events";
 
 const COLUMNS = [
@@ -13,11 +14,14 @@ const COLUMNS = [
 
 const POLL_INTERVAL = 5000;
 
+type Tab = "workflows" | "tools";
+
 interface FridayDashboardPanelProps {
   onClose: () => void;
 }
 
 export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelProps) {
+  const [tab, setTab] = useState<Tab>("workflows");
   const [workflows, setWorkflows] = useState<WorkflowStat[]>([]);
   const [loading, setLoading] = useState(true);
   const mountedRef = useRef(true);
@@ -40,18 +44,41 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header */}
+      {/* Header with tabs */}
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-        <span className="text-xs font-semibold text-[var(--text-primary)]">
+        <button
+          onClick={() => setTab("workflows")}
+          className="text-xs font-semibold px-2 py-1 rounded transition-colors"
+          style={{
+            color: tab === "workflows" ? "var(--text-primary)" : "var(--text-tertiary)",
+            background: tab === "workflows" ? "var(--bg-tertiary)" : "transparent",
+          }}
+        >
           Workflows
-        </span>
+        </button>
+        <button
+          onClick={() => setTab("tools")}
+          className="text-xs font-semibold px-2 py-1 rounded transition-colors"
+          style={{
+            color: tab === "tools" ? "var(--text-primary)" : "var(--text-tertiary)",
+            background: tab === "tools" ? "var(--bg-tertiary)" : "transparent",
+          }}
+        >
+          Tools
+        </button>
         <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-          {loading ? "Loading..." : `${workflows.length} workflow${workflows.length !== 1 ? "s" : ""}`}
+          {tab === "workflows"
+            ? loading
+              ? "Loading..."
+              : `${workflows.length} workflow${workflows.length !== 1 ? "s" : ""}`
+            : "Tool Registry"}
         </span>
       </div>
 
-      {/* Kanban columns */}
-      {loading ? (
+      {/* Tab content */}
+      {tab === "tools" ? (
+        <ToolsPanel />
+      ) : loading ? (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-sm text-[var(--text-tertiary)]">Loading workflows...</p>
         </div>

@@ -24,6 +24,8 @@ export default function SuziPunchListPanel({
 }: SuziPunchListPanelProps) {
   const [items, setItems] = useState<PunchListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(() => {
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("suzi_punchlist_filter");
@@ -38,15 +40,6 @@ export default function SuziPunchListPanel({
     }
     return "";
   });
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [addTitle, setAddTitle] = useState("");
-  const [addDesc, setAddDesc] = useState("");
-  const [addRank, setAddRank] = useState(4);
-  const [editingItem, setEditingItem] = useState<PunchListItem | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editRank, setEditRank] = useState(4);
 
   // Persist filter state
   useEffect(() => {
@@ -56,11 +49,22 @@ export default function SuziPunchListPanel({
     localStorage.setItem("suzi_punchlist_search", search);
   }, [search]);
 
+  const fetchCategories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/punch-list?categories=true");
+      const data = await res.json();
+      setCategories(data.categories || []);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const fetchItems = useCallback(async () => {
     const params = new URLSearchParams();
     const status = FILTER_TO_STATUS[statusFilter];
     if (status) params.set("status", status);
     if (search.trim()) params.set("search", search.trim());
+    if (selectedCategory) params.set("category", selectedCategory);
 
     try {
       const res = await fetch(`/api/punch-list?${params}`);
@@ -71,109 +75,21 @@ export default function SuziPunchListPanel({
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, search]);
+  }, [statusFilter, search, selectedCategory]);
 
   useEffect(() => {
     setLoading(true);
     fetchItems();
-    const unsub = panelBus.on("punch_list", fetchItems);
+    fetchCategories();
+    const unsub = panelBus.on("punch_list", () => {
+      fetchItems();
+      fetchCategories();
+    });
     return unsub;
-  }, [fetchItems]);
+  }, [fetchItems, fetchCategories]);
 
-  const handleToggleStatus = async (
-    id: string,
-    status: "open" | "done"
-  ) => {
-    setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, status } : item))
-    );
-    await fetch("/api/punch-list", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status }),
-    });
-  };
-
-  const handleDelete = async (id: string) => {
-    if (confirmDelete !== id) {
-      setConfirmDelete(id);
-      return;
-    }
-    setItems((prev) => prev.filter((item) => item.id !== id));
-    setConfirmDelete(null);
-    await fetch("/api/punch-list", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-  };
-
-  const handleAdd = async () => {
-    if (!addTitle.trim()) return;
-    try {
-      const res = await fetch("/api/punch-list", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: addTitle.trim(),
-          description: addDesc.trim() || undefined,
-          rank: addRank,
-        }),
-      });
-      const data = await res.json();
-      if (data.item) {
-        setItems((prev) => [data.item, ...prev]);
-      }
-      setAddTitle("");
-      setAddDesc("");
-      setAddRank(4);
-      setShowAddForm(false);
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleEditStart = (item: PunchListItem) => {
-    setEditingItem(item);
-    setEditTitle(item.title);
-    setEditDesc(item.description || "");
-    setEditRank(item.rank);
-  };
-
-  const handleEditSave = async () => {
-    if (!editingItem || !editTitle.trim()) return;
-    const updates: Record<string, unknown> = {};
-    if (editTitle.trim() !== editingItem.title)
-      updates.title = editTitle.trim();
-    if ((editDesc.trim() || null) !== editingItem.description)
-      updates.description = editDesc.trim() || null;
-    if (editRank !== editingItem.rank) updates.rank = editRank;
-
-    // Optimistic update
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === editingItem.id
-          ? {
-              ...item,
-              title: editTitle.trim(),
-              description: editDesc.trim() || null,
-              rank: editRank,
-            }
-          : item
-      )
-    );
-    setEditingItem(null);
-
-    await fetch("/api/punch-list", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: editingItem.id, ...updates }),
-    });
-  };
-
-  // Status counts
-  const allCount = items.length;
-  const statusCounts: Record<string, number> = { All: allCount };
+  // Status counts from current items
+  const statusCounts: Record<string, number> = { All: items.length };
   for (const item of items) {
     statusCounts[item.status === "open" ? "Open" : "Done"] =
       (statusCounts[item.status === "open" ? "Open" : "Done"] || 0) + 1;
@@ -187,83 +103,18 @@ export default function SuziPunchListPanel({
           <span className="text-xs font-semibold text-[var(--text-primary)]">
             Punch List
           </span>
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="ml-2 text-[10px] px-2 py-0.5 rounded cursor-pointer bg-[var(--accent-green)] text-white hover:opacity-90"
-          >
-            + Add
-          </button>
-          <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-            {loading ? "Loading..." : `${items.length} items`}
-          </span>
-        </div>
-      )}
-      {/* Add button when embedded */}
-      {embedded && (
-        <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] flex items-center gap-2">
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="text-[10px] px-2 py-0.5 rounded cursor-pointer bg-[var(--accent-green)] text-white hover:opacity-90"
-          >
-            + Add
-          </button>
           <span className="ml-auto text-xs text-[var(--text-tertiary)]">
             {loading ? "Loading..." : `${items.length} items`}
           </span>
         </div>
       )}
 
-      {/* Add form */}
-      {showAddForm && (
-        <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] space-y-2">
-          <input
-            type="text"
-            value={addTitle}
-            onChange={(e) => setAddTitle(e.target.value)}
-            placeholder="What needs fixing?"
-            className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--accent-green)]"
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            autoFocus
-          />
-          <input
-            type="text"
-            value={addDesc}
-            onChange={(e) => setAddDesc(e.target.value)}
-            placeholder="Description (optional)"
-            className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--accent-green)]"
-            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-          />
-          <div className="flex items-center gap-2">
-            <label className="text-[10px] text-[var(--text-secondary)]">
-              Rank:
-            </label>
-            <select
-              value={addRank}
-              onChange={(e) => setAddRank(parseInt(e.target.value))}
-              className="text-xs px-2 py-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none"
-            >
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((r) => (
-                <option key={r} value={r}>
-                  {r} {r <= 2 ? "(high)" : r <= 4 ? "(med)" : r <= 6 ? "(low)" : "(minor)"}
-                </option>
-              ))}
-            </select>
-            <div className="ml-auto flex gap-1.5">
-              <button
-                onClick={() => setShowAddForm(false)}
-                className="text-[10px] px-2.5 py-1 rounded cursor-pointer bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAdd}
-                disabled={!addTitle.trim()}
-                className="text-[10px] px-2.5 py-1 rounded cursor-pointer bg-[var(--accent-green)] text-white hover:opacity-90 disabled:opacity-40"
-              >
-                Add Item
-              </button>
-            </div>
-          </div>
+      {/* Item count when embedded */}
+      {embedded && (
+        <div className="shrink-0 px-3 py-1.5 border-b border-[var(--border-color)] flex items-center">
+          <span className="text-xs text-[var(--text-tertiary)]">
+            {loading ? "Loading..." : `${items.length} items`}
+          </span>
         </div>
       )}
 
@@ -301,6 +152,35 @@ export default function SuziPunchListPanel({
         })}
       </div>
 
+      {/* Category filter pills */}
+      {categories.length > 0 && (
+        <div className="shrink-0 px-3 py-1.5 flex gap-1 flex-wrap border-b border-[var(--border-color)]">
+          <button
+            onClick={() => setSelectedCategory(null)}
+            className={`text-[9px] px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
+              !selectedCategory
+                ? "bg-[var(--accent-green)] text-white font-medium"
+                : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+            }`}
+          >
+            All
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
+              className={`text-[9px] px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
+                selectedCategory === cat
+                  ? "bg-[var(--accent-green)] text-white font-medium"
+                  : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Item list */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {loading ? (
@@ -313,103 +193,23 @@ export default function SuziPunchListPanel({
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <p className="text-sm text-[var(--text-tertiary)]">
-                {search
-                  ? "No items match your search"
+                {search || selectedCategory
+                  ? "No items match your filters"
                   : statusFilter === "All"
                     ? "No punch list items yet"
                     : `No ${statusFilter.toLowerCase()} items`}
               </p>
               <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                Click + Add to create one
+                Ask Suzi to add one!
               </p>
             </div>
           </div>
         ) : (
           items.map((item) => (
-            <div key={item.id} className="relative">
-              {editingItem?.id === item.id ? (
-                /* Inline edit form */
-                <div className="rounded-lg border border-[var(--accent-green)] bg-[var(--bg-secondary)] p-3 space-y-2">
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-green)]"
-                    autoFocus
-                    onKeyDown={(e) => e.key === "Enter" && handleEditSave()}
-                  />
-                  <input
-                    type="text"
-                    value={editDesc}
-                    onChange={(e) => setEditDesc(e.target.value)}
-                    placeholder="Description (optional)"
-                    className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--accent-green)]"
-                    onKeyDown={(e) => e.key === "Enter" && handleEditSave()}
-                  />
-                  <div className="flex items-center gap-2">
-                    <label className="text-[10px] text-[var(--text-secondary)]">
-                      Rank:
-                    </label>
-                    <select
-                      value={editRank}
-                      onChange={(e) =>
-                        setEditRank(parseInt(e.target.value))
-                      }
-                      className="text-xs px-2 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] outline-none"
-                    >
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="ml-auto flex gap-1.5">
-                      <button
-                        onClick={() => setEditingItem(null)}
-                        className="text-[10px] px-2.5 py-1 rounded cursor-pointer bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleEditSave}
-                        disabled={!editTitle.trim()}
-                        className="text-[10px] px-2.5 py-1 rounded cursor-pointer bg-[var(--accent-green)] text-white hover:opacity-90 disabled:opacity-40"
-                      >
-                        Save
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <PunchListCard
-                    item={item}
-                    onToggleStatus={handleToggleStatus}
-                    onDelete={handleDelete}
-                    onEdit={handleEditStart}
-                  />
-                  {confirmDelete === item.id && (
-                    <div className="absolute inset-0 bg-[var(--bg-primary)]/90 rounded-lg flex items-center justify-center gap-2">
-                      <span className="text-xs text-[var(--text-secondary)]">
-                        Delete?
-                      </span>
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 cursor-pointer"
-                      >
-                        Yes
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(null)}
-                        className="text-xs px-2 py-1 rounded bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
+            <PunchListCard
+              key={item.id}
+              item={item}
+            />
           ))
         )}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import MessageBubble from "./MessageBubble";
 
 export interface Message {
@@ -19,6 +19,7 @@ interface ChatWindowProps {
   agentName: string;
   agentColor: string;
   onReply?: (msg: Message) => void;
+  ttsVoice?: string;
 }
 
 export default function ChatWindow({
@@ -27,9 +28,18 @@ export default function ChatWindow({
   agentName,
   agentColor,
   onReply,
+  ttsVoice,
 }: ChatWindowProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(0);
+
+  // Find the last model message ID for TTS auto-play
+  const lastModelMsgId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "model") return messages[i].id;
+    }
+    return null;
+  }, [messages]);
 
   useEffect(() => {
     // On initial load or agent switch (message count jumps), scroll instantly
@@ -61,6 +71,8 @@ export default function ChatWindow({
           onReply={onReply ? () => onReply(msg) : undefined}
           delegatedFrom={msg.delegatedFrom}
           fromAgent={msg.fromAgent}
+          ttsVoice={ttsVoice}
+          isLatest={msg.id === lastModelMsgId && !msg.id.startsWith("history-")}
         />
       ))}
       {isLoading && (

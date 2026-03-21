@@ -16,6 +16,7 @@ export interface AgentConfig {
   capabilities: string[];
   connections: { label: string; connected: boolean }[];
   category: AgentCategory;
+  ttsVoice?: string;
 }
 
 export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "FinOps", "Toys"] as const;
@@ -34,5 +35,6 @@ export function getFrontendAgents(): AgentConfig[] {
       connected: c.connected,
     })),
     category: spec.category,
+    ttsVoice: spec.ttsVoice,
   }));
 }

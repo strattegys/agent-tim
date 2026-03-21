@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 
 interface VoicePlayerProps {
   text: string;
+  voice?: string;
   autoPlay?: boolean;
   onPlayStart?: () => void;
   onPlayEnd?: () => void;
@@ -11,6 +12,7 @@ interface VoicePlayerProps {
 
 export default function VoicePlayer({
   text,
+  voice,
   autoPlay = true,
   onPlayStart,
   onPlayEnd,
@@ -28,7 +30,7 @@ export default function VoicePlayer({
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voice }),
       });
 
       if (!res.ok) {

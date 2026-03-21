@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import VoicePlayer from "./VoicePlayer";
 
 interface MessageBubbleProps {
   role: "user" | "model";
@@ -13,6 +14,8 @@ interface MessageBubbleProps {
   onReply?: () => void;
   delegatedFrom?: string; // comma-separated agent IDs
   fromAgent?: string;     // inter-agent: who sent this user message
+  ttsVoice?: string;      // if set, show voice player for agent messages
+  isLatest?: boolean;     // only auto-play TTS for the latest message
 }
 
 /** Convert a hex color to a dark, muted version suitable for a message background */
@@ -38,6 +41,8 @@ export default function MessageBubble({
   onReply,
   delegatedFrom,
   fromAgent,
+  ttsVoice,
+  isLatest,
 }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const isUser = role === "user";
@@ -90,6 +95,9 @@ export default function MessageBubble({
           <div className="text-[13px] leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-headings:my-1 prose-code:text-xs prose-pre:bg-[var(--bg-primary)] prose-pre:rounded">
             <ReactMarkdown>{text}</ReactMarkdown>
           </div>
+          {!isUser && ttsVoice && text && (
+            <VoicePlayer text={text} voice={ttsVoice} autoPlay={!!isLatest} />
+          )}
           <div className="flex items-center justify-end gap-2 mt-1">
             {onReply && (
               <button

@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 
-const TTS_VOICE = "Kore";
+const DEFAULT_TTS_VOICE = "Kore";
 const WORD_THRESHOLD = 75; // ~30 seconds of speech at 150 wpm
 
 function getClient(): GoogleGenAI {
@@ -65,7 +65,7 @@ export async function summarizeForVoice(text: string): Promise<string> {
   );
 }
 
-export async function textToSpeech(text: string): Promise<Buffer> {
+export async function textToSpeech(text: string, voice?: string): Promise<Buffer> {
   const ai = getClient();
 
   const response = await ai.models.generateContent({
@@ -81,7 +81,7 @@ export async function textToSpeech(text: string): Promise<Buffer> {
       speechConfig: {
         voiceConfig: {
           prebuiltVoiceConfig: {
-            voiceName: TTS_VOICE,
+            voiceName: voice || DEFAULT_TTS_VOICE,
           },
         },
       },

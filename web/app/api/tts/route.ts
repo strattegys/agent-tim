@@ -10,7 +10,7 @@ export async function POST(request: Request) {
   // }
 
   try {
-    const { text } = await request.json();
+    const { text, voice } = await request.json();
     if (!text || typeof text !== "string") {
       return NextResponse.json(
         { error: "Text is required" },
@@ -26,7 +26,7 @@ export async function POST(request: Request) {
       summarized = true;
     }
 
-    const wavBuffer = await textToSpeech(spokenText);
+    const wavBuffer = await textToSpeech(spokenText, voice);
 
     return new NextResponse(new Uint8Array(wavBuffer), {
       headers: {

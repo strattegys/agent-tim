@@ -510,6 +510,7 @@ function ChatPage() {
           agentName={agent.name}
           agentColor={agent.color}
           onReply={handleReply}
+          ttsVoice={agent.ttsVoice}
         />
 
         <ChatInput
@@ -625,6 +626,7 @@ function ChatPage() {
           agentName={agent.name}
           agentColor={agent.color}
           onReply={handleReply}
+          ttsVoice={agent.ttsVoice}
         />
 
         <ChatInput

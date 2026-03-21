@@ -143,6 +143,10 @@ export interface AgentSpec {
    */
   workflowTypes: string[];
 
+  // ── Voice ──
+  /** TTS voice name (Gemini prebuilt). If set, agent responses are spoken aloud. */
+  ttsVoice?: string;
+
   // ── Delegation ──
   /** Inter-agent delegation configuration */
   delegation: DelegationSpec;

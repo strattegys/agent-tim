@@ -6,6 +6,8 @@ import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
 import AgentInfoPanel from "@/components/AgentInfoPanel";
 import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
+import FridayTemplatesPanel from "@/components/friday/FridayTemplatesPanel";
+import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
 import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
 import { getFrontendAgents, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
@@ -21,7 +23,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState("tim");
-  const [rightPanel, setRightPanel] = useState<"info" | "kanban">("info");
+  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "templates" | "dashboard">("info");
   const [mobileShowChat, setMobileShowChat] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -638,6 +640,43 @@ export default function ChatPage() {
                 </svg>
               </button>
             )}
+            {activeAgent === "friday" && (
+              <>
+                <button
+                  onClick={() => setRightPanel("templates")}
+                  className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                    rightPanel === "templates"
+                      ? "text-[var(--accent-green)]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                  title="Workflow templates"
+                >
+                  <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => setRightPanel("dashboard")}
+                  className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                    rightPanel === "dashboard"
+                      ? "text-[var(--accent-green)]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                  title="Workflow dashboard"
+                >
+                  <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                </button>
+              </>
+            )}
             <button
               onClick={() => setRightPanel("info")}
               className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
@@ -659,6 +698,10 @@ export default function ChatPage() {
         <div className="flex-1 min-h-0 flex">
           {rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} />
+          ) : rightPanel === "templates" && activeAgent === "friday" ? (
+            <FridayTemplatesPanel onClose={() => setRightPanel("info")} />
+          ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
+            <FridayDashboardPanel onClose={() => setRightPanel("info")} />
           ) : (
             <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
           )}

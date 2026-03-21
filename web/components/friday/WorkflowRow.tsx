@@ -3,13 +3,6 @@
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import { AGENT_REGISTRY } from "@/lib/agent-registry";
 
-const WORKFLOW_STAGE_COLORS: Record<string, string> = {
-  PLANNING: "#6b8a9e",
-  ACTIVE: "#1D9E75",
-  PAUSED: "#D85A30",
-  COMPLETED: "#22c55e",
-};
-
 const ITEM_TYPE_LABELS: Record<string, string> = {
   person: "People",
   content: "Content",
@@ -30,18 +23,6 @@ function resolveOwnerAgents(spec: string): { name: string; color: string }[] {
   return owners;
 }
 
-function timeAgo(date: string | null | undefined): string {
-  if (!date) return "";
-  const diff = Date.now() - new Date(date).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  return `${days}d ago`;
-}
-
 export interface WorkflowStat {
   id: string;
   name: string;
@@ -56,113 +37,86 @@ export interface WorkflowStat {
   alertCount: number;
 }
 
-interface WorkflowRowProps {
+interface WorkflowCardProps {
   workflow: WorkflowStat;
 }
 
-export default function WorkflowRow({ workflow }: WorkflowRowProps) {
-  const wfStageColor = WORKFLOW_STAGE_COLORS[workflow.stage] || "#555";
-  const wfStageLabel = workflow.stage.charAt(0) + workflow.stage.slice(1).toLowerCase();
+export default function WorkflowCard({ workflow }: WorkflowCardProps) {
   const template = WORKFLOW_TYPES[workflow.spec];
   const owners = resolveOwnerAgents(workflow.spec);
   const stages = workflow.boardStages || [];
 
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-3.5 space-y-2.5">
-      {/* Row 1: Name, status, updated */}
-      <div className="flex items-center gap-2">
-        <span
-          className="w-2.5 h-2.5 rounded-full shrink-0"
-          style={{ backgroundColor: wfStageColor }}
-          title={wfStageLabel}
-        />
-        <span className="text-sm font-semibold text-[var(--text-primary)] truncate flex-1">
+    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2">
+      {/* Name + alert badge */}
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs font-semibold text-[var(--text-primary)] truncate flex-1">
           {workflow.name}
         </span>
         {workflow.alertCount > 0 && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent-orange)] text-white font-medium shrink-0">
-            {workflow.alertCount} alert{workflow.alertCount !== 1 ? "s" : ""}
-          </span>
-        )}
-        <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">
-          {wfStageLabel}
-        </span>
-        {workflow.updatedAt && (
-          <span className="text-[10px] text-[var(--text-tertiary)] shrink-0">
-            {timeAgo(workflow.updatedAt)}
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-[var(--accent-orange)] text-white font-medium shrink-0">
+            {workflow.alertCount}
           </span>
         )}
       </div>
 
-      {/* Row 2: Template, item type, agents */}
-      <div className="flex items-center gap-2 flex-wrap">
+      {/* Template + item type + agents */}
+      <div className="flex items-center gap-1.5 flex-wrap">
         {template && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium">
+          <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium">
             {template.label}
           </span>
         )}
         <span
-          className="text-[10px] px-1.5 py-0.5 rounded-full text-white font-medium"
+          className="text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium"
           style={{ backgroundColor: ITEM_TYPE_COLORS[workflow.itemType] || "#555" }}
         >
           {ITEM_TYPE_LABELS[workflow.itemType] || workflow.itemType}
         </span>
-        {owners.length > 0 && (
-          <div className="flex items-center gap-1 ml-auto">
-            {owners.map((owner) => (
-              <div key={owner.name} className="flex items-center gap-1">
-                <div
-                  className="w-4 h-4 rounded-full flex items-center justify-center"
-                  style={{ backgroundColor: owner.color }}
-                >
-                  <span className="text-[8px] font-medium text-white">{owner.name[0]}</span>
-                </div>
-                <span className="text-[10px] text-[var(--text-secondary)]">{owner.name}</span>
-              </div>
-            ))}
+        {owners.map((owner) => (
+          <div
+            key={owner.name}
+            className="w-4 h-4 rounded-full flex items-center justify-center ml-auto shrink-0"
+            style={{ backgroundColor: owner.color }}
+            title={owner.name}
+          >
+            <span className="text-[8px] font-medium text-white">{owner.name[0]}</span>
           </div>
-        )}
+        ))}
       </div>
 
-      {/* Row 3: Stage breakdown with item counts */}
+      {/* Stage pipeline bubbles (shown when workflow is active) */}
       {stages.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 items-center">
-          {stages.map((s, i) => {
+        <div className="flex flex-wrap gap-1 items-center">
+          {stages.map((s) => {
             const count = workflow.stageCounts[s.key] || 0;
             return (
-              <div key={s.key} className="flex items-center gap-1">
-                <span
-                  className="text-[10px] px-2 py-0.5 rounded-full text-white font-medium inline-flex items-center gap-1"
-                  style={{ backgroundColor: s.color }}
-                >
-                  {s.label}
-                  {count > 0 && (
-                    <span className="bg-white/25 text-white text-[9px] px-1 rounded-full font-bold">
-                      {count}
-                    </span>
-                  )}
-                </span>
-                {i < stages.length - 1 && (
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="var(--text-tertiary)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <polyline points="9 18 15 12 9 6" />
-                  </svg>
+              <span
+                key={s.key}
+                className="text-[8px] px-1.5 py-0.5 rounded-full font-medium inline-flex items-center gap-0.5"
+                style={{
+                  backgroundColor: count > 0 ? s.color : "transparent",
+                  color: count > 0 ? "white" : "var(--text-tertiary)",
+                  border: count > 0 ? "none" : "1px solid var(--border-color)",
+                }}
+                title={`${s.label}: ${count}`}
+              >
+                {s.label}
+                {count > 0 && (
+                  <span className="bg-white/25 text-[8px] px-0.5 rounded-full font-bold">
+                    {count}
+                  </span>
                 )}
-              </div>
+              </span>
             );
           })}
-          {/* Total */}
-          <span className="text-[10px] text-[var(--text-tertiary)] ml-1">
-            {workflow.totalItems} total
-          </span>
+        </div>
+      )}
+
+      {/* Total items */}
+      {workflow.totalItems > 0 && (
+        <div className="text-[9px] text-[var(--text-tertiary)]">
+          {workflow.totalItems} item{workflow.totalItems !== 1 ? "s" : ""}
         </div>
       )}
     </div>

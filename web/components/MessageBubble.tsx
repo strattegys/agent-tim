@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface MessageBubbleProps {
@@ -13,6 +13,19 @@ interface MessageBubbleProps {
   onReply?: () => void;
   delegatedFrom?: string; // comma-separated agent IDs
   fromAgent?: string;     // inter-agent: who sent this user message
+}
+
+/** Convert a hex color to a dark, muted version suitable for a message background */
+function toDarkBg(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  // Darken significantly and desaturate: blend toward dark grey
+  const factor = 0.25;
+  const dr = Math.round(r * factor * 0.7);
+  const dg = Math.round(g * factor * 0.7);
+  const db = Math.round(b * factor * 0.7);
+  return `rgb(${dr}, ${dg}, ${db})`;
 }
 
 export default function MessageBubble({
@@ -33,39 +46,21 @@ export default function MessageBubble({
     minute: "2-digit",
   });
 
-  const replyButton = onReply && (
-    <button
-      onClick={onReply}
-      className={`shrink-0 self-center p-1 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-all ${hovered ? "opacity-100" : "opacity-0"} group-hover:opacity-100`}
-      title="Reply"
-    >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <polyline points="9,17 4,12 9,7" />
-        <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-      </svg>
-    </button>
-  );
+  const agentBg = useMemo(() => toDarkBg(agentColor), [agentColor]);
 
   return (
     <div className="flex mb-1">
       <div
-        className="relative group flex items-start gap-1 w-full"
+        className="relative group w-full"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         <div
-          className={`w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden ${
-            isUser
-              ? "bg-[#1a3a2a] text-white"
-              : "bg-[var(--bg-tertiary)] text-[var(--text-primary)]"
-          }`}
+          className="w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden text-[var(--text-primary)]"
+          style={{ background: isUser ? "var(--bg-tertiary)" : agentBg }}
         >
           {replyTo && (
-            <div className={`text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 ${
-              isUser
-                ? "bg-white/10 border-white/40 text-white/70"
-                : "bg-[var(--bg-primary)] border-[var(--accent-blue)] text-[var(--text-secondary)]"
-            }`}>
+            <div className="text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 bg-black/15 border-white/30 text-white/70">
               <div className="font-medium text-[10px] mb-0.5">
                 {replyTo.role === "user" ? "You" : agentName}
               </div>
@@ -73,7 +68,7 @@ export default function MessageBubble({
             </div>
           )}
           {isUser && (
-            <div className="text-xs font-medium mb-1 text-white/70">
+            <div className="text-xs font-medium mb-1 text-[var(--text-secondary)]">
               {fromAgent
                 ? fromAgent.charAt(0).toUpperCase() + fromAgent.slice(1)
                 : "You"}
@@ -92,11 +87,22 @@ export default function MessageBubble({
           <div className="text-[13px] leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-headings:my-1 prose-code:text-xs prose-pre:bg-[var(--bg-primary)] prose-pre:rounded">
             <ReactMarkdown>{text}</ReactMarkdown>
           </div>
-          <div className={`text-[11px] mt-1 text-right ${isUser ? "text-white/60" : "text-[var(--text-tertiary)]"}`}>
-            {time}
+          <div className="flex items-center justify-end gap-2 mt-1">
+            {onReply && (
+              <button
+                onClick={onReply}
+                className={`p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}
+                title="Reply"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9,17 4,12 9,7" />
+                  <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                </svg>
+              </button>
+            )}
+            <span className="text-[11px] text-[var(--text-tertiary)]">{time}</span>
           </div>
         </div>
-        {!isUser && replyButton}
       </div>
     </div>
   );

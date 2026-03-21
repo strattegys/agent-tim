@@ -16,7 +16,6 @@ import scheduleMessage from "./schedule-message";
 import webSearch from "./web-search";
 import memoryTool from "./memory-tool";
 import remindersTool from "./reminders-tool";
-import agentManager from "./agent-manager";
 import delegateTask from "./delegate-task";
 import workflowManager from "./workflow-manager";
 
@@ -28,7 +27,6 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   web_search: webSearch,
   memory: memoryTool,
   reminders: remindersTool,
-  agent_manager: agentManager,
   delegate_task: delegateTask,
   workflow_manager: workflowManager,
 };

@@ -154,24 +154,21 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     name: "Friday",
     role: "Right Hand Robot",
     description:
-      "Your right hand robot — manages agents, workflows, and system operations. " +
-      "Can read/update system prompts, restart services, check status, and delegate tasks.",
+      "Your right hand robot — manages workflows, monitors tools, and helps coordinate agents. " +
+      "System prompt updates and backend changes are handled via Claude Code.",
     category: "Utility",
     color: "#9B59B6",
     modelName: "gemini-2.5-pro",
     sessionFile: "/root/.fridaybot/sessions/web_govind.jsonl",
     systemPromptFile: "/root/.fridaybot/system-prompt.md",
     memoryDir: "/root/.fridaybot/memory",
-    tools: ["agent_manager", "workflow_manager", "web_search", "memory", "delegate_task"],
+    tools: ["workflow_manager", "web_search", "memory"],
     capabilities: [
-      "Build agents",
-      "Manage prompts",
-      "Agent status",
-      "Restart services",
       "Manage workflows",
+      "Web search",
+      "Tool registry",
     ],
     connections: [
-      { label: "Agent Manager", connected: true, toolId: "agent_manager" },
       { label: "Workflows", connected: true, toolId: "workflow_manager" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
@@ -179,7 +176,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     heartbeat: null,
     workflowTypes: [],
     delegation: {
-      canDelegateTo: ["scout", "tim"],
+      canDelegateTo: [],
       acceptsTaskTypes: [],
     },
   },

@@ -352,12 +352,15 @@ function ChatPage() {
           }
         }
 
-        try {
-          const audio = new Audio("/sounds/notification.wav");
-          audio.volume = 0.3;
-          audio.play().catch(() => {});
-        } catch {
-          // ignore audio errors
+        // Play notification chime — skip if agent has TTS voice (avoid overlap)
+        if (!agent.ttsVoice) {
+          try {
+            const audio = new Audio("/sounds/notification.wav");
+            audio.volume = 0.3;
+            audio.play().catch(() => {});
+          } catch {
+            // ignore audio errors
+          }
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {

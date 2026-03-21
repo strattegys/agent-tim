@@ -73,7 +73,7 @@ export async function textToSpeech(text: string, voice?: string): Promise<Buffer
     contents: [
       {
         role: "user",
-        parts: [{ text: `Say the following: ${text}` }],
+        parts: [{ text }],
       },
     ],
     config: {

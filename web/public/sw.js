@@ -1,4 +1,4 @@
-const CACHE_NAME = 'command-central-v3';
+const CACHE_NAME = 'command-central-v4';
 const STATIC_ASSETS = [
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -21,11 +21,10 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Never cache pages, API calls, or JS chunks — only icons
-  const url = event.request.url;
-  if (url.includes('/api/') || url.includes('/_next/') || url.includes('/chat')) {
-    return; // Let browser handle normally
-  }
+  // Only cache icon assets — everything else goes to network
+  const url = new URL(event.request.url);
+  const isIcon = url.pathname.startsWith('/icons/');
+  if (!isIcon) return; // Let browser handle normally
 
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request))

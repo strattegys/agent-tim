@@ -2,6 +2,13 @@ import { execFileSync } from "child_process";
 import { join } from "path";
 import { readMemory, appendMemoryFact, replaceMemory } from "./memory";
 import { createTask } from "./tasks";
+import {
+  listReminders,
+  getUpcomingReminders,
+  addReminder,
+  updateReminder,
+  deleteReminder,
+} from "./reminders";
 
 const TOOL_SCRIPTS_PATH =
   process.env.TOOL_SCRIPTS_PATH || join(process.cwd(), "..", ".nanobot", "tools");
@@ -134,6 +141,55 @@ export const toolDeclarations = [
     },
   },
   {
+    name: "reminders",
+    description:
+      "Manage reminders and important dates. Use this to track birthdays, holidays, recurring events, one-time tasks, and important facts. Commands: 'list' (optional category filter), 'search' (find by keyword), 'add' (create new), 'update' (modify existing), 'delete' (remove), 'upcoming' (next 10 due). Categories: birthday, holiday, recurring, one-time, fact. Recurrence: yearly, monthly, weekly, daily.",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        command: {
+          type: "string",
+          description: "list, search, add, update, delete, or upcoming",
+        },
+        title: {
+          type: "string",
+          description: "Reminder title (for add/update)",
+        },
+        description: {
+          type: "string",
+          description: "Optional details (for add/update)",
+        },
+        category: {
+          type: "string",
+          description:
+            "birthday, holiday, recurring, one-time, or fact (for add/update/list filter)",
+        },
+        date: {
+          type: "string",
+          description:
+            "ISO date/datetime for when it's due, e.g. 2026-12-25 or 2026-03-21T14:00:00-07:00 (for add/update)",
+        },
+        recurrence: {
+          type: "string",
+          description: "yearly, monthly, weekly, daily — omit for one-time (for add/update)",
+        },
+        advance_days: {
+          type: "string",
+          description: "Days before the date to start reminding, default 0 (for add/update)",
+        },
+        query: {
+          type: "string",
+          description: "Search term (for search command)",
+        },
+        id: {
+          type: "string",
+          description: "Reminder UUID (for update/delete)",
+        },
+      },
+      required: ["command"],
+    },
+  },
+  {
     name: "agent_manager",
     description:
       "Manage agents in the Strattegys Command Central system. Create new agents, read/update system prompts, check agent status, and restart services. Use create-agent to provision server directories and system prompt for a new agent. After create-agent, the agent must still be registered in the codebase configs (agent-config.ts, config.ts) and deployed — tell the user to do this via Claude Code. Available commands: list-agents, get-agent-config, read-prompt, update-prompt, create-agent, restart-agent, agent-status.",
@@ -181,6 +237,41 @@ export const toolDeclarations = [
         },
       },
       required: ["agent", "task", "urgency"],
+    },
+  },
+  {
+    name: "workflow_manager",
+    description:
+      "Manage workflows and workflow templates across all agents. Use this to oversee, create, and modify workflows. Commands: list-workflows (optional arg1=agentId to filter by owner), get-workflow (arg1=workflowId), create-workflow (arg1=name, arg2=boardId, arg3=ownerAgent, arg4=itemType), update-workflow-stage (arg1=workflowId, arg2=new stage: PLANNING|ACTIVE|PAUSED|COMPLETED), assign-workflow (arg1=workflowId, arg2=agentId), list-boards, list-templates.",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        command: {
+          type: "string",
+          description:
+            "Command: list-workflows, get-workflow, create-workflow, update-workflow-stage, assign-workflow, list-boards, list-templates",
+        },
+        arg1: {
+          type: "string",
+          description:
+            "First arg: agentId (list-workflows filter), workflowId (get/update/assign), or name (create)",
+        },
+        arg2: {
+          type: "string",
+          description:
+            "Second arg: boardId (create), new stage (update-workflow-stage), or agentId (assign-workflow)",
+        },
+        arg3: {
+          type: "string",
+          description: "Third arg: ownerAgent (create-workflow)",
+        },
+        arg4: {
+          type: "string",
+          description:
+            "Fourth arg: itemType — 'person' or 'content' (create-workflow)",
+        },
+      },
+      required: ["command"],
     },
   },
 ];
@@ -305,6 +396,87 @@ export async function executeTool(
       return result;
     }
 
+    if (name === "reminders") {
+      const cmd = args.command;
+      if (cmd === "list") {
+        const items = await listReminders(agentId, { category: args.category });
+        if (items.length === 0) return "No reminders found.";
+        return items
+          .map(
+            (r) =>
+              `[${r.category}] ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}${r.recurrence ? ` (${r.recurrence})` : ""}${r.description ? ` — ${r.description}` : ""} (id: ${r.id})`
+          )
+          .join("\n");
+      }
+      if (cmd === "search") {
+        if (!args.query) return "Error: query is required for search";
+        const items = await listReminders(agentId, { search: args.query });
+        if (items.length === 0) return "No reminders matching that query.";
+        return items
+          .map(
+            (r) =>
+              `[${r.category}] ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""} (id: ${r.id})`
+          )
+          .join("\n");
+      }
+      if (cmd === "add") {
+        if (!args.title) return "Error: title is required";
+        if (!args.category) return "Error: category is required (birthday, holiday, recurring, one-time, fact)";
+        // Build recurrence anchor from the date
+        let anchor: Record<string, number> | undefined;
+        if (args.recurrence === "yearly" && args.date) {
+          const d = new Date(args.date);
+          anchor = { month: d.getMonth() + 1, day: d.getDate() };
+        } else if (args.recurrence === "monthly" && args.date) {
+          const d = new Date(args.date);
+          anchor = { dayOfMonth: d.getDate() };
+        } else if (args.recurrence === "weekly" && args.date) {
+          const d = new Date(args.date);
+          anchor = { dayOfWeek: d.getDay() };
+        } else if (args.recurrence === "daily") {
+          anchor = {};
+        }
+        const reminder = await addReminder(agentId, {
+          category: args.category,
+          title: args.title,
+          description: args.description,
+          nextDueAt: args.date || undefined,
+          recurrence: args.recurrence,
+          recurrenceAnchor: anchor,
+          advanceNoticeDays: args.advance_days ? parseInt(args.advance_days) : 0,
+        });
+        return `Reminder created: "${reminder.title}" [${reminder.category}]${reminder.nextDueAt ? ` due ${new Date(reminder.nextDueAt).toLocaleDateString()}` : ""}${reminder.recurrence ? ` (${reminder.recurrence})` : ""} (id: ${reminder.id})`;
+      }
+      if (cmd === "update") {
+        if (!args.id) return "Error: id is required for update";
+        const updates: Record<string, unknown> = {};
+        if (args.title) updates.title = args.title;
+        if (args.description) updates.description = args.description;
+        if (args.category) updates.category = args.category;
+        if (args.date) updates.nextDueAt = args.date;
+        if (args.recurrence) updates.recurrence = args.recurrence;
+        if (args.advance_days) updates.advanceNoticeDays = parseInt(args.advance_days);
+        await updateReminder(args.id, updates);
+        return `Reminder ${args.id} updated successfully.`;
+      }
+      if (cmd === "delete") {
+        if (!args.id) return "Error: id is required for delete";
+        await deleteReminder(args.id);
+        return `Reminder ${args.id} deleted.`;
+      }
+      if (cmd === "upcoming") {
+        const items = await getUpcomingReminders(agentId);
+        if (items.length === 0) return "No upcoming reminders.";
+        return items
+          .map(
+            (r) =>
+              `[${r.category}] ${r.title} — ${r.nextDueAt ? new Date(r.nextDueAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "no date"}${r.advanceNoticeDays > 0 ? ` (${r.advanceNoticeDays}d advance notice)` : ""}${r.description ? ` — ${r.description}` : ""}`
+          )
+          .join("\n");
+      }
+      return "Unknown reminders command. Use: list, search, add, update, delete, upcoming";
+    }
+
     if (name === "agent_manager") {
       const cmdArgs = [args.command, args.arg1, args.arg2].filter(Boolean);
       return execFileSync(join(TOOL_SCRIPTS_PATH, "agent_manager.sh"), cmdArgs, {
@@ -334,6 +506,110 @@ export async function executeTool(
         const taskId = createTask(agentId, targetAgent, taskDesc, "async");
         return `Task queued for ${targetAgent} agent (ID: ${taskId}). The result will be available on your next check-in.`;
       }
+    }
+
+    if (name === "workflow_manager") {
+      const { query: dbQuery } = await import("./db");
+      const { WORKFLOW_TYPES } = await import("./workflow-types");
+      const cmd = args.command;
+
+      if (cmd === "list-workflows") {
+        const filterAgent = args.arg1;
+        const params: unknown[] = [];
+        let where = 'WHERE w."deletedAt" IS NULL';
+        if (filterAgent) {
+          params.push(filterAgent);
+          where += ` AND w."ownerAgent" = $${params.length}`;
+        }
+        const rows = await dbQuery(
+          `SELECT w.id, w.name, w.stage, w."itemType", w."ownerAgent",
+                  b.name AS board_name
+           FROM "_workflow" w
+           LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
+           ${where} ORDER BY w.name ASC LIMIT 50`,
+          params
+        );
+        if (rows.length === 0) return filterAgent ? `No workflows owned by ${filterAgent}.` : "No workflows found.";
+        return rows.map((r: Record<string, unknown>) =>
+          `- ${r.name} [${r.stage}] owner=${r.ownerAgent || "unassigned"} type=${r.itemType} board="${r.board_name || "none"}" id=${r.id}`
+        ).join("\n");
+      }
+
+      if (cmd === "get-workflow") {
+        if (!args.arg1) return "Error: arg1 (workflowId) is required";
+        const rows = await dbQuery(
+          `SELECT w.id, w.name, w.stage, w.spec, w."itemType", w."ownerAgent",
+                  b.name AS board_name, b.stages AS board_stages
+           FROM "_workflow" w
+           LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
+           WHERE w.id = $1 AND w."deletedAt" IS NULL`,
+          [args.arg1]
+        );
+        if (rows.length === 0) return "Workflow not found.";
+        const w = rows[0] as Record<string, unknown>;
+        const itemRows = await dbQuery(
+          `SELECT stage, COUNT(*)::text AS count FROM "_workflow_item"
+           WHERE "workflowId" = $1 AND "deletedAt" IS NULL GROUP BY stage`,
+          [args.arg1]
+        );
+        const counts = itemRows.map((r: Record<string, unknown>) => `${r.stage}: ${r.count}`).join(", ");
+        return `Workflow: ${w.name}\nStage: ${w.stage}\nOwner: ${w.ownerAgent || "unassigned"}\nType: ${w.itemType}\nBoard: ${w.board_name || "none"}\nItems: ${counts || "none"}`;
+      }
+
+      if (cmd === "create-workflow") {
+        if (!args.arg1) return "Error: arg1 (name) is required";
+        if (!args.arg2) return "Error: arg2 (boardId) is required";
+        const owner = args.arg3 || null;
+        const itemType = args.arg4 || "person";
+        const rows = await dbQuery(
+          `INSERT INTO "_workflow" (name, spec, "itemType", "boardId", "ownerAgent", stage, "createdAt", "updatedAt")
+           VALUES ($1, '', $2, $3, $4, 'PLANNING', NOW(), NOW()) RETURNING id`,
+          [args.arg1, itemType, args.arg2, owner]
+        );
+        const id = (rows[0] as Record<string, unknown>).id;
+        return `Workflow created: "${args.arg1}" (id: ${id}) owner=${owner || "unassigned"} stage=PLANNING`;
+      }
+
+      if (cmd === "update-workflow-stage") {
+        if (!args.arg1) return "Error: arg1 (workflowId) is required";
+        if (!args.arg2) return "Error: arg2 (stage) is required";
+        const validStages = ["PLANNING", "ACTIVE", "PAUSED", "COMPLETED"];
+        const newStage = args.arg2.toUpperCase();
+        if (!validStages.includes(newStage)) return `Error: stage must be one of: ${validStages.join(", ")}`;
+        await dbQuery(
+          `UPDATE "_workflow" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+          [newStage, args.arg1]
+        );
+        return `Workflow ${args.arg1} stage updated to ${newStage}.`;
+      }
+
+      if (cmd === "assign-workflow") {
+        if (!args.arg1) return "Error: arg1 (workflowId) is required";
+        if (!args.arg2) return "Error: arg2 (agentId) is required";
+        await dbQuery(
+          `UPDATE "_workflow" SET "ownerAgent" = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+          [args.arg2, args.arg1]
+        );
+        return `Workflow ${args.arg1} assigned to ${args.arg2}.`;
+      }
+
+      if (cmd === "list-boards") {
+        const rows = await dbQuery(
+          `SELECT id, name, description FROM "_board" WHERE "deletedAt" IS NULL ORDER BY name ASC`
+        );
+        if (rows.length === 0) return "No boards found.";
+        return rows.map((r: Record<string, unknown>) =>
+          `- ${r.name}${r.description ? ` — ${r.description}` : ""} (id: ${r.id})`
+        ).join("\n");
+      }
+
+      if (cmd === "list-templates") {
+        return Object.values(WORKFLOW_TYPES).map((t) =>
+          `- ${t.label} [${t.itemType}]: ${t.description} (id: ${t.id})`
+        ).join("\n");
+      }
+
+      return "Unknown workflow_manager command. Use: list-workflows, get-workflow, create-workflow, update-workflow-stage, assign-workflow, list-boards, list-templates";
     }
 
     return `Unknown tool: ${name}`;

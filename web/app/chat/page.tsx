@@ -8,6 +8,7 @@ import AgentInfoPanel from "@/components/AgentInfoPanel";
 import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import FridayTemplatesPanel from "@/components/friday/FridayTemplatesPanel";
 import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
+import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
 import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
 import { getFrontendAgents, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
@@ -23,7 +24,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAgent, setActiveAgent] = useState("tim");
-  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "templates" | "dashboard">("info");
+  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "templates" | "dashboard" | "reminders">("info");
   const [mobileShowChat, setMobileShowChat] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -677,6 +678,24 @@ export default function ChatPage() {
                 </button>
               </>
             )}
+            {activeAgent === "suzi" && (
+              <button
+                onClick={() => setRightPanel("reminders")}
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "reminders"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Reminders"
+              >
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+              </button>
+            )}
             <button
               onClick={() => setRightPanel("info")}
               className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
@@ -697,11 +716,13 @@ export default function ChatPage() {
         {/* Panel content */}
         <div className="flex-1 min-h-0 flex">
           {rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
-            <KanbanInlinePanel onClose={() => setRightPanel("info")} />
+            <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "templates" && activeAgent === "friday" ? (
             <FridayTemplatesPanel onClose={() => setRightPanel("info")} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
             <FridayDashboardPanel onClose={() => setRightPanel("info")} />
+          ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
+            <SuziRemindersPanel onClose={() => setRightPanel("info")} />
           ) : (
             <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
           )}

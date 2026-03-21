@@ -9,9 +9,10 @@ import type { StageConfig, WorkflowItem, WorkflowWithBoard } from "@/lib/board-t
 
 interface KanbanInlinePanelProps {
   onClose: () => void;
+  agentId?: string;
 }
 
-export default function KanbanInlinePanel({ onClose }: KanbanInlinePanelProps) {
+export default function KanbanInlinePanel({ onClose, agentId }: KanbanInlinePanelProps) {
   const [workflowId, setWorkflowId] = useState(() => {
     if (typeof window !== "undefined") return localStorage.getItem("kanban_workflow") || "";
     return "";
@@ -73,6 +74,7 @@ export default function KanbanInlinePanel({ onClose }: KanbanInlinePanelProps) {
           selectedId={workflowId}
           onSelect={setWorkflowId}
           onWorkflowLoaded={handleWorkflowLoaded}
+          agentId={agentId}
         />
 
         {loading && (

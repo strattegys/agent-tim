@@ -17,7 +17,9 @@ export type ToolId =
   | "memory"
   | "agent_manager"
   | "delegate_task"
-  | "kanban";
+  | "kanban"
+  | "reminders"
+  | "workflow_manager";
 
 // ─── Agent Categories ───
 

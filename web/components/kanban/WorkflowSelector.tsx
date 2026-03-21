@@ -21,9 +21,10 @@ interface WorkflowSelectorProps {
   selectedId: string;
   onSelect: (id: string) => void;
   onWorkflowLoaded?: (workflow: WorkflowWithBoard | null) => void;
+  agentId?: string;
 }
 
-export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoaded }: WorkflowSelectorProps) {
+export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoaded, agentId }: WorkflowSelectorProps) {
   const [workflows, setWorkflows] = useState<WorkflowWithBoard[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPopup, setShowPopup] = useState(false);
@@ -31,12 +32,15 @@ export default function WorkflowSelector({ selectedId, onSelect, onWorkflowLoade
   const popupRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetch("/api/crm/workflows")
+    const url = agentId
+      ? `/api/crm/workflows?agent=${encodeURIComponent(agentId)}`
+      : "/api/crm/workflows";
+    fetch(url)
       .then((r) => r.json())
       .then((data) => setWorkflows(data.workflows || []))
       .catch(() => setWorkflows([]))
       .finally(() => setLoading(false));
-  }, []);
+  }, [agentId]);
 
   // Close popup on outside click
   useEffect(() => {

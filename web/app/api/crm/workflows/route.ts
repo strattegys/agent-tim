@@ -17,17 +17,26 @@ interface WorkflowRow {
   board_transitions: unknown;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const agentFilter = request.nextUrl.searchParams.get("agent");
+    const params: unknown[] = [];
+    let whereClause = 'WHERE w."deletedAt" IS NULL';
+    if (agentFilter) {
+      params.push(agentFilter);
+      whereClause += ` AND w."ownerAgent" = $${params.length}`;
+    }
+
     const rows = await query<WorkflowRow>(
-      `SELECT w.id, w.name, w.stage, w.spec, w."itemType",  w."boardId",
+      `SELECT w.id, w.name, w.stage, w.spec, w."itemType", w."boardId", w."ownerAgent",
               b.id AS board_id, b.name AS board_name, b.description AS board_description,
               b.stages AS board_stages, b.transitions AS board_transitions
        FROM "_workflow" w
        LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
-       WHERE w."deletedAt" IS NULL
+       ${whereClause}
        ORDER BY w.name ASC NULLS LAST
-       LIMIT 50`
+       LIMIT 50`,
+      params
     );
     const workflows = rows.map((r) => ({
       id: r.id,
@@ -36,6 +45,7 @@ export async function GET() {
       spec: r.spec,
       itemType: r.itemType || "person",
       boardId: r.boardId,
+      ownerAgent: (r as Record<string, unknown>).ownerAgent as string | null,
       board: r.board_id
         ? ({
             id: r.board_id,
@@ -55,7 +65,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, spec, itemType, boardId } = await request.json();
+    const { name, spec, itemType, boardId, ownerAgent } = await request.json();
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
@@ -66,10 +76,10 @@ export async function POST(request: NextRequest) {
     const type = validTypes.includes(itemType) ? itemType : "person";
 
     const rows = await query<{ id: string }>(
-      `INSERT INTO "_workflow" (name, spec, "itemType", "boardId", stage, "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, 'PLANNING', NOW(), NOW())
+      `INSERT INTO "_workflow" (name, spec, "itemType", "boardId", "ownerAgent", stage, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, 'PLANNING', NOW(), NOW())
        RETURNING id`,
-      [name, spec || "", type, boardId]
+      [name, spec || "", type, boardId, ownerAgent || null]
     );
     return NextResponse.json({ id: rows[0].id });
   } catch (error: unknown) {
@@ -80,7 +90,7 @@ export async function POST(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    const { id, stage, boardId, spec, itemType } = await request.json();
+    const { id, stage, boardId, spec, itemType, ownerAgent } = await request.json();
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
@@ -114,6 +124,11 @@ export async function PATCH(request: NextRequest) {
     if (itemType !== undefined) {
       sets.push(`"itemType" = $${idx++}`);
       params.push(itemType);
+    }
+
+    if (ownerAgent !== undefined) {
+      sets.push(`"ownerAgent" = $${idx++}`);
+      params.push(ownerAgent);
     }
 
     if (sets.length === 1) {

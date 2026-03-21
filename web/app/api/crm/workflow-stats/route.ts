@@ -42,7 +42,7 @@ export async function GET() {
     // 1. Fetch all workflows with board data
     const workflows = await query<WorkflowStatsRow>(
       `SELECT w.id, w.name, w.stage, w.spec, w."itemType", w."boardId",
-              w."updatedAt",
+              w."updatedAt", w."ownerAgent",
               b.stages AS board_stages, b.transitions AS board_transitions,
               b.name AS board_name
        FROM "_workflow" w
@@ -117,6 +117,7 @@ export async function GET() {
         stage: w.stage,
         spec: w.spec,
         itemType: w.itemType || "person",
+        ownerAgent: (w as Record<string, unknown>).ownerAgent as string | null,
         updatedAt: w.updatedAt,
         boardName: w.board_name,
         boardStages: w.board_stages || [],

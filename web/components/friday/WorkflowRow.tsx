@@ -1,6 +1,5 @@
 "use client";
 
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import { AGENT_REGISTRY } from "@/lib/agent-registry";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
@@ -13,36 +12,11 @@ const ITEM_TYPE_COLORS: Record<string, string> = {
   content: "#9B59B6",
 };
 
-/** Try to match a workflow to a template by slug, then by itemType */
-function resolveTemplate(spec: string, itemType: string): string | null {
-  // Direct slug match
-  if (WORKFLOW_TYPES[spec]) return WORKFLOW_TYPES[spec].label;
-  // Fall back: find first template matching itemType
-  for (const t of Object.values(WORKFLOW_TYPES)) {
-    if (t.itemType === itemType) return t.label;
-  }
-  return null;
-}
-
-/** Find agents whose workflowTypes match the workflow's itemType-based templates */
-function resolveOwnerAgents(spec: string, itemType: string): { name: string; color: string }[] {
-  const owners: { name: string; color: string }[] = [];
-  for (const agent of Object.values(AGENT_REGISTRY)) {
-    // Direct slug match
-    if (agent.workflowTypes.includes(spec)) {
-      owners.push({ name: agent.name, color: agent.color });
-      continue;
-    }
-    // Match by itemType — check if agent has any template of this itemType
-    for (const wt of agent.workflowTypes) {
-      const tmpl = WORKFLOW_TYPES[wt];
-      if (tmpl && tmpl.itemType === itemType) {
-        owners.push({ name: agent.name, color: agent.color });
-        break;
-      }
-    }
-  }
-  return owners;
+function resolveOwner(ownerAgent: string | null): { name: string; color: string } | null {
+  if (!ownerAgent) return null;
+  const agent = AGENT_REGISTRY[ownerAgent];
+  if (!agent) return null;
+  return { name: agent.name, color: agent.color };
 }
 
 export interface WorkflowStat {
@@ -51,6 +25,7 @@ export interface WorkflowStat {
   stage: string;
   spec: string;
   itemType: string;
+  ownerAgent: string | null;
   updatedAt: string | null;
   boardName: string | null;
   boardStages: Array<{ key: string; label: string; color: string }>;
@@ -64,9 +39,8 @@ interface WorkflowCardProps {
 }
 
 export default function WorkflowCard({ workflow }: WorkflowCardProps) {
-  const templateLabel = resolveTemplate(workflow.spec, workflow.itemType);
   const boardLabel = workflow.boardName;
-  const owners = resolveOwnerAgents(workflow.spec, workflow.itemType);
+  const owner = resolveOwner(workflow.ownerAgent);
   const stages = workflow.boardStages || [];
 
   return (
@@ -83,7 +57,7 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
         )}
       </div>
 
-      {/* Item type + board/template */}
+      {/* Item type + board + owner */}
       <div className="flex items-center gap-1.5 flex-wrap">
         <span
           className="text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium"
@@ -91,29 +65,23 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
         >
           {ITEM_TYPE_LABELS[workflow.itemType] || workflow.itemType}
         </span>
-        {(boardLabel || templateLabel) && (
+        {boardLabel && (
           <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium">
-            {boardLabel || templateLabel}
+            {boardLabel}
           </span>
         )}
-      </div>
-
-      {/* Assigned agents */}
-      {owners.length > 0 && (
-        <div className="flex items-center gap-1.5">
-          {owners.map((owner) => (
-            <div key={owner.name} className="flex items-center gap-1">
-              <div
-                className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
-                style={{ backgroundColor: owner.color }}
-              >
-                <span className="text-[8px] font-medium text-white">{owner.name[0]}</span>
-              </div>
-              <span className="text-[9px] text-[var(--text-secondary)]">{owner.name}</span>
+        {owner && (
+          <div className="flex items-center gap-1 ml-auto">
+            <div
+              className="w-4 h-4 rounded-full flex items-center justify-center shrink-0"
+              style={{ backgroundColor: owner.color }}
+            >
+              <span className="text-[8px] font-medium text-white">{owner.name[0]}</span>
             </div>
-          ))}
-        </div>
-      )}
+            <span className="text-[9px] text-[var(--text-secondary)]">{owner.name}</span>
+          </div>
+        )}
+      </div>
 
       {/* Stage pipeline bubbles (shown when workflow is active) */}
       {stages.length > 0 && (

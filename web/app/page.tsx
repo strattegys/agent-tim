@@ -437,11 +437,7 @@ function ChatPage() {
                           className="w-11 h-11 rounded-full flex items-center justify-center overflow-hidden"
                           style={{ background: a.color }}
                         >
-                          {a.avatar ? (
-                            <img src={a.avatar} alt={a.name} className="w-full h-full object-cover" />
-                          ) : (
-                            <span className="text-base font-medium text-white">{a.name[0]}</span>
-                          )}
+                          <span className="text-base font-medium text-white">{a.name[0]}</span>
                         </div>
                         <span
                           className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-secondary)]"
@@ -487,11 +483,7 @@ function ChatPage() {
             className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden shrink-0"
             style={{ background: agent.color }}
           >
-            {agent.avatar ? (
-              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-sm font-medium text-white">{agent.name[0]}</span>
-            )}
+            <span className="text-sm font-medium text-white">{agent.name[0]}</span>
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{agent.name}</div>
@@ -620,11 +612,7 @@ function ChatPage() {
             style={{ background: agent.color }}
             onClick={() => avatarInputRef.current?.click()}
           >
-            {agent.avatar ? (
-              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="text-xl font-medium text-white">{agent.name[0]}</span>
-            )}
+            <span className="text-xl font-medium text-white">{agent.name[0]}</span>
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
               {avatarUploading ? (
                 <svg className="w-6 h-6 text-white animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

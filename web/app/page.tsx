@@ -612,7 +612,15 @@ function ChatPage() {
             style={{ background: agent.color }}
             onClick={() => avatarInputRef.current?.click()}
           >
-            <span className="text-xl font-medium text-white">{agent.name[0]}</span>
+            {agent.avatar ? (
+              <img
+                src={agent.avatar}
+                alt={agent.name}
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+            ) : null}
+            <span className="text-xl font-medium text-white absolute inset-0 flex items-center justify-center">{agent.name[0]}</span>
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
               {avatarUploading ? (
                 <svg className="w-6 h-6 text-white animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

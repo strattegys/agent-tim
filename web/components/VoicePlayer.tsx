@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 interface VoicePlayerProps {
   text: string;
@@ -13,24 +13,33 @@ interface VoicePlayerProps {
 export default function VoicePlayer({
   text,
   voice,
-  autoPlay = true,
+  autoPlay = false,
   onPlayStart,
   onPlayEnd,
 }: VoicePlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [muted, setMuted] = useState(false);
-  const [hasAutoPlayed, setHasAutoPlayed] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const hasAutoPlayed = useRef(false);
+  const textRef = useRef(text);
+  textRef.current = text;
 
   const play = useCallback(async () => {
-    if (isPlaying || isLoading || !text) return;
+    // Stop any existing playback
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    const currentText = textRef.current;
+    if (!currentText) return;
 
     setIsLoading(true);
     try {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice }),
+        body: JSON.stringify({ text: currentText, voice }),
       });
 
       if (!res.ok) {
@@ -41,6 +50,7 @@ export default function VoicePlayer({
       const audioBlob = await res.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
       const audio = new Audio(audioUrl);
+      audioRef.current = audio;
 
       audio.onplay = () => {
         setIsPlaying(true);
@@ -49,12 +59,14 @@ export default function VoicePlayer({
 
       audio.onended = () => {
         setIsPlaying(false);
+        audioRef.current = null;
         URL.revokeObjectURL(audioUrl);
         onPlayEnd?.();
       };
 
       audio.onerror = () => {
         setIsPlaying(false);
+        audioRef.current = null;
         URL.revokeObjectURL(audioUrl);
       };
 
@@ -64,14 +76,25 @@ export default function VoicePlayer({
     } finally {
       setIsLoading(false);
     }
-  }, [text, isPlaying, isLoading, onPlayStart, onPlayEnd]);
+  }, [voice, onPlayStart, onPlayEnd]);
 
-  // Auto-play on mount (once)
-  if (autoPlay && !muted && !hasAutoPlayed && text) {
-    setHasAutoPlayed(true);
-    // Defer to avoid blocking render
-    setTimeout(play, 100);
-  }
+  // Auto-play once when autoPlay becomes true (streaming just finished)
+  useEffect(() => {
+    if (autoPlay && !hasAutoPlayed.current && text) {
+      hasAutoPlayed.current = true;
+      play();
+    }
+  }, [autoPlay, text, play]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   return (
     <div className="inline-flex items-center gap-1 mt-1">
@@ -106,38 +129,6 @@ export default function VoicePlayer({
             fill="currentColor"
           >
             <polygon points="5,3 19,12 5,21" />
-          </svg>
-        )}
-      </button>
-      <button
-        onClick={() => setMuted(!muted)}
-        className="text-[#6b8a9e] hover:text-[#7eb8e0] transition-colors"
-        title={muted ? "Unmute auto-play" : "Mute auto-play"}
-      >
-        {muted ? (
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M11 5L6 9H2v6h4l5 4V5z" />
-            <line x1="23" y1="9" x2="17" y2="15" />
-            <line x1="17" y1="9" x2="23" y2="15" />
-          </svg>
-        ) : (
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path d="M11 5L6 9H2v6h4l5 4V5z" />
-            <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
           </svg>
         )}
       </button>

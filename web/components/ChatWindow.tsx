@@ -72,7 +72,7 @@ export default function ChatWindow({
           delegatedFrom={msg.delegatedFrom}
           fromAgent={msg.fromAgent}
           ttsVoice={ttsVoice}
-          isLatest={msg.id === lastModelMsgId && !msg.id.startsWith("history-")}
+          isLatest={msg.id === lastModelMsgId && !msg.id.startsWith("history-") && !isLoading}
         />
       ))}
       {isLoading && (

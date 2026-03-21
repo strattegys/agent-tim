@@ -25,6 +25,16 @@ const CATEGORY_ICONS: Record<string, string> = {
   meta: "🤖",
 };
 
+const AGENT_COLORS: Record<string, string> = {
+  tim: "#1D9E75",
+  suzi: "#D85A30",
+  friday: "#9B59B6",
+  scout: "#2563EB",
+  ghost: "#4A90D9",
+  marni: "#D4A017",
+  rainbow: "#534AB7",
+};
+
 export default function ToolsPanel() {
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -152,8 +162,12 @@ export default function ToolsPanel() {
                     {t.assignedTo.map((a) => (
                       <span
                         key={a}
-                        className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium capitalize"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium capitalize"
                       >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full shrink-0"
+                          style={{ backgroundColor: AGENT_COLORS[a] || "var(--text-tertiary)" }}
+                        />
                         {a}
                       </span>
                     ))}

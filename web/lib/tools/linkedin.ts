@@ -6,11 +6,11 @@ import { TOOL_SCRIPTS_PATH, LINKEDIN_TIMEOUT, getToolEnv, hasUserApproval } from
 const tool: ToolModule = {
   metadata: {
     id: "linkedin",
-    displayName: "LinkedIn",
+    displayName: "LinkedIn Messaging",
     category: "external",
     description:
-      "Fetch profiles, send messages, check connections, and read conversations via the Unipile LinkedIn API",
-    externalSystem: "Unipile API (api32.unipile.com)",
+      "Fetch profiles, send messages, check connections, and read conversations. Syncs inbound messages to CRM every 15 min.",
+    externalSystem: "Unipile API → LinkedIn",
     operations: [
       "fetch-profile",
       "send-message",

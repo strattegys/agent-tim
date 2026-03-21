@@ -4,10 +4,10 @@ import type { ToolModule } from "./types";
 const tool: ToolModule = {
   metadata: {
     id: "delegate_task",
-    displayName: "Delegate Task",
+    displayName: "Task Delegation",
     category: "meta",
     description:
-      "Queue tasks for other agents to execute, either synchronously (wait for result) or asynchronously (background)",
+      "Hand off work to specialist agents. Sync mode waits for results; async queues for Scout's heartbeat to process.",
     operations: ["sync", "async"],
     requiresApproval: false,
   },

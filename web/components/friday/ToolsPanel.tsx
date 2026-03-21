@@ -143,11 +143,21 @@ export default function ToolsPanel() {
                   )}
                 </div>
 
-                {/* Description (always visible) */}
-                <div className="px-3 pb-2">
+                {/* Description + agents (always visible) */}
+                <div className="px-3 pb-2 space-y-1.5">
                   <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
                     {t.description}
                   </p>
+                  <div className="flex flex-wrap gap-1">
+                    {t.assignedTo.map((a) => (
+                      <span
+                        key={a}
+                        className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium capitalize"
+                      >
+                        {a}
+                      </span>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Expanded details */}

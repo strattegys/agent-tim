@@ -6,11 +6,11 @@ import { TOOL_SCRIPTS_PATH, TOOL_TIMEOUT, getToolEnv } from "./shared";
 const tool: ToolModule = {
   metadata: {
     id: "twenty_crm",
-    displayName: "Twenty CRM",
+    displayName: "CRM Database",
     category: "external",
     description:
-      "Search, create, and update contacts, companies, notes, and workflows in the CRM database",
-    externalSystem: "Twenty CRM (localhost:3000)",
+      "Read and write contacts, companies, notes, and workflows in the CRM. Powers pipeline tracking and contact management.",
+    externalSystem: "PostgreSQL via Twenty CRM API",
     operations: [
       "list-contacts",
       "search-contacts",

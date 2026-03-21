@@ -7,7 +7,7 @@ const tool: ToolModule = {
     displayName: "Agent Memory",
     category: "internal",
     description:
-      "Read, save, or replace an agent's long-term memory file for persisting facts across conversations",
+      "Persistent long-term memory for each agent. Stores facts, preferences, and context across conversations.",
     operations: ["read", "save_fact", "replace"],
     requiresApproval: false,
   },

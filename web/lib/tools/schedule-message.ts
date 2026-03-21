@@ -6,11 +6,11 @@ import { TOOL_SCRIPTS_PATH, TOOL_TIMEOUT, getToolEnv, hasUserApproval } from "./
 const tool: ToolModule = {
   metadata: {
     id: "schedule_message",
-    displayName: "Scheduled Messages",
+    displayName: "Message Scheduler",
     category: "external",
     description:
-      "Queue LinkedIn messages for future sending, list pending messages, or cancel queued messages",
-    externalSystem: "LinkedIn via Unipile (scheduled queue)",
+      "Queue LinkedIn messages for future delivery. Cron processes the queue every minute and sends due messages.",
+    externalSystem: "LinkedIn via Unipile (cron queue)",
     operations: ["schedule", "list", "cancel"],
     requiresApproval: true,
   },

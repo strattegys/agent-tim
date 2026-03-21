@@ -6,7 +6,7 @@ const tool: ToolModule = {
     displayName: "Workflow Manager",
     category: "internal",
     description:
-      "List, create, update, and assign workflows. Manage boards and templates for agent pipelines.",
+      "Create and manage agent workflows and pipelines. Tim's heartbeat monitors workflow health automatically.",
     operations: [
       "list-workflows",
       "get-workflow",

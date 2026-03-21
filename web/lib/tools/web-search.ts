@@ -7,7 +7,8 @@ const tool: ToolModule = {
     id: "web_search",
     displayName: "Web Search",
     category: "external",
-    description: "Search the web for real-time information using the Brave Search API",
+    description:
+      "Search the web for real-time information. Available to every agent for research and fact-checking.",
     externalSystem: "Brave Search API",
     operations: ["search"],
     requiresApproval: false,

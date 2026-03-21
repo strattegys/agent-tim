@@ -9,8 +9,8 @@ const tool: ToolModule = {
     displayName: "Agent Manager",
     category: "meta",
     description:
-      "Create new agents, read/update system prompts, check status, and restart services on the server",
-    externalSystem: "Server (SSH / systemd / PM2)",
+      "Provision new agents, read/update system prompts, check status, and restart services. Used by Friday on-demand.",
+    externalSystem: "Server (systemd / PM2)",
     operations: [
       "list-agents",
       "get-agent-config",

@@ -13,7 +13,7 @@ const tool: ToolModule = {
     displayName: "Reminders",
     category: "internal",
     description:
-      "Create, list, search, update, and delete reminders with recurrence support. Tracks birthdays, holidays, and tasks.",
+      "Track birthdays, holidays, recurring events, and tasks. Suzi checks due reminders every minute via heartbeat.",
     operations: ["list", "search", "add", "update", "delete", "upcoming"],
     requiresApproval: false,
   },

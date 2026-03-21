@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import ChatWindow, { type Message } from "@/components/ChatWindow";
 import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
@@ -20,11 +21,25 @@ export { AGENT_CATEGORIES };
 
 const AGENTS: AgentConfig[] = getFrontendAgents();
 
-export default function ChatPage() {
+export default function ChatPageWrapper() {
+  return (
+    <Suspense>
+      <ChatPage />
+    </Suspense>
+  );
+}
+
+function ChatPage() {
+  const searchParams = useSearchParams();
+  const paramAgent = searchParams.get("agent");
+  const paramPanel = searchParams.get("panel");
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeAgent, setActiveAgent] = useState("tim");
-  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "templates" | "dashboard" | "reminders">("info");
+  const [activeAgent, setActiveAgent] = useState(paramAgent || "suzi");
+  const [rightPanel, setRightPanel] = useState<"info" | "kanban" | "templates" | "dashboard" | "reminders">(
+    (paramPanel as "info" | "kanban" | "templates" | "dashboard" | "reminders") || "reminders"
+  );
   const [mobileShowChat, setMobileShowChat] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");

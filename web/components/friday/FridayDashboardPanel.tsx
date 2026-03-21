@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import WorkflowCard, { type WorkflowStat } from "./WorkflowRow";
 
 const COLUMNS = [
@@ -10,6 +10,8 @@ const COLUMNS = [
   { key: "COMPLETED", label: "Completed", color: "#22c55e" },
 ] as const;
 
+const POLL_INTERVAL = 5000;
+
 interface FridayDashboardPanelProps {
   onClose: () => void;
 }
@@ -17,14 +19,22 @@ interface FridayDashboardPanelProps {
 export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelProps) {
   const [workflows, setWorkflows] = useState<WorkflowStat[]>([]);
   const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
+  const fetchWorkflows = useCallback(() => {
     fetch("/api/crm/workflow-stats")
       .then((r) => r.json())
-      .then((data) => setWorkflows(data.workflows || []))
-      .catch(() => setWorkflows([]))
-      .finally(() => setLoading(false));
+      .then((data) => { if (mountedRef.current) setWorkflows(data.workflows || []); })
+      .catch(() => { if (mountedRef.current) setWorkflows([]); })
+      .finally(() => { if (mountedRef.current) setLoading(false); });
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchWorkflows();
+    const interval = setInterval(fetchWorkflows, POLL_INTERVAL);
+    return () => { mountedRef.current = false; clearInterval(interval); };
+  }, [fetchWorkflows]);
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">

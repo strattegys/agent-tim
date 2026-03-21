@@ -2,7 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import ReminderCard, { type Reminder } from "./ReminderCard";
+import SuziPunchListPanel from "./SuziPunchListPanel";
 import { panelBus } from "@/lib/events";
+
+type SubTab = "reminders" | "punchlist";
 
 const FILTERS = [
   "All",
@@ -60,6 +63,18 @@ interface SuziRemindersPanelProps {
 export default function SuziRemindersPanel({
   onClose,
 }: SuziRemindersPanelProps) {
+  const [subTab, setSubTab] = useState<SubTab>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("suzi_panel_subtab");
+      if (saved === "punchlist") return "punchlist";
+    }
+    return "reminders";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("suzi_panel_subtab", subTab);
+  }, [subTab]);
+
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>(() => {
@@ -181,13 +196,48 @@ export default function SuziRemindersPanel({
     }
   }
 
+  if (subTab === "punchlist") {
+    return (
+      <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
+        {/* Subtab header */}
+        <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
+          <button
+            onClick={() => setSubTab("reminders")}
+            className="text-xs font-medium px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            Reminders
+          </button>
+          <span className="text-[var(--text-tertiary)] text-[10px]">/</span>
+          <button
+            onClick={() => setSubTab("punchlist")}
+            className="text-xs font-semibold px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-primary)]"
+          >
+            Punch List
+          </button>
+        </div>
+        {/* Punch list content (without its own header) */}
+        <SuziPunchListPanel onClose={onClose} embedded />
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header */}
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-        <span className="text-xs font-semibold text-[var(--text-primary)]">
+      {/* Subtab header */}
+      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
+        <button
+          onClick={() => setSubTab("reminders")}
+          className="text-xs font-semibold px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-primary)]"
+        >
           Reminders
-        </span>
+        </button>
+        <span className="text-[var(--text-tertiary)] text-[10px]">/</span>
+        <button
+          onClick={() => setSubTab("punchlist")}
+          className="text-xs font-medium px-2 py-1 rounded cursor-pointer transition-colors text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+        >
+          Punch List
+        </button>
         <span className="ml-auto text-xs text-[var(--text-tertiary)]">
           {loading ? "Loading..." : `${sorted.length} items`}
         </span>

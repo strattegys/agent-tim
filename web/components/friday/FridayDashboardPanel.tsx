@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { WorkflowWithBoard } from "@/lib/board-types";
-import WorkflowRow from "./WorkflowRow";
+import WorkflowRow, { type WorkflowStat } from "./WorkflowRow";
 
 const FILTERS = ["All", "Active", "Paused", "Planning", "Completed"] as const;
 type Filter = (typeof FILTERS)[number];
@@ -12,12 +11,12 @@ interface FridayDashboardPanelProps {
 }
 
 export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelProps) {
-  const [workflows, setWorkflows] = useState<(WorkflowWithBoard & { updatedAt?: string })[]>([]);
+  const [workflows, setWorkflows] = useState<WorkflowStat[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("All");
 
   useEffect(() => {
-    fetch("/api/crm/workflows")
+    fetch("/api/crm/workflow-stats")
       .then((r) => r.json())
       .then((data) => setWorkflows(data.workflows || []))
       .catch(() => setWorkflows([]))
@@ -28,6 +27,9 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
     ? workflows
     : workflows.filter((w) => w.stage.toUpperCase() === filter.toUpperCase());
 
+  const totalItems = workflows.reduce((sum, w) => sum + w.totalItems, 0);
+  const totalAlerts = workflows.reduce((sum, w) => sum + w.alertCount, 0);
+
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       {/* Header */}
@@ -36,7 +38,13 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
           All Workflows
         </span>
         <span className="ml-auto text-xs text-[var(--text-tertiary)]">
-          {loading ? "Loading..." : `${filtered.length} workflows`}
+          {loading ? "Loading..." : (
+            <>
+              {filtered.length} workflow{filtered.length !== 1 ? "s" : ""}
+              {totalItems > 0 && ` \u00B7 ${totalItems} items`}
+              {totalAlerts > 0 && ` \u00B7 ${totalAlerts} alerts`}
+            </>
+          )}
         </span>
       </div>
 
@@ -58,7 +66,7 @@ export default function FridayDashboardPanel({ onClose }: FridayDashboardPanelPr
       </div>
 
       {/* Workflow list */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+      <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <p className="text-sm text-[var(--text-tertiary)]">Loading workflows...</p>

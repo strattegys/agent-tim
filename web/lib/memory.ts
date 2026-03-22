@@ -149,10 +149,6 @@ export async function consolidateSession(
 
     if (messages.length < threshold) return;
 
-    // Call Gemini for summarization
-    const { GoogleGenAI } = await import("@google/genai");
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-
     const consolidationPrompt = `You are a memory consolidation assistant. Analyze this conversation and:
 
 1. Extract key FACTS as bullet points (user preferences, decisions made, important context, names/dates mentioned).
@@ -171,13 +167,32 @@ Brief summary here.
 Conversation to analyze:
 ${messages.slice(-100).join("\n")}`;
 
-    const response = await ai.models.generateContent({
-      model: getAgentConfig(agentId).modelName || "gemini-2.5-flash",
-      contents: [{ role: "user", parts: [{ text: consolidationPrompt }] }],
-      config: { temperature: 0.3, maxOutputTokens: 1024 },
-    });
+    const agentConfig = getAgentConfig(agentId);
+    let result: string | undefined;
 
-    const result = response.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (agentConfig.provider === "anthropic") {
+      // Use Claude for Anthropic agents (e.g. Suzi)
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+      const response = await client.messages.create({
+        model: agentConfig.modelName || "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
+        messages: [{ role: "user", content: consolidationPrompt }],
+      });
+      const block = response.content[0];
+      result = block.type === "text" ? block.text : undefined;
+    } else {
+      // Use Gemini for Gemini agents (default)
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const response = await ai.models.generateContent({
+        model: agentConfig.modelName || "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: consolidationPrompt }] }],
+        config: { temperature: 0.3, maxOutputTokens: 1024 },
+      });
+      result = response.candidates?.[0]?.content?.parts?.[0]?.text ?? undefined;
+    }
+
     if (!result) return;
 
     // Parse facts and summary

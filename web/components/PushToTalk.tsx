@@ -6,6 +6,8 @@ import { useRef, useState, useCallback, useEffect } from "react";
 interface PushToTalkProps {
   onTranscript: (text: string) => void;
   disabled?: boolean;
+  ttsSpeaking?: boolean;
+  onStopTts?: () => void;
 }
 
 function WaveformBars() {
@@ -26,7 +28,7 @@ function WaveformBars() {
 
 const SILENCE_TIMEOUT_MS = 5000;
 
-export default function PushToTalk({ onTranscript, disabled }: PushToTalkProps) {
+export default function PushToTalk({ onTranscript, disabled, ttsSpeaking, onStopTts }: PushToTalkProps) {
   const [isListening, setIsListening] = useState(false);
   const [supported, setSupported] = useState(true);
   const recognitionRef = useRef<any>(null);
@@ -105,6 +107,27 @@ export default function PushToTalk({ onTranscript, disabled }: PushToTalkProps) 
   }, [isListening, start, stop]);
 
   if (!supported) return null;
+
+  // When TTS is speaking, show a stop button instead of the mic
+  if (ttsSpeaking) {
+    return (
+      <button
+        onClick={onStopTts}
+        className="w-10 h-10 rounded-full flex items-center justify-center transition-all select-none shrink-0 bg-red-500 hover:bg-red-600 cursor-pointer animate-pulse"
+        title="Stop speaking"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          className="text-white"
+        >
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+        </svg>
+      </button>
+    );
+  }
 
   return (
     <button

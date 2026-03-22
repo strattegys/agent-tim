@@ -18,6 +18,8 @@ interface ChatInputProps {
   replyTo?: ReplyContext | null;
   onCancelReply?: () => void;
   agentName?: string;
+  ttsSpeaking?: boolean;
+  onStopTts?: () => void;
 }
 
 export default function ChatInput({
@@ -29,6 +31,8 @@ export default function ChatInput({
   replyTo,
   onCancelReply,
   agentName,
+  ttsSpeaking,
+  onStopTts,
 }: ChatInputProps) {
   const [text, setText] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -106,7 +110,7 @@ export default function ChatInput({
           style={{ minHeight: "80px" }}
         />
         <div className="flex flex-col items-center gap-1.5 shrink-0">
-          <PushToTalk onTranscript={handleTranscript} disabled={disabled} />
+          <PushToTalk onTranscript={handleTranscript} disabled={disabled} ttsSpeaking={ttsSpeaking} onStopTts={onStopTts} />
           {isLoading ? (
             <button
               onClick={onStop}

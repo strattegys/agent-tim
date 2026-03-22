@@ -15,7 +15,7 @@ import NotificationBell from "@/components/NotificationBell";
 import { agentHasKanban } from "@/lib/agent-config";
 import { getFrontendAgents, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
-import { TtsQueue } from "@/lib/tts-queue";
+import { TtsQueue, type TtsState } from "@/lib/tts-queue";
 import Link from "next/link";
 
 
@@ -67,6 +67,8 @@ function ChatPage() {
   });
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
+  const [ttsSpeaking, setTtsSpeaking] = useState(false);
+  const ttsQueueRef = useRef<TtsQueue | null>(null);
   const loadedAgentRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -301,8 +303,16 @@ function ChatPage() {
         const decoder = new TextDecoder();
         let buffer = "";
 
-        // Start TTS queue if agent has a voice — sentences stream to TTS as they arrive
-        const ttsQueue = agent.ttsVoice ? new TtsQueue(agent.ttsVoice) : null;
+        // Start TTS queue if agent has a voice
+        const ttsQueue = agent.ttsVoice
+          ? new TtsQueue({
+              voice: agent.ttsVoice,
+              onStateChange: (state: TtsState) => {
+                setTtsSpeaking(state === "speaking" || state === "loading");
+              },
+            })
+          : null;
+        ttsQueueRef.current = ttsQueue;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -394,6 +404,12 @@ function ChatPage() {
 
   const stopResponse = useCallback(() => {
     abortRef.current?.abort();
+    ttsQueueRef.current?.stop();
+  }, []);
+
+  const stopTts = useCallback(() => {
+    ttsQueueRef.current?.stop();
+    ttsQueueRef.current = null;
   }, []);
 
   return (
@@ -532,6 +548,8 @@ function ChatPage() {
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           agentName={agent.name}
+          ttsSpeaking={ttsSpeaking}
+          onStopTts={stopTts}
         />
       </div>
 
@@ -647,6 +665,8 @@ function ChatPage() {
           replyTo={replyTo}
           onCancelReply={() => setReplyTo(null)}
           agentName={agent.name}
+          ttsSpeaking={ttsSpeaking}
+          onStopTts={stopTts}
         />
       </div>
 

@@ -1,108 +1,115 @@
 /**
- * Client-side TTS queue: splits text into sentences, fires TTS requests
- * in parallel, and plays audio chunks sequentially as they resolve.
+ * Client-side TTS queue.
  *
- * Usage:
- *   const queue = new TtsQueue("Zephyr");
- *   // Call as streaming chunks arrive:
- *   queue.push("Hello there. How are you?");
- *   queue.push(" I'm doing well.");
- *   // When streaming is done:
- *   queue.flush();
+ * - Accumulates streamed text
+ * - On flush: if short, TTS the full text; if long, ask server to summarize first
+ * - Plays audio and signals state changes via onStateChange callback
+ * - stop() cancels any in-flight request and halts playback
  */
 
-const SENTENCE_RE = /(?<=[.!?])\s+/;
+const LONG_THRESHOLD_WORDS = 100;
+
+export type TtsState = "idle" | "loading" | "speaking";
+
+export interface TtsQueueOptions {
+  voice: string;
+  onStateChange?: (state: TtsState) => void;
+}
 
 export class TtsQueue {
   private voice: string;
   private buffer = "";
-  private audioQueue: Promise<Blob | null>[] = [];
-  private playing = false;
-  private flushed = false;
-  private playIndex = 0;
+  private aborted = false;
+  private currentAudio: HTMLAudioElement | null = null;
+  private onStateChange: (state: TtsState) => void;
 
-  constructor(voice: string) {
-    this.voice = voice;
+  constructor(opts: TtsQueueOptions) {
+    this.voice = opts.voice;
+    this.onStateChange = opts.onStateChange ?? (() => {});
   }
 
-  /** Feed streaming text chunks. Sentences are detected and sent to TTS. */
+  /** Feed streaming text chunks. */
   push(chunk: string) {
     this.buffer += chunk;
-    this.drainSentences();
   }
 
-  /** Signal that streaming is done — send any remaining text. */
-  flush() {
-    this.flushed = true;
-    const remaining = this.buffer.trim();
-    if (remaining) {
-      this.buffer = "";
-      this.enqueue(remaining);
-    }
-    this.tryPlay();
-  }
+  /** Streaming done — fire TTS (with optional summarization for long text). */
+  async flush() {
+    if (this.aborted) return;
 
-  /** Stop all playback and clear the queue. */
-  stop() {
-    this.flushed = true;
+    const text = this.buffer.trim();
     this.buffer = "";
-    this.audioQueue = [];
-    this.playing = false;
-  }
+    if (!text) return;
 
-  private drainSentences() {
-    // Extract complete sentences from buffer
-    const parts = this.buffer.split(SENTENCE_RE);
-    if (parts.length > 1) {
-      // All but the last part are complete sentences
-      const completeSentences = parts.slice(0, -1).join(" ").trim();
-      this.buffer = parts[parts.length - 1];
-      if (completeSentences) {
-        this.enqueue(completeSentences);
+    const wordCount = text.split(/\s+/).length;
+    const summarize = wordCount > LONG_THRESHOLD_WORDS;
+
+    this.onStateChange("loading");
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, voice: this.voice, summarize }),
+      });
+
+      if (this.aborted || !res.ok) {
+        this.onStateChange("idle");
+        return;
       }
+
+      const blob = await res.blob();
+      if (this.aborted) {
+        this.onStateChange("idle");
+        return;
+      }
+
+      await this.playBlob(blob);
+    } catch {
+      // network error or aborted
+    }
+
+    if (!this.aborted) {
+      this.onStateChange("idle");
     }
   }
 
-  private enqueue(text: string) {
-    const promise = fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice: this.voice }),
-    })
-      .then((res) => (res.ok ? res.blob() : null))
-      .catch(() => null);
-
-    this.audioQueue.push(promise);
-    this.tryPlay();
+  /** Stop playback and cancel any pending request. */
+  stop() {
+    this.aborted = true;
+    this.buffer = "";
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio = null;
+    }
+    this.onStateChange("idle");
   }
 
-  private async tryPlay() {
-    if (this.playing) return;
-    if (this.playIndex >= this.audioQueue.length) return;
-
-    this.playing = true;
-
-    while (this.playIndex < this.audioQueue.length) {
-      const blob = await this.audioQueue[this.playIndex];
-      this.playIndex++;
-
-      if (!blob) continue;
+  private playBlob(blob: Blob): Promise<void> {
+    return new Promise((resolve) => {
+      if (this.aborted) { resolve(); return; }
 
       const url = URL.createObjectURL(blob);
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const audio = new Audio(url);
-          audio.onended = () => resolve();
-          audio.onerror = () => reject();
-          audio.play().catch(reject);
-        });
-      } catch {
-        // skip failed chunks
-      } finally {
-        URL.revokeObjectURL(url);
-      }
-    }
+      const audio = new Audio(url);
+      this.currentAudio = audio;
 
-    this.playing = false;
+      this.onStateChange("speaking");
+
+      audio.onended = () => {
+        this.currentAudio = null;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.onerror = () => {
+        this.currentAudio = null;
+        URL.revokeObjectURL(url);
+        resolve();
+      };
+      audio.play().catch(() => {
+        this.currentAudio = null;
+        URL.revokeObjectURL(url);
+        resolve();
+      });
+    });
   }
 }

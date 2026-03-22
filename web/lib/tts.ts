@@ -48,20 +48,20 @@ export async function summarizeForVoice(text: string): Promise<string> {
         role: "user",
         parts: [
           {
-            text: `Summarize the following response in 1-2 short sentences for a voice readout. Keep it natural and conversational:\n\n${text}`,
+            text: `You are an AI assistant named Suzi. Rewrite the following response as a brief spoken summary (2-3 sentences max). Speak in first person as Suzi. Be natural and conversational — as if you're giving a quick verbal recap. Do NOT use phrases like "the speaker" or "the response says". Just say it directly.\n\nOriginal response:\n${text}`,
           },
         ],
       },
     ],
     config: {
-      maxOutputTokens: 100,
-      temperature: 0.5,
+      maxOutputTokens: 150,
+      temperature: 0.7,
     },
   });
 
   return (
     response.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Here's what I found."
+    "Here's a quick summary of what I said."
   );
 }
 

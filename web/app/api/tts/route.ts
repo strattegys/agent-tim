@@ -1,16 +1,9 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { textToSpeech } from "@/lib/tts";
+import { textToSpeech, summarizeForVoice } from "@/lib/tts";
 
 export async function POST(request: Request) {
-  // Auth check - allow unauthenticated for now (no Google OAuth configured)
-  // const session = await auth();
-  // if (!session?.user?.email) {
-  //   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // }
-
   try {
-    const { text, voice } = await request.json();
+    const { text, voice, summarize } = await request.json();
     if (!text || typeof text !== "string") {
       return NextResponse.json(
         { error: "Text is required" },
@@ -18,7 +11,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const wavBuffer = await textToSpeech(text, voice);
+    // Optionally summarize long text into a concise voice-friendly blurb
+    const spokenText = summarize ? await summarizeForVoice(text) : text;
+
+    const wavBuffer = await textToSpeech(spokenText, voice);
 
     return new NextResponse(new Uint8Array(wavBuffer), {
       headers: {

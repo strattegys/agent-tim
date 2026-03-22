@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { textToSpeech, summarizeForVoice } from "@/lib/tts";
+import { textToSpeechStream, summarizeForVoice } from "@/lib/tts";
 
 export async function POST(request: Request) {
   try {
-    const { text, voice, summarize } = await request.json();
+    const { text, summarize } = await request.json();
     if (!text || typeof text !== "string") {
       return NextResponse.json(
         { error: "Text is required" },
@@ -14,11 +14,13 @@ export async function POST(request: Request) {
     // Optionally summarize long text into a concise voice-friendly blurb
     const spokenText = summarize ? await summarizeForVoice(text) : text;
 
-    const wavBuffer = await textToSpeech(spokenText, voice);
+    // Stream mp3 audio from ElevenLabs directly to the client
+    const audioStream = await textToSpeechStream(spokenText);
 
-    return new NextResponse(new Uint8Array(wavBuffer), {
+    return new Response(audioStream, {
       headers: {
-        "Content-Type": "audio/wav",
+        "Content-Type": "audio/mpeg",
+        "Transfer-Encoding": "chunked",
       },
     });
   } catch (error: unknown) {

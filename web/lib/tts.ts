@@ -1,46 +1,16 @@
 import { GoogleGenAI } from "@google/genai";
 
-const DEFAULT_TTS_VOICE = "Kore";
-const WORD_THRESHOLD = 75; // ~30 seconds of speech at 150 wpm
+const ELEVENLABS_API = "https://api.elevenlabs.io/v1";
 
-function getClient(): GoogleGenAI {
+function getGeminiClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 }
 
-/** Convert PCM L16 24kHz mono to WAV */
-function pcmToWav(pcmData: Buffer): Buffer {
-  const sampleRate = 24000;
-  const bitsPerSample = 16;
-  const numChannels = 1;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const dataSize = pcmData.length;
-
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + dataSize, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16); // chunk size
-  header.writeUInt16LE(1, 20); // PCM format
-  header.writeUInt16LE(numChannels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(dataSize, 40);
-
-  return Buffer.concat([header, pcmData]);
-}
-
-export function isLongReply(text: string): boolean {
-  const wordCount = text.split(/\s+/).length;
-  return wordCount > WORD_THRESHOLD;
-}
-
+/**
+ * Summarize a long response into a concise spoken blurb (uses Gemini text model).
+ */
 export async function summarizeForVoice(text: string): Promise<string> {
-  const ai = getClient();
+  const ai = getGeminiClient();
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash",
     contents: [
@@ -65,34 +35,45 @@ export async function summarizeForVoice(text: string): Promise<string> {
   );
 }
 
-export async function textToSpeech(text: string, voice?: string): Promise<Buffer> {
-  const ai = getClient();
+/**
+ * Stream TTS audio from ElevenLabs.
+ * Returns a ReadableStream of mp3 chunks — pipe directly to the client response.
+ */
+export async function textToSpeechStream(text: string): Promise<ReadableStream<Uint8Array>> {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  const voiceId = process.env.ELEVENLABS_VOICE_ID;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash-preview-tts",
-    contents: [
-      {
-        role: "user",
-        parts: [{ text }],
-      },
-    ],
-    config: {
-      responseModalities: ["AUDIO"],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: voice || DEFAULT_TTS_VOICE,
-          },
-        },
-      },
-    },
-  });
-
-  const audioPart = response.candidates?.[0]?.content?.parts?.[0];
-  if (!audioPart?.inlineData?.data) {
-    throw new Error("No audio data in TTS response");
+  if (!apiKey || !voiceId) {
+    throw new Error("ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID must be set");
   }
 
-  const pcmBuffer = Buffer.from(audioPart.inlineData.data, "base64");
-  return pcmToWav(pcmBuffer);
+  const res = await fetch(`${ELEVENLABS_API}/text-to-speech/${voiceId}/stream`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": apiKey,
+      "Content-Type": "application/json",
+      Accept: "audio/mpeg",
+    },
+    body: JSON.stringify({
+      text,
+      model_id: "eleven_turbo_v2_5",
+      voice_settings: {
+        stability: 0.5,
+        similarity_boost: 0.75,
+        style: 0.0,
+        use_speaker_boost: true,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text().catch(() => "Unknown error");
+    throw new Error(`ElevenLabs API error ${res.status}: ${err}`);
+  }
+
+  if (!res.body) {
+    throw new Error("No response body from ElevenLabs");
+  }
+
+  return res.body as ReadableStream<Uint8Array>;
 }

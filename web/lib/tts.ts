@@ -1,38 +1,38 @@
-import { GoogleGenAI } from "@google/genai";
+import Anthropic from "@anthropic-ai/sdk";
 
 const ELEVENLABS_API = "https://api.elevenlabs.io/v1";
 
-function getGeminiClient(): GoogleGenAI {
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-}
-
 /**
- * Summarize a long response into a concise spoken blurb (uses Gemini text model).
+ * Summarize a long response into a concise spoken blurb using Claude Haiku.
  */
 export async function summarizeForVoice(text: string): Promise<string> {
-  const ai = getGeminiClient();
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [
+  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
+  const response = await client.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 300,
+    messages: [
       {
         role: "user",
-        parts: [
-          {
-            text: `You are an AI assistant named Suzi. Rewrite the following response as a spoken summary (4-6 sentences). Cover the key points — don't just greet and stop. Speak in first person as Suzi. Be natural and conversational — as if you're giving a verbal recap to your boss. Do NOT use phrases like "the speaker" or "the response says". Do NOT start with just a greeting — jump into the substance.\n\nOriginal response:\n${text}`,
-          },
-        ],
+        content: `You are Suzi, an AI assistant. Summarize this response as a brief spoken recap (3-5 sentences). Rules:
+- Speak in first person as Suzi
+- Cover ALL key points, not just the greeting
+- Be natural and conversational, like you're giving a verbal update to your boss
+- Do NOT use phrases like "the speaker" or "the response says"
+- Do NOT output just a greeting — lead with substance
+- Strip out markdown formatting, bullet points, and lists — convert to flowing speech
+
+Response to summarize:
+${text}`,
       },
     ],
-    config: {
-      maxOutputTokens: 300,
-      temperature: 0.7,
-    },
   });
 
-  return (
-    response.candidates?.[0]?.content?.parts?.[0]?.text ||
-    "Here's a quick summary of what I said."
-  );
+  const block = response.content[0];
+  if (block.type === "text" && block.text) {
+    return block.text;
+  }
+  return "Here's a quick summary of what I said.";
 }
 
 /**

@@ -2,6 +2,7 @@ import { query } from "./db";
 import { embedText, toPgVector } from "./embeddings";
 
 export interface MemoryRecord {
+  [key: string]: unknown;
   id: string;
   agentId: string;
   content: string;

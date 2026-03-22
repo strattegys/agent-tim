@@ -218,7 +218,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     workflowTypes: [],
     ttsVoice: "Zephyr",
     vectorMemory: true,
-    modelName: "gemini-2.5-flash",
+    modelName: "gemini-2.5-pro",
     delegation: {
       canDelegateTo: [],
       acceptsTaskTypes: [],

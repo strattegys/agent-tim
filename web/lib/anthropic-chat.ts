@@ -74,6 +74,8 @@ export async function chatStreamAnthropic(
   let messages = buildMessages(history, userMessage);
   let iterations = 0;
 
+  console.log(`[anthropic] tools for ${agentId}: [${tools.map(t => t.name).join(", ")}] (${tools.length} total)`);
+
   // Tool call loop (non-streaming)
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
@@ -86,7 +88,7 @@ export async function chatStreamAnthropic(
       tools: tools.length > 0 ? tools : undefined,
     });
 
-    console.log(`[anthropic] stop_reason=${response.stop_reason}, blocks=${response.content.length}, types=${response.content.map(b => b.type).join(",")}`);
+    console.log(`[anthropic] stop_reason=${response.stop_reason}, blocks=${response.content.length}, types=${response.content.map(b => b.type).join(",")}, tools_passed=${tools.length}`);
 
     // Check for tool use
     const toolUseBlocks = response.content.filter(

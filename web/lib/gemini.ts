@@ -7,6 +7,26 @@ import { consolidateSession } from "./memory";
 
 const MAX_TOOL_ITERATIONS = 20;
 
+/**
+ * Build a summary string of tool calls executed during a conversation turn.
+ * This gets prepended to the saved model message so session history shows
+ * evidence of tool usage, preventing the model from learning that text-only
+ * "I did it!" responses are acceptable.
+ */
+function buildToolSummary(calls: Array<{ name: string; args: Record<string, string>; result: string }>): string {
+  if (calls.length === 0) return "";
+  const lines = calls.map((c) => {
+    const argStr = Object.entries(c.args)
+      .filter(([k]) => k !== "command")
+      .map(([k, v]) => `${k}=${String(v).slice(0, 50)}`)
+      .join(", ");
+    const cmd = c.args.command ? `(${c.args.command})` : "";
+    const shortResult = c.result.slice(0, 100);
+    return `  ${c.name}${cmd}${argStr ? ` [${argStr}]` : ""} → ${shortResult}`;
+  });
+  return `[Tools executed]\n${lines.join("\n")}\n\n`;
+}
+
 function getClient(): GoogleGenAI {
   return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 }
@@ -61,6 +81,7 @@ export async function chat(
 
   const tools = buildGeminiTools(config.tools);
   const delegatedAgents = new Set<string>();
+  const executedTools: Array<{ name: string; args: Record<string, string>; result: string }> = [];
 
   let iterations = 0;
 
@@ -130,12 +151,14 @@ export async function chat(
       // Execute valid calls; return errors for invalid ones
       const allResponses = [];
       for (const fc of validCalls) {
+        const args = (fc.functionCall!.args as Record<string, string>) || {};
         const result = await executeTool(
           fc.functionCall!.name!,
-          (fc.functionCall!.args as Record<string, string>) || {},
+          args,
           userMessage,
           agentId
         );
+        executedTools.push({ name: fc.functionCall!.name!, args, result });
         allResponses.push({
           functionResponse: {
             name: fc.functionCall!.name!,
@@ -172,9 +195,11 @@ export async function chat(
         timestamp: Date.now(),
       });
 
+      // Prepend tool summary so session history shows evidence of tool usage
+      const toolSummary = buildToolSummary(executedTools);
       const modelMsg: ChatMessage = {
         role: "model",
-        text: replyText,
+        text: toolSummary + replyText,
         timestamp: Date.now(),
       };
       if (delegatedAgents.size > 0) {
@@ -383,6 +408,7 @@ export async function chatStream(
     tools,
   };
   const delegatedAgents = new Set<string>();
+  const executedTools: Array<{ name: string; args: Record<string, string>; result: string }> = [];
 
   let iterations = 0;
 
@@ -412,9 +438,10 @@ export async function chatStream(
           text: userMessage,
           timestamp: Date.now(),
         });
+        const toolSummary = buildToolSummary(executedTools);
         const modelMsg: ChatMessage = {
           role: "model",
-          text: inlineText,
+          text: toolSummary + inlineText,
           timestamp: Date.now(),
         };
         if (delegatedAgents.size > 0) {
@@ -478,13 +505,15 @@ export async function chatStream(
     const allResponses = [];
     for (const fc of validCalls) {
       const toolName = fc.functionCall!.name!;
+      const args = (fc.functionCall!.args as Record<string, string>) || {};
       const result = await executeTool(
         toolName,
-        (fc.functionCall!.args as Record<string, string>) || {},
+        args,
         userMessage,
         agentId
       );
       toolNames.push(toolName);
+      executedTools.push({ name: toolName, args, result });
       allResponses.push({
         functionResponse: {
           name: toolName,
@@ -535,9 +564,10 @@ export async function chatStream(
       timestamp: Date.now(),
     });
 
+    const toolSummary = buildToolSummary(executedTools);
     const modelMsg: ChatMessage = {
       role: "model",
-      text: fullText,
+      text: toolSummary + fullText,
       timestamp: Date.now(),
     };
     if (delegatedAgents.size > 0) {

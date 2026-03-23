@@ -92,5 +92,28 @@ export async function getSystemPrompt(
     }
   }
 
-  return `${content}\n\nCurrent date and time (US Pacific): ${pacific}${memorySection}`;
+  // Tool enforcement block — injected for all agents with tools
+  let toolEnforcement = "";
+  if (agentId) {
+    try {
+      const agentConfig = getAgentConfig(agentId);
+      if (agentConfig.tools.length > 0) {
+        toolEnforcement = `
+
+## MANDATORY: Tool Execution Enforcement
+You have these tools available: ${agentConfig.tools.join(", ")}
+
+ABSOLUTE RULES — violations will cause data loss for the user:
+1. When the user asks you to ADD, CREATE, DELETE, UPDATE, MARK DONE, or CHANGE anything in reminders, punch list, or notes — you MUST respond with a function call. NEVER respond with only text.
+2. If you say "Done!" or "I've added/deleted/updated that" WITHOUT having made a function call in this turn, THE ACTION DID NOT HAPPEN and the user will be misled.
+3. After executing a tool, CHECK the return value. Only confirm success if the return contains a confirmation (ID, number, "success"). If it contains "Error", tell the user.
+4. NEVER claim you performed an action based on memory of a previous conversation. Each request requires a NEW tool call.
+5. If you are unsure whether a tool call succeeded, call the "list" command to verify.`;
+      }
+    } catch {
+      // agent not found — skip
+    }
+  }
+
+  return `${content}\n\nCurrent date and time (US Pacific): ${pacific}${memorySection}${toolEnforcement}`;
 }

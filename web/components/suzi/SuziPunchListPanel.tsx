@@ -224,7 +224,7 @@ export default function SuziPunchListPanel({
       )}
 
       {/* Rank filter */}
-      {availableRanks.length > 1 && (
+      {availableRanks.length > 0 && (
         <div className="shrink-0 px-3 py-1.5 flex items-center gap-1 border-b border-[var(--border-color)]">
           <span className="text-[9px] text-[var(--text-tertiary)] mr-1">Rank</span>
           {availableRanks.map((rank) => (

@@ -76,16 +76,21 @@ export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesP
   }, [fetchNotes, fetchTags]);
 
   const handleDelete = useCallback(async (id: string) => {
+    // Optimistic removal
+    setNotes((prev) => prev.filter((n) => n.id !== id));
     try {
-      await fetch("/api/notes", {
+      const res = await fetch("/api/notes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command: "delete", id }),
       });
-      fetchNotes();
+      if (!res.ok) {
+        // Revert on failure
+        fetchNotes();
+      }
       fetchTags();
     } catch {
-      // ignore
+      fetchNotes();
     }
   }, [fetchNotes, fetchTags]);
 

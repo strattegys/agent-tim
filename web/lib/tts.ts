@@ -1,20 +1,16 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenAI } from "@google/genai";
 
 const ELEVENLABS_API = "https://api.elevenlabs.io/v1";
 
 /**
- * Summarize a long response into a concise spoken blurb using Claude Haiku.
+ * Summarize a long response into a concise spoken blurb using Gemini Flash.
  */
 export async function summarizeForVoice(text: string): Promise<string> {
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-  const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 300,
-    messages: [
-      {
-        role: "user",
-        content: `You are Suzi, an AI assistant. Summarize this response as a brief spoken recap (3-5 sentences). Rules:
+  const response = await client.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: `You are Suzi, an AI assistant. Summarize this response as a brief spoken recap (3-5 sentences). Rules:
 - Speak in first person as Suzi
 - Cover ALL key points, not just the greeting
 - Be natural and conversational, like you're giving a verbal update to your boss
@@ -24,13 +20,11 @@ export async function summarizeForVoice(text: string): Promise<string> {
 
 Response to summarize:
 ${text}`,
-      },
-    ],
   });
 
-  const block = response.content[0];
-  if (block.type === "text" && block.text) {
-    return block.text;
+  const result = response.text;
+  if (result) {
+    return result;
   }
   return "Here's a quick summary of what I said.";
 }

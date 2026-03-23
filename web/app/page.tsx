@@ -522,15 +522,21 @@ function ChatPage() {
               <polyline points="15,18 9,12 15,6" />
             </svg>
           </button>
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden shrink-0"
-            style={{ background: agent.color }}
-          >
-            {agent.avatar && (
-              <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover absolute inset-0"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-            )}
-            <span className="text-sm font-medium text-white">{agent.name[0]}</span>
+          <div className="relative shrink-0">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden"
+              style={{ background: agent.color }}
+            >
+              {agent.avatar && (
+                <img src={agent.avatar} alt={agent.name} className="w-full h-full object-cover absolute inset-0"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              )}
+              <span className="text-sm font-medium text-white">{agent.name[0]}</span>
+            </div>
+            <span
+              className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-[var(--bg-primary)]"
+              style={{ background: !agent.online ? "#555" : (activeAgent === "friday" && pendingTaskCount > 0) ? "#F59E0B" : "#1D9E75" }}
+            />
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{agent.name}</div>

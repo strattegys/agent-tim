@@ -5,274 +5,15 @@ import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 /**
  * POST /api/crm/packages/simulate
  *
- * Advances all non-human stages in a package's workflows by one step.
- * At each non-human stage, creates a mock artifact, then advances.
- * Stops at any stage that requiresHuman — those appear in Friday's queue.
+ * Full E2E simulation: advances ALL items through their entire lifecycle,
+ * auto-accepting human stages, triggering cross-workflow handoffs,
+ * and respecting connection rates and Scout stop conditions.
  *
- * Call repeatedly to walk through the simulation. Each call advances
- * all eligible items by one stage.
+ * Connection rate: 80% stay at CR Sent (INITIATED), 20% accepted
+ * Scout stops: when Tim has 20 ENDED sequences
  *
  * Body: { packageId: string }
  */
-
-const MOCK_ARTIFACTS: Record<string, Record<string, { name: string; content: string }>> = {
-  "content-pipeline": {
-    IDEA: {
-      name: "Content Brief",
-      content: `# Content Brief: The Future of B2B Influencer Marketing
-
-## Working Title
-"Why B2B Brands Are Betting Big on Influencer Partnerships in 2026"
-
-## Key Points to Cover
-- The shift from B2C to B2B influencer strategies
-- Data: 78% of B2B buyers trust peer recommendations over vendor content
-- Case studies: 3 companies that drove pipeline through influencer content
-- How to identify and engage industry thought leaders
-- Measuring ROI beyond vanity metrics
-
-## Target Keywords
-- B2B influencer marketing
-- thought leadership partnerships
-- B2B content strategy 2026
-
-## Target Audience Angle
-VP/Director-level marketing leaders at mid-market SaaS companies who are exploring influencer strategies but lack a playbook.
-
-## Estimated Word Count
-1,800 - 2,200 words
-
-## Campaign Connection
-This article positions Strattegys as the expert in B2B influencer outreach, directly supporting the outreach messaging to qualified targets.`,
-    },
-    DRAFTING: {
-      name: "Article Draft",
-      content: `# Why B2B Brands Are Betting Big on Influencer Partnerships in 2026
-
-*By Ghost — Draft v1*
-
-## Introduction
-
-The B2B marketing landscape is undergoing a fundamental shift. While consumer brands have long leveraged influencers to drive awareness and sales, B2B companies are now discovering that industry thought leaders can be their most powerful growth channel.
-
-According to recent research, 78% of B2B decision-makers say they trust recommendations from industry peers over traditional vendor marketing. This isn't surprising — in a world of information overload, buyers increasingly rely on trusted voices to cut through the noise.
-
-## The Rise of B2B Influencer Strategy
-
-Unlike B2C influencer marketing, B2B influencer partnerships aren't about follower counts or viral moments. They're about credibility, expertise, and authentic thought leadership.
-
-Consider these three companies that have successfully leveraged influencer partnerships:
-
-**Company A: CloudScale (Series B SaaS)**
-CloudScale partnered with three DevOps thought leaders who collectively reached 150K technical decision-makers on LinkedIn. The result: 47 qualified demos in 90 days, with a 3.2x better conversion rate compared to paid ads.
-
-**Company B: DataPulse (Mid-market Analytics)**
-By co-creating a research report with an industry analyst, DataPulse generated 890 downloads and 23 enterprise meetings — all from a single content collaboration.
-
-**Company C: SecureOps (Cybersecurity)**
-SecureOps built a "CISO Council" of 5 industry influencers who contributed to a monthly security briefing. Within 6 months, the briefing had 2,400 subscribers and drove 31% of their qualified pipeline.
-
-## Identifying the Right Influencers
-
-The key to B2B influencer success lies in targeting the right partners. Look for:
-
-1. **Domain expertise** — They must be genuinely knowledgeable in your space
-2. **Engaged audience** — Quality over quantity. A LinkedIn post with 50 thoughtful comments beats 5,000 likes
-3. **Content consistency** — They regularly publish and engage with their community
-4. **Alignment** — Their values and messaging naturally complement your brand
-
-## Building Authentic Partnerships
-
-The most effective B2B influencer relationships are long-term partnerships, not transactional sponsorships. Consider these approaches:
-
-- **Co-created content** — Write articles, host webinars, or produce research together
-- **Advisory relationships** — Engage influencers as advisors or board members
-- **Event collaboration** — Feature them at conferences or create joint events
-- **Community building** — Include them in exclusive communities or councils
-
-## Measuring What Matters
-
-Traditional influencer metrics (impressions, likes) don't capture B2B value. Focus on:
-
-- **Pipeline influence** — Did the content contribute to deals in your pipeline?
-- **Meeting generation** — How many qualified meetings resulted from influencer content?
-- **Content engagement quality** — Are the right people (ICP-matching titles) engaging?
-- **Brand perception shift** — Survey-based measurement of credibility improvement
-
-## Conclusion
-
-B2B influencer marketing isn't a trend — it's a strategic imperative. Companies that build authentic relationships with industry thought leaders will have a sustainable competitive advantage in reaching and influencing buying committees.
-
-The question isn't whether to invest in B2B influencer partnerships, but how quickly you can start building them.
-
----
-
-*[Draft note: Sections on measuring ROI may need human expertise. Case study data should be fact-checked.]*`,
-    },
-  },
-  "research-pipeline": {
-    FINDING: {
-      name: "Target Discovery Report",
-      content: `# Target Discovery Report
-
-## Targets Found: 5 potential matches
-
-### 1. Sarah Chen — VP Marketing, TechFlow
-- **Source:** LinkedIn post about "rethinking B2B content strategy"
-- **LinkedIn:** linkedin.com/in/sarahchen-techflow
-- **Why:** Posted 3 articles on influencer marketing ROI in the last month
-- **CRM Status:** New contact
-
-### 2. Marcus Johnson — CMO, DataBridge Solutions
-- **Source:** Featured in MarTech Today article on B2B growth
-- **LinkedIn:** linkedin.com/in/marcusjohnson
-- **Why:** Quoted saying "we need more authentic voices in B2B"
-- **CRM Status:** New contact
-
-### 3. Priya Patel — Director of Growth, CloudNine
-- **Source:** Conference speaker at SaaS Growth Summit 2026
-- **LinkedIn:** linkedin.com/in/priyapatel-cloudnine
-- **Why:** Spoke about "the influencer gap in enterprise marketing"
-- **CRM Status:** New contact
-
-### 4. David Kim — Head of Content, ScaleUp Inc
-- **Source:** Published LinkedIn newsletter with 12K subscribers
-- **LinkedIn:** linkedin.com/in/davidkim-scaleup
-- **Why:** Actively seeking content partnerships
-- **CRM Status:** New contact
-
-### 5. Rachel Torres — VP Partnerships, GrowthEngine
-- **Source:** Podcast interview about B2B marketing evolution
-- **LinkedIn:** linkedin.com/in/racheltorres
-- **Why:** Mentioned looking for "thought leadership partners"
-- **CRM Status:** New contact`,
-    },
-    ENRICHING: {
-      name: "Target Enrichment Report",
-      content: `# Target Enrichment: Sarah Chen
-
-## Profile Summary
-- **Name:** Sarah Chen
-- **Title:** VP Marketing
-- **Company:** TechFlow (Series C, 200-500 employees)
-- **Industry:** Enterprise SaaS / Data Infrastructure
-- **Location:** San Francisco, CA
-
-## Company Intel
-- TechFlow raised $85M Series C in Jan 2026
-- Competing in the data pipeline space
-- Recently launched a partner program
-- ~450 employees, growing 40% YoY
-
-## Recent LinkedIn Activity
-- 3 posts about B2B content strategy in last 30 days
-- Shared article: "Why B2B needs its own influencer playbook"
-- Commented on industry analysis posts regularly
-- Engagement rate: ~4.2% (above average for B2B executives)
-
-## Mutual Connections
-- 2 shared connections via industry groups
-- Both members of "B2B Marketing Leaders" LinkedIn group
-
-## Conversation Starters
-- Her recent post about content strategy ROI aligns with our article topic
-- TechFlow's new partner program could be a collaboration angle
-- She mentioned "looking for authentic voices" in a recent comment
-
-## Qualification Notes
-- Strong ICP match: right title, company size, industry
-- Actively discussing topics aligned with our campaign
-- High engagement = receptive to outreach
-- **Recommended messaging angle:** Lead with the article, position as peer-to-peer content collaboration`,
-    },
-  },
-  "content-distribution": {
-    RECEIVED: {
-      name: "Distribution Plan",
-      content: `# Distribution Plan
-
-## Source Content
-- Article: "Why B2B Brands Are Betting Big on Influencer Partnerships in 2026"
-- URL: [pending publication]
-
-## Planned Outputs
-1. **3 LinkedIn Posts** — Different angles from the article
-2. **Outreach messaging templates** — For Tim's prospect engagement
-3. **Key quote cards** — Shareable snippets
-
-## LinkedIn Post Angles
-1. The data hook: "78% of B2B buyers trust peer recs..."
-2. The case study angle: Highlight CloudScale's 3.2x conversion lift
-3. The provocative take: "B2B influencer marketing isn't optional anymore"
-
-## Messaging Angles for Outreach
-- For marketing VPs: "We just published research on B2B influencer ROI..."
-- For content leaders: "Interesting data on content collaboration impact..."
-- For growth leaders: "Saw you're thinking about influencer partnerships..."`,
-    },
-    REPURPOSING: {
-      name: "LinkedIn Post Drafts",
-      content: `# LinkedIn Post Drafts
-
-## Post 1: The Data Hook
-
----
-
-78% of B2B buyers trust peer recommendations over vendor content.
-
-Yet most B2B companies still rely almost entirely on paid ads and gated whitepapers to reach decision-makers.
-
-We dug into 3 companies that flipped the script:
-
-→ CloudScale: 47 qualified demos in 90 days through thought leader partnerships
-→ DataPulse: 890 report downloads from a single analyst collaboration
-→ SecureOps: 31% of qualified pipeline from their CISO Council content
-
-The common thread? Authentic partnerships > transactional sponsorships.
-
-Full breakdown: [article URL]
-
-#B2BMarketing #ThoughtLeadership #ContentStrategy
-
----
-
-## Post 2: The Case Study
-
----
-
-CloudScale (Series B SaaS) partnered with 3 DevOps thought leaders.
-
-No paid sponsorships. No influencer fees. Just genuine content collaboration.
-
-The result:
-• Reached 150K technical decision-makers
-• Generated 47 qualified demos
-• 3.2x better conversion vs. paid ads
-
-Here's what they did differently: [article URL]
-
-The B2B influencer playbook is simpler than you think.
-
-#B2B #GrowthMarketing #SaaS
-
----
-
-## Post 3: The Provocative Take
-
----
-
-Hot take: If you're a B2B company without an influencer strategy in 2026, you're leaving pipeline on the table.
-
-Not the "pay a celebrity to hold your product" kind.
-
-The "build genuine relationships with people your buyers already trust" kind.
-
-We wrote the playbook. It's based on what's actually working: [article URL]
-
-#B2BMarketing #InfluencerMarketing #Revenue`,
-    },
-  },
-};
 
 export async function POST(req: NextRequest) {
   try {
@@ -281,109 +22,528 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "packageId is required" }, { status: 400 });
     }
 
-    // Get all workflows in this package
-    const workflows = await query<{
+    const log: string[] = [];
+    const MAX_ITERATIONS = 200; // safety valve
+    let iteration = 0;
+
+    // Run iterations until nothing advances
+    while (iteration < MAX_ITERATIONS) {
+      iteration++;
+      let advanced = 0;
+
+      // Re-fetch workflows each iteration (new ones may have been created by handoffs)
+      const workflows = await query<{
+        id: string;
+        name: string;
+        ownerAgent: string;
+        spec: string | { workflowType?: string; targetCount?: number; pacing?: { batchSize?: number; interval?: string; bufferPercent?: number } };
+        itemType: string;
+        packageId: string | null;
+      }>(
+        `SELECT id, name, "ownerAgent", spec, "itemType", "packageId"
+         FROM "_workflow"
+         WHERE "packageId" = $1 AND "deletedAt" IS NULL`,
+        [packageId]
+      );
+
+      for (const wf of workflows) {
+        const wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
+        const wfTypeId = wfSpec?.workflowType;
+        const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
+        if (!wfType) continue;
+
+        // Get all live items
+        const items = await query<{
+          id: string;
+          stage: string;
+          sourceType: string;
+          sourceId: string;
+        }>(
+          `SELECT id, stage, "sourceType", "sourceId"
+           FROM "_workflow_item"
+           WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
+          [wf.id]
+        );
+
+        for (const item of items) {
+          const stageSpec = wfType.defaultBoard.stages.find(
+            (s: { key: string }) => s.key === item.stage
+          );
+          if (!stageSpec) continue;
+
+          // Terminal stages — skip
+          const transitions = wfType.defaultBoard.transitions[item.stage] || [];
+          if (transitions.length === 0) continue;
+
+          // INITIATED items in linkedin-outreach = CR Sent, they stay there (80% rejection)
+          if (item.stage === "INITIATED" && wfTypeId === "linkedin-outreach") continue;
+
+          // Generate artifact for current stage
+          await generateStageArtifact(item.id, wf.id, item.stage, wfType, wf.name);
+
+          // Determine next stage
+          let nextStage: string;
+
+          if (stageSpec.requiresHuman) {
+            // Auto-accept: take first forward transition
+            nextStage = transitions[0];
+
+            // MESSAGE_DRAFT cycling: count existing MESSAGE_DRAFT artifacts
+            if (item.stage === "MESSAGE_DRAFT" && wfTypeId === "linkedin-outreach") {
+              const msgArtifacts = await query<{ id: string }>(
+                `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'MESSAGE_DRAFT' AND "deletedAt" IS NULL`,
+                [item.id]
+              );
+              if (msgArtifacts.length >= 3) {
+                // After 3 messages, move to ENDED
+                nextStage = "ENDED";
+              }
+            }
+          } else {
+            // Agent stage — advance to first forward transition
+            nextStage = transitions[0];
+          }
+
+          if (!nextStage || nextStage === item.stage) continue;
+
+          // Advance the item
+          await query(
+            `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+            [nextStage, item.id]
+          );
+          await generateStageArtifact(item.id, wf.id, nextStage, wfType, wf.name);
+          log.push(`${wf.name}: ${item.stage} → ${nextStage}`);
+          advanced++;
+
+          // Handle MESSAGED cycling → MESSAGE_DRAFT (up to 3)
+          if (nextStage === "MESSAGED" && wfTypeId === "linkedin-outreach") {
+            const draftArtifacts = await query<{ id: string }>(
+              `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'MESSAGE_DRAFT' AND "deletedAt" IS NULL`,
+              [item.id]
+            );
+            const messageCount = Math.max(0, draftArtifacts.length - 1);
+            if (messageCount >= 3) {
+              await query(
+                `UPDATE "_workflow_item" SET stage = 'ENDED', "updatedAt" = NOW() WHERE id = $1 AND "deletedAt" IS NULL`,
+                [item.id]
+              );
+              log.push(`${wf.name}: MESSAGED → ENDED (3 messages sent)`);
+            } else {
+              await query(
+                `UPDATE "_workflow_item" SET stage = 'MESSAGE_DRAFT', "updatedAt" = NOW() WHERE id = $1 AND "deletedAt" IS NULL`,
+                [item.id]
+              );
+              await generateStageArtifact(item.id, wf.id, "MESSAGE_DRAFT", wfType, wf.name);
+              log.push(`${wf.name}: MESSAGED → MESSAGE_DRAFT (msg ${messageCount + 1}/3)`);
+            }
+          }
+
+          // Check for cross-workflow handoffs
+          const handoffs = await checkHandoffs(
+            { id: item.id, workflowId: wf.id, sourceType: item.sourceType, sourceId: item.sourceId },
+            wf,
+            nextStage,
+            workflows
+          );
+          for (const h of handoffs) {
+            log.push(`  ↳ Handoff: ${h.targetWorkflow} → ${h.stage}`);
+            advanced++;
+          }
+        }
+      }
+
+      // Nothing advanced → we're done
+      if (advanced === 0) break;
+    }
+
+    // Build final summary
+    const finalWorkflows = await query<{
       id: string;
       name: string;
-      ownerAgent: string;
-      spec: { workflowType?: string; targetCount?: number };
-      itemType: string;
+      spec: string | { workflowType?: string };
     }>(
-      `SELECT id, name, "ownerAgent", spec, "itemType"
-       FROM "_workflow"
-       WHERE "packageId" = $1 AND "deletedAt" IS NULL`,
+      `SELECT id, name, spec FROM "_workflow" WHERE "packageId" = $1 AND "deletedAt" IS NULL`,
       [packageId]
     );
 
-    const advances: Array<{
-      workflow: string;
-      item: string;
-      from: string;
-      to: string;
-      artifact?: string;
-      stoppedAt?: string;
-    }> = [];
-
-    for (const wf of workflows) {
-      const wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
-      const wfTypeId = wfSpec?.workflowType;
-      const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
-      if (!wfType) continue;
-
-      // Get all items in this workflow
-      const items = await query<{
-        id: string;
-        stage: string;
-        sourceType: string;
-        sourceId: string;
-      }>(
-        `SELECT id, stage, "sourceType", "sourceId"
-         FROM "_workflow_item"
-         WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
+    const summary: Record<string, Record<string, number>> = {};
+    for (const wf of finalWorkflows) {
+      const items = await query<{ stage: string }>(
+        `SELECT stage FROM "_workflow_item" WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
         [wf.id]
       );
-
+      const counts: Record<string, number> = {};
       for (const item of items) {
-        const stageSpec = wfType.defaultBoard.stages.find((s) => s.key === item.stage);
-        if (!stageSpec) continue;
-
-        // Create mock artifact for this stage if we have one
-        const mockData = MOCK_ARTIFACTS[wfTypeId]?.[item.stage];
-        if (mockData) {
-          // Check if artifact already exists for this item+stage (prevent duplicates)
-          const existing = await query(
-            `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
-            [item.id, item.stage]
-          );
-          if (existing.length === 0) {
-            await query(
-              `INSERT INTO "_artifact" ("workflowItemId", "workflowId", stage, name, type, content, "createdAt", "updatedAt")
-               VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
-              [item.id, wf.id, item.stage, mockData.name, "markdown", mockData.content]
-            );
-          }
-        }
-
-        // If this stage requires human, stop AFTER creating artifact — it'll appear in Friday's queue
-        if (stageSpec.requiresHuman) {
-          advances.push({
-            workflow: wf.name,
-            item: item.id,
-            from: item.stage,
-            to: item.stage,
-            artifact: mockData?.name,
-            stoppedAt: `Waiting for human: ${stageSpec.humanAction}`,
-          });
-          continue;
-        }
-
-        // Advance to next stage
-        const transitions = wfType.defaultBoard.transitions[item.stage] || [];
-        const nextStage = transitions[0]; // Take first valid transition
-        if (!nextStage) continue;
-
-        await query(
-          `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`,
-          [nextStage, item.id]
-        );
-
-        advances.push({
-          workflow: wf.name,
-          item: item.id,
-          from: item.stage,
-          to: nextStage,
-          artifact: mockData?.name,
-        });
+        counts[item.stage] = (counts[item.stage] || 0) + 1;
       }
+      summary[wf.name] = counts;
     }
 
     return NextResponse.json({
       ok: true,
-      advances,
-      summary: `Advanced ${advances.filter((a) => a.from !== a.to).length} items, ${advances.filter((a) => a.stoppedAt).length} waiting for human`,
+      iterations: iteration,
+      log,
+      summary,
     });
   } catch (error) {
     console.error("[simulate] error:", error);
     return NextResponse.json({ error: "Failed to simulate" }, { status: 500 });
   }
+}
+
+// ─── Handoff Logic ─────────────────────────────────────────────────
+
+interface WorkflowRow {
+  id: string;
+  name: string;
+  ownerAgent: string;
+  spec: string | { workflowType?: string; targetCount?: number; pacing?: { batchSize?: number; interval?: string; bufferPercent?: number } };
+  itemType: string;
+  packageId: string | null;
+}
+
+async function checkHandoffs(
+  item: { id: string; workflowId: string; sourceType: string; sourceId: string },
+  wf: WorkflowRow,
+  newStage: string,
+  allWorkflows: WorkflowRow[]
+): Promise<Array<{ targetWorkflow: string; stage: string }>> {
+  if (!wf.packageId) return [];
+  const handoffs: Array<{ targetWorkflow: string; stage: string }> = [];
+
+  const siblings = allWorkflows.filter(w => w.id !== wf.id);
+  const wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
+
+  for (const sibling of siblings) {
+    const sibSpec = typeof sibling.spec === "string" ? JSON.parse(sibling.spec) : sibling.spec;
+    const sibType = sibSpec?.workflowType;
+
+    // ── Content PUBLISHED → Content Distribution ──
+    if (newStage === "PUBLISHED" && sibType === "content-distribution") {
+      const distType = WORKFLOW_TYPES["content-distribution"];
+      const targetCount = sibSpec?.targetCount || 3;
+
+      // 1. Connection request message
+      const connCi = await query<{ id: string }>(
+        `INSERT INTO "_content_item" (title, description, "contentType", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+        ["Connection Request Message", "Template for LinkedIn connection requests", "connection-message"]
+      );
+      const connContentId = (connCi[0] as Record<string, unknown>)?.id as string;
+
+      const connItem = await query<{ id: string }>(
+        `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
+        [sibling.id, "RECEIVED", "content", connContentId]
+      );
+      if (connItem[0]?.id && distType) {
+        await autoAdvanceItem(connItem[0].id, sibling.id, "RECEIVED", distType, sibling.name);
+      }
+
+      // 2. LinkedIn posts
+      const POST_ANGLES = [
+        { title: "LinkedIn Post #1 — Data Hook", angle: "78% stat" },
+        { title: "LinkedIn Post #2 — Case Study", angle: "CloudScale results" },
+        { title: "LinkedIn Post #3 — Hot Take", angle: "B2B influencer imperative" },
+      ];
+
+      for (let i = 0; i < targetCount; i++) {
+        const info = POST_ANGLES[i] || { title: `LinkedIn Post #${i + 1}`, angle: "Campaign content" };
+        const ci = await query<{ id: string }>(
+          `INSERT INTO "_content_item" (title, description, "contentType", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+          [info.title, info.angle, "linkedin-post"]
+        );
+        const contentId = (ci[0] as Record<string, unknown>)?.id as string;
+        const ins = await query<{ id: string }>(
+          `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
+          [sibling.id, "POST_DRAFTED", "content", contentId]
+        );
+        if (ins[0]?.id) {
+          await generateStageArtifact(ins[0].id, sibling.id, "POST_DRAFTED", WORKFLOW_TYPES["content-distribution"], sibling.name);
+        }
+      }
+      handoffs.push({ targetWorkflow: sibling.name, stage: `CONN_MSG + ${targetCount} posts` });
+    }
+
+    // ── Content PUBLISHED → Target Research: first batch ──
+    if (newStage === "PUBLISHED" && sibType === "research-pipeline") {
+      const resType = WORKFLOW_TYPES["research-pipeline"];
+      const targetCount = sibSpec?.targetCount || 20;
+      const batchSize = sibSpec?.pacing?.batchSize || 5;
+      const bufferPercent = sibSpec?.pacing?.bufferPercent || 25;
+      const totalToSource = Math.ceil(targetCount * (1 + bufferPercent / 100));
+      const firstBatch = Math.min(batchSize, totalToSource);
+
+      for (let i = 0; i < firstBatch; i++) {
+        const person = SIMULATED_PEOPLE[i % SIMULATED_PEOPLE.length];
+        const pRows = await query<{ id: string }>(
+          `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+          [person.first, person.last, `${person.title} at ${person.company}`]
+        );
+        const personId = (pRows[0] as Record<string, unknown>)?.id as string;
+        const ins = await query<{ id: string }>(
+          `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
+          [sibling.id, "FINDING", "person", personId]
+        );
+        if (ins[0]?.id && resType) {
+          await autoAdvanceItem(ins[0].id, sibling.id, "FINDING", resType, sibling.name);
+        }
+      }
+      handoffs.push({ targetWorkflow: sibling.name, stage: `${firstBatch} targets created` });
+    }
+
+    // ── Research HANDED_OFF → LinkedIn Outreach (20% acceptance) ──
+    if (newStage === "HANDED_OFF" && sibType === "linkedin-outreach") {
+      const outreachType = WORKFLOW_TYPES["linkedin-outreach"];
+
+      // Count existing items to determine acceptance rate
+      const existingItems = await query<{ id: string }>(
+        `SELECT id FROM "_workflow_item" WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
+        [sibling.id]
+      );
+      const itemIndex = existingItems.length + 1;
+      const accepted = (itemIndex % 5) === 0; // Every 5th = 20% acceptance
+
+      const startStage = accepted ? "TARGET" : "INITIATED";
+      const ins = await query<{ id: string }>(
+        `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
+        [sibling.id, startStage, item.sourceType, item.sourceId]
+      );
+      const newItemId = ins[0]?.id;
+
+      if (newItemId && outreachType) {
+        if (accepted) {
+          // Advance TARGET → INITIATED → ACCEPTED → MESSAGE_DRAFT
+          const finalStage = await autoAdvanceItem(newItemId, sibling.id, "TARGET", outreachType, sibling.name);
+          handoffs.push({ targetWorkflow: sibling.name, stage: `${finalStage} (CR accepted)` });
+        } else {
+          // CR Sent — stays at INITIATED permanently
+          await generateStageArtifact(newItemId, sibling.id, "INITIATED", outreachType, sibling.name);
+          handoffs.push({ targetWorkflow: sibling.name, stage: "INITIATED (CR pending)" });
+        }
+      }
+    }
+  }
+
+  // ── Scout next-batch trigger ──
+  // After HANDED_OFF in research-pipeline: if no more pending items, create next batch
+  if (newStage === "HANDED_OFF" && wfSpec?.workflowType === "research-pipeline") {
+    const pendingItems = await query<{ id: string }>(
+      `SELECT id FROM "_workflow_item"
+       WHERE "workflowId" = $1 AND stage IN ('FINDING', 'ENRICHING', 'QUALIFICATION') AND "deletedAt" IS NULL`,
+      [wf.id]
+    );
+
+    if (pendingItems.length === 0) {
+      // Check Tim's ENDED count
+      const timWorkflow = siblings.find(s => {
+        const spec = typeof s.spec === "string" ? JSON.parse(s.spec) : s.spec;
+        return spec?.workflowType === "linkedin-outreach";
+      });
+
+      let timEndedCount = 0;
+      if (timWorkflow) {
+        const allTimItems = await query<{ stage: string }>(
+          `SELECT stage FROM "_workflow_item" WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
+          [timWorkflow.id]
+        );
+        timEndedCount = allTimItems.filter(i => i.stage === "ENDED").length;
+      }
+
+      if (timEndedCount < 20) {
+        // Create next batch of 5
+        const resType = WORKFLOW_TYPES["research-pipeline"];
+        const existingItems = await query<{ id: string }>(
+          `SELECT id FROM "_workflow_item" WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
+          [wf.id]
+        );
+        const offset = existingItems.length;
+
+        for (let i = 0; i < 5; i++) {
+          const person = SIMULATED_PEOPLE[(offset + i) % SIMULATED_PEOPLE.length];
+          const pRows = await query<{ id: string }>(
+            `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, NOW(), NOW()) RETURNING id`,
+            [person.first, person.last, `${person.title} at ${person.company}`]
+          );
+          const personId = (pRows[0] as Record<string, unknown>)?.id as string;
+          const ins = await query<{ id: string }>(
+            `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
+            [wf.id, "FINDING", "person", personId]
+          );
+          if (ins[0]?.id && resType) {
+            await autoAdvanceItem(ins[0].id, wf.id, "FINDING", resType, wf.name);
+          }
+        }
+        handoffs.push({ targetWorkflow: wf.name, stage: "Next batch: 5 new targets" });
+      } else {
+        handoffs.push({ targetWorkflow: wf.name, stage: "Scout stopped — Tim has 20+ ended" });
+      }
+    }
+  }
+
+  return handoffs;
+}
+
+// ─── Helpers ─────────────────────────────────────────────────
+
+const SIMULATED_PEOPLE = [
+  { first: "Sarah", last: "Chen", title: "VP Marketing", company: "CloudScale" },
+  { first: "Marcus", last: "Johnson", title: "Dir. Content", company: "DataFlow" },
+  { first: "Elena", last: "Rodriguez", title: "Growth Lead", company: "SecureNet" },
+  { first: "James", last: "Park", title: "CMO", company: "TechVenture" },
+  { first: "Priya", last: "Sharma", title: "VP Demand Gen", company: "SaaSMetrics" },
+  { first: "David", last: "Kim", title: "VP Growth", company: "ScaleUp.io" },
+  { first: "Lisa", last: "Wang", title: "Head of Content", company: "MarketPulse" },
+  { first: "Alex", last: "Thompson", title: "CMO", company: "DataBridge" },
+  { first: "Rachel", last: "Patel", title: "Dir. Marketing", company: "CloudFirst" },
+  { first: "Michael", last: "Brown", title: "VP Partnerships", company: "SyncWave" },
+  { first: "Jennifer", last: "Lee", title: "Growth Lead", company: "PipelineIQ" },
+  { first: "Robert", last: "Garcia", title: "Head of Demand Gen", company: "RevStream" },
+  { first: "Amanda", last: "Wilson", title: "VP Marketing", company: "InsightCo" },
+  { first: "Daniel", last: "Martinez", title: "Dir. Strategy", company: "GrowthLab" },
+  { first: "Jessica", last: "Taylor", title: "CMO", company: "B2BForge" },
+  { first: "Chris", last: "Anderson", title: "VP Content", company: "MediaShift" },
+  { first: "Nicole", last: "Thomas", title: "Growth Director", company: "LeadLogic" },
+  { first: "Kevin", last: "Jackson", title: "Head of Marketing", company: "FunnelMax" },
+  { first: "Michelle", last: "White", title: "VP Demand Gen", company: "ConvertIQ" },
+  { first: "Andrew", last: "Harris", title: "Dir. Growth", company: "ReachOut" },
+  { first: "Lauren", last: "Clark", title: "CMO", company: "EngagePro" },
+  { first: "Brian", last: "Lewis", title: "VP Partnerships", company: "NetBridge" },
+  { first: "Emily", last: "Robinson", title: "Head of Strategy", company: "AmplifySaaS" },
+  { first: "Steven", last: "Walker", title: "Dir. Marketing", company: "TractionHQ" },
+  { first: "Catherine", last: "Young", title: "VP Growth", company: "Springboard.ai" },
+];
+
+/**
+ * Auto-advance an item through non-human stages, generating artifacts.
+ * Stops at first human-required stage or terminal stage.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function autoAdvanceItem(
+  itemId: string,
+  workflowId: string,
+  startStage: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wfType: any,
+  workflowName: string
+): Promise<string> {
+  await generateStageArtifact(itemId, workflowId, startStage, wfType, workflowName);
+
+  let currentStage = startStage;
+  const stageMap = new Map(
+    wfType.defaultBoard.stages.map((s: { key: string; requiresHuman?: boolean }) => [s.key, s])
+  );
+  const visited = new Set<string>([startStage]);
+  const stageOrder = wfType.defaultBoard.stages.map((s: { key: string }) => s.key);
+
+  while (true) {
+    const stageSpec = stageMap.get(currentStage) as { requiresHuman?: boolean } | undefined;
+    if (!stageSpec || stageSpec.requiresHuman) break;
+
+    const nextTransitions = wfType.defaultBoard.transitions[currentStage] || [];
+    if (nextTransitions.length === 0) break;
+
+    // Pick forward transition
+    const nextStageKey =
+      nextTransitions.find((t: string) => {
+        const tIdx = stageOrder.indexOf(t);
+        const cIdx = stageOrder.indexOf(currentStage);
+        return tIdx > cIdx && !visited.has(t);
+      }) || nextTransitions[0];
+
+    if (visited.has(nextStageKey)) break;
+    visited.add(nextStageKey);
+
+    await generateStageArtifact(itemId, workflowId, currentStage, wfType, workflowName);
+    await query(
+      `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+      [nextStageKey, itemId]
+    );
+    await generateStageArtifact(itemId, workflowId, nextStageKey, wfType, workflowName);
+    currentStage = nextStageKey;
+  }
+
+  return currentStage;
+}
+
+/**
+ * Generate simulated artifact for a stage.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function generateStageArtifact(
+  itemId: string,
+  workflowId: string,
+  stage: string,
+  wfType: any,
+  workflowName: string
+) {
+  if (!wfType) return;
+
+  const ARTIFACT_MAP: Record<string, { name: string; content: string } | null> = {
+    DRAFTING: {
+      name: "Article Draft",
+      content: `# Article Draft: ${workflowName}\n\n## Introduction\nIn the rapidly evolving landscape of B2B marketing, influencer partnerships have emerged as a key differentiator.\n\n## Key Points\n- 78% of B2B buyers trust peer recommendations over vendor content\n- Companies using influencer partnerships see 3.2x more qualified demos\n- Long-term partnerships outperform transactional sponsorships\n\n---\n*Draft generated by Ghost — ready for human review*`,
+    },
+    FINDING: {
+      name: "Target Discovery Report",
+      content: `# Target Discovery Report\n\nFound 5 potential targets matching campaign criteria.\n\n---\n*Report generated by Scout*`,
+    },
+    ENRICHING: {
+      name: "Enriched Target Profile",
+      content: `# Enriched Target Profile\n\nProfile enriched with LinkedIn activity, mutual connections, and conversation starters.\n\n---\n*Profile enriched by Scout*`,
+    },
+    QUALIFICATION: {
+      name: "Qualification Summary",
+      content: `# Qualification Summary\n\nTarget scored 4/5 on ICP match. Recommended for handoff to Tim.\n\n---\n*Qualification prepared by Scout — awaiting human review*`,
+    },
+    POST_DRAFTED: {
+      name: "LinkedIn Post Draft",
+      content: `# LinkedIn Post Draft\n\n78% of B2B buyers trust peer recommendations over vendor content. The playbook is changing.\n\n---\n*Post drafted by Marni — approve to publish*`,
+    },
+    POSTED: {
+      name: "LinkedIn Post Published",
+      content: `# LinkedIn Post — Published\n\nStatus: LIVE\n\n---\n*Post published*`,
+    },
+    MESSAGE_DRAFT: {
+      name: "Outreach Message Draft",
+      content: `# Outreach Message — Ready for Review\n\nHi [Name],\n\nI noticed your recent work — really resonated with challenges we've been exploring.\n\nWe published research on B2B influencer partnerships I think you'd find interesting.\n\nBest,\nGovind\n\n---\n*Message drafted by Tim*`,
+    },
+    CONN_MSG_DRAFTED: {
+      name: "Connection Request Template",
+      content: `# Connection Request Message Template\n\nHi {firstName}, I recently published research on B2B influencer partnerships. Given your work at {company}, I think you'd find the data relevant. Would love to connect.\n\n---\n*Template drafted by Marni — awaiting approval*`,
+    },
+    DRAFT_PUBLISHED: {
+      name: "Publication Details",
+      content: `# Publication Details\n\nArticle published to blog.\n\n---\n*Publication confirmed — downstream workflows unblocked*`,
+    },
+    PUBLISHED: {
+      name: "Published Article Record",
+      content: `# Published Article — Final Record\n\nStatus: LIVE. Downstream workflows triggered.\n\n---\n*Final output of Article Creation workflow*`,
+    },
+  };
+
+  const artifact = ARTIFACT_MAP[stage];
+  if (!artifact) return;
+
+  const ALLOW_MULTIPLE = new Set(["MESSAGE_DRAFT"]);
+  if (!ALLOW_MULTIPLE.has(stage)) {
+    const existing = await query(
+      `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
+      [itemId, stage]
+    );
+    if (existing.length > 0) return;
+  }
+
+  await query(
+    `INSERT INTO "_artifact" ("workflowItemId", "workflowId", stage, name, type, content, "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+    [itemId, workflowId, stage, artifact.name, "markdown", artifact.content]
+  );
 }

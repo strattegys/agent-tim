@@ -23,6 +23,7 @@ import packageManager from "./package-manager";
 import punchListTool from "./punch-list-tool";
 import notesTool from "./notes-tool";
 import beehiivTool from "./beehiiv";
+import publishArticle from "./publish-article";
 
 // ── Registry (keyed by tool name) ─────────────────────────────────────────
 export const TOOL_REGISTRY: Record<string, ToolModule> = {
@@ -39,6 +40,7 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   punch_list: punchListTool,
   notes: notesTool,
   beehiiv: beehiivTool,
+  publish_article: publishArticle,
 };
 
 // ── Backward-compatible exports ───────────────────────────────────────────

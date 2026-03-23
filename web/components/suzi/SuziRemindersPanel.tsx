@@ -14,11 +14,10 @@ const FILTERS = [
   "Holidays",
   "Recurring",
   "One-Time",
-  "Notes",
 ] as const;
 type Filter = (typeof FILTERS)[number];
 
-const TIME_FILTERS = ["Any Time", "Next 7 Days", "This Month"] as const;
+const TIME_FILTERS = ["Any Time", "Today", "Next 7 Days", "This Month"] as const;
 type TimeFilter = (typeof TIME_FILTERS)[number];
 
 const FILTER_TO_CATEGORY: Record<string, string | undefined> = {
@@ -27,7 +26,6 @@ const FILTER_TO_CATEGORY: Record<string, string | undefined> = {
   Holidays: "holiday",
   Recurring: "recurring",
   "One-Time": "one-time",
-  Notes: "note",
 };
 
 /** Get "today" in Pacific time as a local Date at midnight */
@@ -47,6 +45,11 @@ function pacificToday(): Date {
 function getTimeFilterRange(tf: TimeFilter): { start: Date; end: Date } | null {
   if (tf === "Any Time") return null;
   const start = pacificToday();
+  if (tf === "Today") {
+    const end = new Date(start);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
   if (tf === "Next 7 Days") {
     const end = new Date(start);
     end.setDate(end.getDate() + 7);

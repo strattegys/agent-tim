@@ -700,7 +700,7 @@ function ChatPage() {
               {agent.name}
             </span>
             <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: !agent.online ? "#555" : (activeAgent === "friday" && pendingTaskCount > 0) ? "#F59E0B" : "#1D9E75" }} />
+              <span className="w-2 h-2 rounded-full" style={{ background: !agent.online ? "#555" : (activeAgent === "friday" && pendingTaskCount > 0) ? "#F59E0B" : "#1D9E75" }} />
               <span className="text-[10px] text-[var(--text-secondary)]">{agent.role}</span>
             </div>
           </div>

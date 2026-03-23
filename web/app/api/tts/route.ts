@@ -12,7 +12,17 @@ export async function POST(request: Request) {
     }
 
     // Optionally summarize long text into a concise voice-friendly blurb
-    const spokenText = summarize ? await summarizeForVoice(text) : text;
+    let spokenText = text;
+    if (summarize) {
+      try {
+        spokenText = await summarizeForVoice(text);
+      } catch (err) {
+        console.error("[tts] Summarization failed, using raw text:", err);
+        // Fall back to first ~200 words if summarization fails
+        spokenText = text.split(/\s+/).slice(0, 200).join(" ");
+      }
+    }
+    console.log(`[tts] Speaking ${spokenText.split(/\s+/).length} words (summarized=${summarize})`);
 
     // Stream mp3 audio from ElevenLabs directly to the client
     const audioStream = await textToSpeechStream(spokenText);

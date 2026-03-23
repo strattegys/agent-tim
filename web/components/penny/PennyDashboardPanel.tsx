@@ -2,14 +2,19 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { PACKAGE_TEMPLATES, type PackageTemplateSpec } from "@/lib/package-types";
+import { WORKFLOW_TYPES, type WorkflowTypeSpec } from "@/lib/workflow-types";
 import { panelBus } from "@/lib/events";
+import PackageDetailCard from "./PackageDetailCard";
+import WorkflowTemplateCard from "./WorkflowTemplateCard";
+import HumanTasksPanel from "../friday/HumanTasksPanel";
+import type { PackageSpec } from "@/lib/package-types";
 
 interface PackageRow {
   id: string;
   name: string;
   templateId: string;
   stage: string;
-  spec: { deliverables?: Array<{ label: string; targetCount: number; ownerAgent: string }> };
+  spec: PackageSpec;
   customerId: string | null;
   customerType: string;
   createdBy: string;
@@ -19,14 +24,12 @@ interface PackageRow {
 
 const COLUMNS = [
   { key: "DRAFT", label: "Draft", color: "#6b8a9e" },
-  { key: "PENDING_APPROVAL", label: "Pending Approval", color: "#D4A017" },
-  { key: "ACTIVE", label: "Active", color: "#1D9E75" },
-  { key: "COMPLETED", label: "Completed", color: "#22c55e" },
+  { key: "PENDING_APPROVAL", label: "Testing", color: "#D4A017" },
 ] as const;
 
 const POLL_INTERVAL = 5000;
 
-type Tab = "packages" | "templates";
+type Tab = "packages" | "testing" | "pkg-templates" | "wf-templates";
 
 interface PennyDashboardPanelProps {
   onClose: () => void;
@@ -36,9 +39,24 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
   const [tab, setTab] = useState<Tab>("packages");
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [testingCount, setTestingCount] = useState(0);
   const mountedRef = useRef(true);
 
-  const templates: PackageTemplateSpec[] = Object.values(PACKAGE_TEMPLATES);
+  // Poll for testing task count
+  useEffect(() => {
+    const check = () => {
+      fetch("/api/crm/human-tasks?packageStage=PENDING_APPROVAL")
+        .then((r) => r.json())
+        .then((d) => { if (mountedRef.current) setTestingCount(d.count || 0); })
+        .catch(() => {});
+    };
+    check();
+    const iv = setInterval(check, 5000);
+    return () => clearInterval(iv);
+  }, []);
+
+  const pkgTemplates: PackageTemplateSpec[] = Object.values(PACKAGE_TEMPLATES);
+  const wfTemplates: WorkflowTypeSpec[] = Object.values(WORKFLOW_TYPES);
 
   const fetchPackages = useCallback(() => {
     fetch("/api/crm/packages")
@@ -69,13 +87,23 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
   const TABS: { key: Tab; label: string; count?: string }[] = [
     {
       key: "packages",
-      label: "Packages",
+      label: "Package Planner",
       count: loading ? "..." : `${packages.length}`,
     },
     {
-      key: "templates",
-      label: "Templates",
-      count: `${templates.length}`,
+      key: "testing",
+      label: "Testing",
+      count: testingCount > 0 ? `${testingCount}` : undefined,
+    },
+    {
+      key: "pkg-templates",
+      label: "Package Templates",
+      count: `${pkgTemplates.length}`,
+    },
+    {
+      key: "wf-templates",
+      label: "Workflow Templates",
+      count: `${wfTemplates.length}`,
     },
   ];
 
@@ -96,8 +124,8 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
             {t.label}
             {t.count && (
               <span
-                className="text-[10px] font-normal"
-                style={{ color: "var(--text-tertiary)" }}
+                className={`text-[10px] font-bold ${t.key === "testing" ? "bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full" : ""}`}
+                style={t.key !== "testing" ? { color: "var(--text-tertiary)" } : undefined}
               >
                 {t.count}
               </span>
@@ -107,14 +135,28 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
       </div>
 
       {/* Tab content */}
-      {tab === "templates" ? (
+      {tab === "testing" ? (
+        <HumanTasksPanel packageStageFilter="PENDING_APPROVAL" />
+      ) : tab === "wf-templates" ? (
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
-          {templates.length === 0 ? (
+          {wfTemplates.length === 0 ? (
             <div className="flex-1 flex items-center justify-center py-12">
-              <p className="text-sm text-[var(--text-tertiary)]">No templates defined</p>
+              <p className="text-sm text-[var(--text-tertiary)]">No workflow templates defined</p>
             </div>
           ) : (
-            templates.map((t) => (
+            wfTemplates.map((t) => (
+              <WorkflowTemplateCard key={t.id} template={t} />
+            ))
+          )}
+        </div>
+      ) : tab === "pkg-templates" ? (
+        <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
+          {pkgTemplates.length === 0 ? (
+            <div className="flex-1 flex items-center justify-center py-12">
+              <p className="text-sm text-[var(--text-tertiary)]">No package templates defined</p>
+            </div>
+          ) : (
+            pkgTemplates.map((t) => (
               <div
                 key={t.id}
                 className="rounded-lg p-3 border border-[var(--border-color)] bg-[var(--bg-secondary)]"
@@ -166,7 +208,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
             return (
               <div
                 key={col.key}
-                className="flex-1 min-w-[160px] flex flex-col border-r border-[var(--border-color)] last:border-r-0"
+                className="flex-1 min-w-[220px] flex flex-col border-r border-[var(--border-color)] last:border-r-0"
               >
                 {/* Column header */}
                 <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
@@ -192,43 +234,13 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
                     </div>
                   ) : (
                     colPackages.map((pkg) => (
-                      <PackageCard key={pkg.id} pkg={pkg} />
+                      <PackageDetailCard key={pkg.id} pkg={pkg} />
                     ))
                   )}
                 </div>
               </div>
             );
           })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PackageCard({ pkg }: { pkg: PackageRow }) {
-  const deliverableCount = pkg.spec?.deliverables?.length || 0;
-  const template = PACKAGE_TEMPLATES[pkg.templateId];
-
-  return (
-    <div className="rounded-md p-2 border border-[var(--border-color)] bg-[var(--bg-secondary)] hover:border-[#E67E22]/40 transition-colors">
-      <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
-        {pkg.name}
-      </div>
-      <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
-        {template?.label || pkg.templateId}
-      </div>
-      <div className="flex items-center gap-2 mt-1.5 text-[10px] text-[var(--text-tertiary)]">
-        <span>{deliverableCount} deliverables</span>
-        {pkg.workflowCount > 0 && (
-          <>
-            <span>·</span>
-            <span>{pkg.workflowCount} workflows</span>
-          </>
-        )}
-      </div>
-      {pkg.customerId && (
-        <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5 truncate">
-          Customer: {pkg.customerId.slice(0, 8)}...
         </div>
       )}
     </div>

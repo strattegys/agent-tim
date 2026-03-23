@@ -7,6 +7,11 @@
 
 import type { AgentSpec } from "./agent-spec";
 
+/** Resolve /root/ paths to AGENT_ROOT when set (for local dev). */
+const R = process.env.AGENT_ROOT
+  ? (p: string) => p.replace(/^\/root\//, process.env.AGENT_ROOT! + "/")
+  : (p: string) => p;
+
 export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   // ─── MarkOps: Scout before Tim (Scout finds targets, Tim engages) ───
 
@@ -21,9 +26,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "MarkOps",
     color: "#2563EB",
     avatar: "/api/agent-avatar?id=scout",
-    sessionFile: "/root/.scoutbot/sessions/internal.jsonl",
-    systemPromptFile: "/root/.scoutbot/system-prompt.md",
-    memoryDir: "/root/.scoutbot/memory",
+    sessionFile: R("/root/.scoutbot/sessions/internal.jsonl"),
+    systemPromptFile: R("/root/.scoutbot/system-prompt.md"),
+    memoryDir: R("/root/.scoutbot/memory"),
     tools: [
       "web_search",
       "twenty_crm",
@@ -89,9 +94,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "MarkOps",
     color: "#1D9E75",
     avatar: "/api/agent-avatar?id=tim",
-    sessionFile: "/root/.nanobot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.nanobot/system-prompt.md",
-    memoryDir: "/root/.nanobot/memory",
+    sessionFile: R("/root/.nanobot/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.nanobot/system-prompt.md"),
+    memoryDir: R("/root/.nanobot/memory"),
     tools: [
       "twenty_crm",
       "linkedin",
@@ -190,9 +195,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "Utility",
     color: "#D85A30",
     avatar: "/api/agent-avatar?id=suzi",
-    sessionFile: "/root/.suzibot/workspace/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.suzibot/system-prompt.md",
-    memoryDir: "/root/.suzibot/memory",
+    sessionFile: R("/root/.suzibot/workspace/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.suzibot/system-prompt.md"),
+    memoryDir: R("/root/.suzibot/memory"),
     tools: ["web_search", "memory", "reminders", "punch_list", "notes"],
     capabilities: [
       "Web search",
@@ -236,9 +241,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     color: "#9B59B6",
     avatar: "/api/agent-avatar?id=friday",
     modelName: "gemini-2.5-pro",
-    sessionFile: "/root/.fridaybot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.fridaybot/system-prompt.md",
-    memoryDir: "/root/.fridaybot/memory",
+    sessionFile: R("/root/.fridaybot/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.fridaybot/system-prompt.md"),
+    memoryDir: R("/root/.fridaybot/memory"),
     tools: ["workflow_manager", "web_search", "memory"],
     capabilities: [
       "Manage workflows",
@@ -271,16 +276,17 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "ContentOps",
     color: "#4A90D9",
     avatar: "/api/agent-avatar?id=ghost",
-    modelName: "gemini-2.5-pro",
-    sessionFile: "/root/.ghostbot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.ghostbot/system-prompt.md",
-    memoryDir: "/root/.ghostbot/memory",
+    modelName: "claude-opus-4-6",
+    sessionFile: R("/root/.ghostbot/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.ghostbot/system-prompt.md"),
+    memoryDir: R("/root/.ghostbot/memory"),
     tools: [
       "web_search",
       "memory",
       "delegate_task",
       "twenty_crm",
       "workflow_items",
+      "beehiiv",
     ],
     capabilities: [
       "Content research",
@@ -311,9 +317,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "ContentOps",
     color: "#D4A017",
     avatar: "/api/agent-avatar?id=marni",
-    sessionFile: "/root/.marnibot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.marnibot/system-prompt.md",
-    memoryDir: "/root/.marnibot/memory",
+    sessionFile: R("/root/.marnibot/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.marnibot/system-prompt.md"),
+    memoryDir: R("/root/.marnibot/memory"),
     tools: [
       "web_search",
       "memory",
@@ -354,9 +360,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "FinOps",
     color: "#E67E22",
     avatar: "/api/agent-avatar?id=penny",
-    sessionFile: "/root/.pennybot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.pennybot/system-prompt.md",
-    memoryDir: "/root/.pennybot/memory",
+    sessionFile: R("/root/.pennybot/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.pennybot/system-prompt.md"),
+    memoryDir: R("/root/.pennybot/memory"),
     tools: [
       "package_manager",
       "twenty_crm",
@@ -394,9 +400,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "FinOps",
     color: "#FFFFFF",
     avatar: "/api/agent-avatar?id=king",
-    sessionFile: "/root/.kingbot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.kingbot/system-prompt.md",
-    memoryDir: "/root/.kingbot/memory",
+    sessionFile: R("/root/.kingbot/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.kingbot/system-prompt.md"),
+    memoryDir: R("/root/.kingbot/memory"),
     tools: ["web_search", "memory"],
     capabilities: ["Pricing (coming soon)", "Invoicing (coming soon)"],
     connections: [
@@ -423,9 +429,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     category: "Toys",
     color: "#534AB7",
     avatar: "/api/agent-avatar?id=rainbow",
-    sessionFile: "/root/.avabot/sessions/web_govind.jsonl",
-    systemPromptFile: "/root/.avabot/system-prompt.md",
-    memoryDir: "/root/.avabot/memory",
+    sessionFile: R("/root/.avabot/sessions/web_govind.jsonl"),
+    systemPromptFile: R("/root/.avabot/system-prompt.md"),
+    memoryDir: R("/root/.avabot/memory"),
     tools: ["web_search", "memory"],
     capabilities: ["Stories", "Learning", "Games", "Creativity"],
     connections: [{ label: "Web search", connected: true, toolId: "web_search" }],

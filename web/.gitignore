@@ -43,3 +43,7 @@ next-env.d.ts
 
 # user uploads
 /uploads
+
+# local dev
+/.dev-store
+/agent-data

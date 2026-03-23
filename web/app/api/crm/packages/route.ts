@@ -111,8 +111,9 @@ export async function PATCH(req: NextRequest) {
       sets.push(`stage = $${params.length}`);
     }
     if (spec) {
+      // Merge spec fields into existing spec (preserves deliverables when updating brief, etc.)
       params.push(JSON.stringify(spec));
-      sets.push(`spec = $${params.length}::jsonb`);
+      sets.push(`spec = COALESCE(spec, '{}'::jsonb) || $${params.length}::jsonb`);
     }
     if (name) {
       params.push(name);

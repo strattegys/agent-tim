@@ -4,18 +4,15 @@ import type { AgentConfig } from "@/lib/agent-frontend";
 import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import NotificationBell from "./NotificationBell";
 
-type ViewMode = "agents" | "toys";
-
 const TEAM_CATEGORIES = AGENT_CATEGORIES.filter((c) => c !== "Toys");
-const TOY_CATEGORIES = AGENT_CATEGORIES.filter((c) => c === "Toys");
 
 interface AgentSidebarProps {
   agents: AgentConfig[];
   activeAgent: string;
   onSelect: (id: string) => void;
   unreadCounts?: Record<string, number>;
-  viewMode?: ViewMode;
-  onViewModeChange?: (mode: ViewMode) => void;
+  pendingTaskCount?: number;
+  testingTaskCount?: number;
 }
 
 export default function AgentSidebar({
@@ -23,50 +20,26 @@ export default function AgentSidebar({
   activeAgent,
   onSelect,
   unreadCounts = {},
-  viewMode = "agents",
-  onViewModeChange,
+  pendingTaskCount = 0,
+  testingTaskCount = 0,
 }: AgentSidebarProps) {
-  const categories = viewMode === "toys" ? TOY_CATEGORIES : TEAM_CATEGORIES;
-
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
       <div className="h-11 shrink-0 px-4 text-sm font-medium border-b border-[var(--border-color)] flex items-center gap-1">
-        {/* Toggle buttons */}
-        <button
-          onClick={() => onViewModeChange?.("agents")}
-          className="text-sm font-medium transition-colors"
-          style={{
-            color: viewMode === "agents" ? "var(--text-primary)" : "var(--text-tertiary)",
-          }}
-        >
-          Agents
-        </button>
-        <span className="text-[var(--text-tertiary)] text-xs">/</span>
-        <button
-          onClick={() => onViewModeChange?.("toys")}
-          className="text-sm font-medium transition-colors"
-          style={{
-            color: viewMode === "toys" ? "var(--text-primary)" : "var(--text-tertiary)",
-          }}
-        >
-          Toys
-        </button>
+        <span className="text-sm font-medium text-[var(--text-primary)]">Agents</span>
         <div className="ml-auto">
           <NotificationBell />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {categories.map((category) => {
+        {TEAM_CATEGORIES.map((category) => {
           const categoryAgents = agents.filter((a) => a.category === category);
           if (categoryAgents.length === 0) return null;
           return (
             <div key={category}>
-              {/* Hide category header in Toys view since there's only one */}
-              {viewMode === "agents" && (
-                <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                  {category}
-                </div>
-              )}
+              <div className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                {category}
+              </div>
               {categoryAgents.map((agent) => {
                 const unread = unreadCounts[agent.id] || 0;
                 return (
@@ -110,7 +83,7 @@ export default function AgentSidebar({
                         <span
                           className="w-2 h-2 rounded-full shrink-0"
                           style={{
-                            background: agent.online ? "#1D9E75" : "#555",
+                            background: !agent.online ? "#555" : (agent.id === "friday" && pendingTaskCount > 0) ? "#F59E0B" : (agent.id === "penny" && testingTaskCount > 0) ? "#F59E0B" : "#1D9E75",
                           }}
                         />
                       </div>
@@ -124,6 +97,20 @@ export default function AgentSidebar({
             </div>
           );
         })}
+      </div>
+      {/* Logout */}
+      <div className="shrink-0 border-t border-[var(--border-color)] p-2">
+        <button
+          onClick={() => { window.location.href = "/api/auth/logout"; }}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-colors text-xs"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+          Logout
+        </button>
       </div>
     </div>
   );

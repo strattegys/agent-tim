@@ -1,7 +1,6 @@
-const CACHE_NAME = 'command-central-v4';
+const CACHE_NAME = 'command-central-v5';
 const STATIC_ASSETS = [
-  '/icons/icon-192.png',
-  '/icons/icon-512.png',
+  '/icons/app-construction.svg',
 ];
 
 self.addEventListener('install', (event) => {

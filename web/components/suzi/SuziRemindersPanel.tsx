@@ -202,13 +202,12 @@ export default function SuziRemindersPanel({
 
   // Helper to render the 3-tab header
   const renderSubTabHeader = () => (
-    <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
-      {(["punchlist", "reminders", "notes"] as SubTab[]).map((tab, i) => {
+    <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+      {(["punchlist", "reminders", "notes"] as SubTab[]).map((tab) => {
         const label = tab === "punchlist" ? "Punch List" : tab === "notes" ? "Notes" : "Reminders";
         const isActive = subTab === tab;
         return (
           <span key={tab} className="contents">
-            {i > 0 && <span className="text-[var(--text-tertiary)] text-[10px]">/</span>}
             <button
               onClick={() => setSubTab(tab)}
               className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${

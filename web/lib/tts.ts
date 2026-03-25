@@ -1,6 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 
+/** Same base URL as Rainbow Bot (`avabot_server.py`). */
 const INWORLD_TTS_API = "https://api.inworld.ai/tts/v1/voice";
+
+export type TtsSynthesisResult = {
+  stream: ReadableStream<Uint8Array>;
+  contentType: string;
+};
 
 /**
  * Summarize a long response into a concise spoken blurb using Gemini Flash.
@@ -30,18 +36,24 @@ ${text}`,
 }
 
 /**
- * Synthesize TTS audio via Inworld API.
- * Returns a ReadableStream of mp3 chunks — pipe directly to the client response.
+ * Inworld TTS — same contract as Rainbow Bot `handle_tts` in
+ * PROJECT-SERVER/rainbow/avabot_server.py:
+ * - POST `voice:stream`
+ * - modelId `inworld-tts-1.5-mini`
+ * - LINEAR16 @ 22050
+ * - NDJSON lines with `result.audioContent` base64 WAV chunks; strip RIFF headers and merge PCM into one WAV.
  */
-export async function textToSpeechStream(text: string): Promise<ReadableStream<Uint8Array>> {
-  const apiKey = process.env.INWORLD_TTS_KEY;
+async function inworldTextToWavBuffer(text: string, voiceIdOverride?: string): Promise<Buffer> {
+  const apiKey = process.env.INWORLD_TTS_KEY?.trim();
   if (!apiKey) {
-    throw new Error("INWORLD_TTS_KEY must be set");
+    throw new Error("INWORLD_TTS_KEY must be set (same as Rainbow Bot INWORLD_TTS_KEY in avabot_server.py)");
   }
 
-  const voiceId = process.env.INWORLD_VOICE_ID || "Kelsey";
+  const voiceId =
+    voiceIdOverride?.trim() || process.env.INWORLD_VOICE_ID?.trim() || "Kelsey";
+  const sampleRate = 22050;
 
-  const res = await fetch(INWORLD_TTS_API, {
+  const res = await fetch(`${INWORLD_TTS_API}:stream`, {
     method: "POST",
     headers: {
       Authorization: `Basic ${apiKey}`,
@@ -50,31 +62,91 @@ export async function textToSpeechStream(text: string): Promise<ReadableStream<U
     body: JSON.stringify({
       text,
       voiceId,
-      modelId: "inworld-tts-1.5-max",
+      modelId: "inworld-tts-1.5-mini",
       audioConfig: {
-        audioEncoding: "MP3",
-        sampleRateHertz: 22050,
+        audioEncoding: "LINEAR16",
+        sampleRateHertz: sampleRate,
       },
     }),
   });
 
   if (!res.ok) {
     const err = await res.text().catch(() => "Unknown error");
-    throw new Error(`Inworld TTS error ${res.status}: ${err}`);
+    throw new Error(`Inworld TTS error ${res.status}: ${err.slice(0, 500)}`);
   }
 
-  const data = await res.json();
-  if (!data.audioContent) {
-    throw new Error("No audioContent in Inworld response");
+  const raw = Buffer.from(await res.arrayBuffer());
+  const pcmParts: Buffer[] = [];
+  const textRaw = raw.toString("utf-8");
+
+  for (const line of textRaw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const chunk = JSON.parse(trimmed) as {
+        result?: { audioContent?: string };
+      };
+      const audioB64 = chunk?.result?.audioContent;
+      if (!audioB64) continue;
+      const wavBytes = Buffer.from(audioB64, "base64");
+      if (wavBytes.length >= 4 && wavBytes.subarray(0, 4).equals(Buffer.from("RIFF"))) {
+        pcmParts.push(wavBytes.subarray(44));
+      } else {
+        pcmParts.push(wavBytes);
+      }
+    } catch {
+      continue;
+    }
   }
 
-  // Inworld returns base64-encoded audio — decode to binary stream
-  const audioBytes = Buffer.from(data.audioContent, "base64");
+  const pcmData = Buffer.concat(pcmParts);
+  if (pcmData.length === 0) {
+    throw new Error("No audio data received from Inworld (empty stream parse)");
+  }
 
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(new Uint8Array(audioBytes));
-      controller.close();
-    },
-  });
+  return pcmToWav(pcmData, sampleRate);
+}
+
+function pcmToWav(pcm: Buffer, sampleRate: number): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = pcm.length;
+
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + dataSize, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(dataSize, 40);
+
+  return Buffer.concat([header, pcm]);
+}
+
+/**
+ * @param voiceHint — Inworld `voiceId` from agent registry (e.g. Olivia for Suzi)
+ */
+export async function synthesizeSpeech(
+  text: string,
+  voiceHint?: string
+): Promise<TtsSynthesisResult> {
+  const wav = await inworldTextToWavBuffer(text, voiceHint);
+  return {
+    stream: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new Uint8Array(wav));
+        controller.close();
+      },
+    }),
+    contentType: "audio/wav",
+  };
 }

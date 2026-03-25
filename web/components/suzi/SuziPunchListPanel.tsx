@@ -23,12 +23,12 @@ const RANK_LABELS: Record<number, string> = {
 };
 
 const RANK_COLORS: Record<number, string> = {
-  1: "#EF4444",
-  2: "#F97316",
-  3: "#F59E0B",
-  4: "#84CC16",
-  5: "#6366F1",
-  6: "#9CA3AF",
+  1: "#a67070",
+  2: "#a68970",
+  3: "#a6a066",
+  4: "#7fa67a",
+  5: "#8888a8",
+  6: "#8a9099",
 };
 
 interface SuziPunchListPanelProps {
@@ -250,7 +250,7 @@ export default function SuziPunchListPanel({
       {/* Header — hidden when embedded */}
       {!embedded && (
         <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-          <span className="text-xs font-semibold text-[var(--text-primary)]">
+          <span className="text-xs font-semibold text-[var(--text-chat-body)]">
             Punch List
           </span>
           <span className="ml-auto text-xs text-[var(--text-tertiary)]">
@@ -275,7 +275,7 @@ export default function SuziPunchListPanel({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search punch list..."
-          className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--accent-green)]"
+          className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-chat-body)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--accent-green)]"
         />
       </div>
 
@@ -289,8 +289,8 @@ export default function SuziPunchListPanel({
               onClick={() => setStatusFilter(sf)}
               className={`text-[10px] px-2.5 py-1 rounded-full cursor-pointer transition-colors ${
                 statusFilter === sf
-                  ? "bg-[#D85A30] text-white font-medium"
-                  : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                  ? "bg-[var(--accent-orange)]/85 text-[var(--text-primary)] font-medium"
+                  : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-chat-body)] border border-[var(--border-color)]"
               }`}
             >
               {sf}
@@ -309,8 +309,8 @@ export default function SuziPunchListPanel({
             onClick={() => setSelectedCategory(null)}
             className={`text-[9px] px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
               !selectedCategory
-                ? "bg-[var(--accent-green)] text-white font-medium"
-                : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                ? "bg-[var(--accent-green)]/90 text-[var(--text-primary)] font-medium"
+                : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-chat-body)] border border-[var(--border-color)]"
             }`}
           >
             All
@@ -323,8 +323,8 @@ export default function SuziPunchListPanel({
                 onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
                 className={`px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
                   selectedCategory === cat
-                    ? "bg-[var(--accent-green)] text-white font-medium"
-                    : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                    ? "bg-[var(--accent-green)]/90 text-[var(--text-primary)] font-medium"
+                    : "bg-[var(--bg-secondary)] text-[var(--text-tertiary)] hover:text-[var(--text-chat-body)] border border-[var(--border-color)]"
                 }`}
                 style={{ fontSize: count > 5 ? 11 : count > 2 ? 10 : 9 }}
               >
@@ -378,13 +378,10 @@ export default function SuziPunchListPanel({
                   {/* Column header */}
                   <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] flex items-center gap-2">
                     <div
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      className="w-2.5 h-2.5 rounded-full shrink-0 opacity-75"
                       style={{ background: color }}
                     />
-                    <span
-                      className="text-[11px] font-semibold truncate"
-                      style={{ color }}
-                    >
+                    <span className="text-[11px] font-semibold truncate text-[var(--text-chat-body)]">
                       {label}
                     </span>
                     <span className="text-[10px] text-[var(--text-tertiary)] ml-auto shrink-0">

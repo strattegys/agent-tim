@@ -6,7 +6,7 @@
 import { getSystemPrompt } from "./system-prompt";
 import { toolDeclarations, executeTool } from "./tools";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
-import { getAgentConfig } from "./agent-config";
+import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
 
@@ -240,7 +240,9 @@ export async function chatStreamGroq(
           modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
         }
         addMessage(config.sessionFile, modelMsg);
-        consolidateSession(agentId, config.sessionFile).catch(() => {});
+        if (!isChatEphemeralAgent(agentId)) {
+          consolidateSession(agentId, config.sessionFile).catch(() => {});
+        }
 
         onChunk(text);
         return {
@@ -336,7 +338,9 @@ export async function chatStreamGroq(
       modelMsg.delegatedFrom = Array.from(delegatedAgents).join(",");
     }
     addMessage(config.sessionFile, modelMsg);
-    consolidateSession(agentId, config.sessionFile).catch(() => {});
+    if (!isChatEphemeralAgent(agentId)) {
+      consolidateSession(agentId, config.sessionFile).catch(() => {});
+    }
 
     onChunk(fullText);
   }

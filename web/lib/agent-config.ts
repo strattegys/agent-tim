@@ -5,7 +5,20 @@
  * getAgentConfig() and get the same AgentBackendConfig shape.
  */
 
-import { AGENT_REGISTRY, getAgentSpec } from "./agent-registry";
+import { mkdirSync } from "fs";
+import { join } from "path";
+import { getAgentSpec } from "./agent-registry";
+
+/** Comma-separated agent ids in CHAT_EPHEMERAL_AGENTS — local-only session + memory dirs, no vector RAG. */
+export function isChatEphemeralAgent(agentId: string): boolean {
+  const raw = process.env.CHAT_EPHEMERAL_AGENTS?.trim();
+  if (!raw) return false;
+  return raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .includes(agentId.toLowerCase());
+}
 
 export interface Routine {
   name: string;
@@ -30,14 +43,26 @@ export interface AgentBackendConfig {
 
 export function getAgentConfig(agentId: string): AgentBackendConfig {
   const spec = getAgentSpec(agentId);
+  let sessionFile = spec.sessionFile;
+  let memoryDir = spec.memoryDir;
+  let vectorMemory = spec.vectorMemory;
+
+  if (isChatEphemeralAgent(agentId)) {
+    const base = join(process.cwd(), ".dev-ephemeral-chat", agentId);
+    mkdirSync(base, { recursive: true });
+    sessionFile = join(base, "chat.jsonl");
+    memoryDir = join(base, "memory");
+    vectorMemory = false;
+  }
+
   return {
     id: spec.id,
     modelName: spec.modelName,
     temperature: spec.temperature,
     hasKanban: spec.workflowTypes.length > 0,
-    sessionFile: spec.sessionFile,
+    sessionFile,
     systemPromptFile: spec.systemPromptFile,
-    memoryDir: spec.memoryDir,
+    memoryDir,
     tools: spec.tools,
     routines: spec.routines.map((r) => ({
       name: r.name,
@@ -45,12 +70,8 @@ export function getAgentConfig(agentId: string): AgentBackendConfig {
       description: r.description,
       logFile: r.logFile,
     })),
-    vectorMemory: spec.vectorMemory,
+    vectorMemory,
     provider: spec.provider,
   };
 }
 
-export function agentHasKanban(agentId: string): boolean {
-  const spec = AGENT_REGISTRY[agentId];
-  return spec ? spec.workflowTypes.length > 0 : false;
-}

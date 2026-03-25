@@ -3,7 +3,7 @@
  * consumed by the chat UI and sidebar components.
  */
 
-import { getAllAgentSpecs } from "./agent-registry";
+import { getAllAgentSpecs, getAgentSpec } from "./agent-registry";
 import type { AgentCategory } from "./agent-spec";
 
 export interface AgentConfig {
@@ -20,6 +20,12 @@ export interface AgentConfig {
 }
 
 export const AGENT_CATEGORIES = ["Utility", "MarkOps", "ContentOps", "FinOps", "Toys"] as const;
+
+/** Client-safe: whether this agent owns a workflow board (no Node fs). */
+export function agentHasKanban(agentId: string): boolean {
+  const spec = getAgentSpec(agentId);
+  return spec.workflowTypes.length > 0;
+}
 
 export function getFrontendAgents(): AgentConfig[] {
   return getAllAgentSpecs().map((spec) => ({

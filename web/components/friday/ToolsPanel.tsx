@@ -33,6 +33,7 @@ const AGENT_COLORS: Record<string, string> = {
   ghost: "#4A90D9",
   marni: "#D4A017",
   rainbow: "#534AB7",
+  king: "#5a6d7a",
 };
 
 export default function ToolsPanel() {

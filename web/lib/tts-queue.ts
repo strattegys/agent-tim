@@ -3,7 +3,7 @@
  *
  * - Accumulates streamed text from the chat
  * - On flush: fires a single TTS request (with optional summarization)
- * - Plays audio as mp3 chunks arrive (no waiting for full file)
+ * - Plays Inworld WAV from /api/tts
  * - Exposes stop() and state change callbacks
  */
 
@@ -57,14 +57,30 @@ export class TtsQueue {
         signal: this.abortController.signal,
       });
 
-      if (this.aborted || !res.ok || !res.body) {
+      if (this.aborted) {
         this.onStateChange("idle");
         return;
       }
 
-      // Create a blob URL from the streaming response and play immediately.
-      // The browser will start decoding/playing mp3 as data arrives.
-      const blob = await this.streamToBlob(res.body);
+      if (!res.ok) {
+        const ct = res.headers.get("content-type") || "";
+        let detail = "";
+        try {
+          if (ct.includes("application/json")) {
+            const j = (await res.json()) as { error?: string; hint?: string };
+            detail = [j.error, j.hint].filter(Boolean).join(" — ");
+          } else {
+            detail = (await res.text()).slice(0, 300);
+          }
+        } catch {
+          detail = `HTTP ${res.status}`;
+        }
+        console.error("[TTS] /api/tts failed:", res.status, detail || res.statusText);
+        this.onStateChange("idle");
+        return;
+      }
+
+      const blob = await res.blob();
       if (this.aborted) {
         this.onStateChange("idle");
         return;
@@ -96,28 +112,6 @@ export class TtsQueue {
     this.onStateChange("idle");
   }
 
-  /**
-   * Stream response body into a Blob.
-   * We collect chunks and create a blob — the Audio element can start
-   * decoding mp3 from the blob URL immediately (mp3 is streamable).
-   */
-  private async streamToBlob(body: ReadableStream<Uint8Array>): Promise<Blob> {
-    const reader = body.getReader();
-    const chunks: Uint8Array[] = [];
-
-    while (true) {
-      if (this.aborted) {
-        reader.cancel();
-        break;
-      }
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-
-    return new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
-  }
-
   private playBlob(blob: Blob): Promise<void> {
     return new Promise((resolve) => {
       if (this.aborted) { resolve(); return; }
@@ -138,7 +132,11 @@ export class TtsQueue {
         URL.revokeObjectURL(url);
         resolve();
       };
-      audio.play().catch(() => {
+      audio.play().catch((e) => {
+        console.warn(
+          "[TTS] audio.play() failed (often autoplay policy — click the page once, then send another message):",
+          e
+        );
         this.currentAudio = null;
         URL.revokeObjectURL(url);
         resolve();

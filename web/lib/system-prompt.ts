@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { readMemory } from "./memory";
 import { searchMemories, listAllMemories } from "./vector-memory";
-import { getAgentConfig } from "./agent-config";
+import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
 
 const promptCache = new Map<string, string>();
 
@@ -51,6 +51,9 @@ export async function getSystemPrompt(
   // Inject memory section
   let memorySection = "";
   if (agentId) {
+    if (isChatEphemeralAgent(agentId)) {
+      memorySection = `\n\n## Local ephemeral session\nLong-term and vector memory are off for local testing. Chat and memory-tool files stay under .dev-ephemeral-chat/${agentId}/ on this machine only — delete that folder to reset.`;
+    } else {
     const isVector = (() => {
       try {
         return !!getAgentConfig(agentId).vectorMemory;
@@ -89,6 +92,7 @@ export async function getSystemPrompt(
       } else {
         memorySection = `\n\n## Long-term Memory\nNo memories saved yet. Use the memory tool to save important facts as you learn them.`;
       }
+    }
     }
   }
 

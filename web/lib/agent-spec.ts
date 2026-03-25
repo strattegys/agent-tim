@@ -149,7 +149,7 @@ export interface AgentSpec {
   workflowTypes: string[];
 
   // ── Voice ──
-  /** TTS voice name (Gemini prebuilt). If set, agent responses are spoken aloud. */
+  /** Inworld `voiceId` for `/api/tts`. If set, agent responses are spoken aloud. */
   ttsVoice?: string;
 
   // ── Memory ──

@@ -1,13 +1,23 @@
 import { NextResponse } from "next/server";
-import { textToSpeechStream, summarizeForVoice } from "@/lib/tts";
+import { synthesizeSpeech, summarizeForVoice } from "@/lib/tts";
 
 export async function POST(request: Request) {
   try {
-    const { text, summarize } = await request.json();
+    const { text, summarize, voice } = await request.json();
     if (!text || typeof text !== "string") {
       return NextResponse.json(
         { error: "Text is required" },
         { status: 400 }
+      );
+    }
+
+    if (!process.env.INWORLD_TTS_KEY?.trim()) {
+      return NextResponse.json(
+        {
+          error: "INWORLD_TTS_KEY is not set",
+          hint: "Add the same INWORLD_TTS_KEY as Rainbow Bot (see PROJECT-SERVER/rainbow/avabot_server.py) to web/.env.local, then restart: docker compose -f docker-compose.dev.yml up -d --force-recreate",
+        },
+        { status: 503 }
       );
     }
 
@@ -24,13 +34,16 @@ export async function POST(request: Request) {
     }
     console.log(`[tts] Speaking ${spokenText.split(/\s+/).length} words (summarized=${summarize})`);
 
-    // Stream mp3 audio from ElevenLabs directly to the client
-    const audioStream = await textToSpeechStream(spokenText);
+    // Inworld WAV (same pipeline as Rainbow Bot).
+    const { stream, contentType } = await synthesizeSpeech(
+      spokenText,
+      typeof voice === "string" ? voice : undefined
+    );
 
-    return new Response(audioStream, {
+    return new Response(stream, {
       headers: {
-        "Content-Type": "audio/mpeg",
-        "Transfer-Encoding": "chunked",
+        "Content-Type": contentType,
+        "Cache-Control": "no-cache",
       },
     });
   } catch (error: unknown) {

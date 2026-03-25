@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public",
-    "start": "next start"
+    "start": "next start",
+    "check-tts": "node scripts/check-inworld-tts.mjs",
+    "db:exec": "node scripts/db-exec.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

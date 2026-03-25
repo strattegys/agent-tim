@@ -23,13 +23,14 @@ export interface PunchListItem {
   updatedAt: string;
 }
 
+/** Desaturated rank dots — easier on the eyes (IDE-style accents) */
 const RANK_COLORS: Record<number, string> = {
-  1: "#EF4444",
-  2: "#F97316",
-  3: "#F59E0B",
-  4: "#84CC16",
-  5: "#6366F1",
-  6: "#9CA3AF",
+  1: "#a67070",
+  2: "#a68970",
+  3: "#a6a066",
+  4: "#7fa67a",
+  5: "#8888a8",
+  6: "#8a9099",
 };
 
 interface PunchListCardProps {
@@ -55,7 +56,7 @@ export default function PunchListCard({
     >
       {/* Item number */}
       <span
-        className="text-[11px] font-bold mb-1 inline-block"
+        className="text-[11px] font-semibold mb-1 inline-block opacity-80"
         style={{ color: rankColor }}
       >
         {item.itemNumber}
@@ -63,8 +64,8 @@ export default function PunchListCard({
 
       {/* Title */}
       <p
-        className={`text-[11px] font-medium text-[var(--text-primary)] leading-tight ${
-          isDone ? "line-through" : ""
+        className={`text-[11px] font-medium text-[var(--text-chat-body)] leading-tight ${
+          isDone ? "line-through text-[var(--text-tertiary)]" : ""
         }`}
       >
         {item.title}
@@ -72,7 +73,7 @@ export default function PunchListCard({
 
       {/* Description */}
       {item.description && (
-        <p className="text-[10px] text-[var(--text-secondary)] mt-0.5 line-clamp-2 leading-tight">
+        <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 line-clamp-2 leading-tight">
           {item.description}
         </p>
       )}
@@ -80,7 +81,7 @@ export default function PunchListCard({
       {/* Latest note preview */}
       {latestNote && !expanded && (
         <div className="mt-2 mb-1 pl-1.5 border-l-2 border-[var(--border-color)]">
-          <p className="text-[10px] text-[var(--text-secondary)] line-clamp-1 italic py-0.5">
+          <p className="text-[10px] text-[var(--text-tertiary)] line-clamp-1 italic py-0.5">
             {latestNote.content}
           </p>
         </div>
@@ -91,7 +92,7 @@ export default function PunchListCard({
         <div className="mt-2 mb-1 space-y-2">
           {item.notes.map((note) => (
             <div key={note.id} className="pl-1.5 border-l-2 border-[var(--border-color)]">
-              <p className="text-[10px] text-[var(--text-secondary)] italic py-0.5">
+              <p className="text-[10px] text-[var(--text-tertiary)] italic py-0.5">
                 {note.content}
               </p>
               <span className="text-[8px] text-[var(--text-tertiary)]">
@@ -116,7 +117,7 @@ export default function PunchListCard({
         {noteCount > 0 && (
           <button
             onClick={() => setExpanded(!expanded)}
-            className="text-[8px] text-[var(--accent-green)] hover:underline cursor-pointer ml-auto"
+            className="text-[8px] text-[var(--text-secondary)] hover:text-[var(--accent-green)] underline-offset-2 hover:underline cursor-pointer ml-auto"
           >
             {expanded ? "hide" : `${noteCount}`}
           </button>

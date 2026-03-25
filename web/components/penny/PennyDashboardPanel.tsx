@@ -194,7 +194,7 @@ export default function PennyDashboardPanel({ onClose }: PennyDashboardPanelProp
                 </div>
               ) : (
                 draftPackages.map((pkg) => (
-                  <PackageDetailCard key={pkg.id} pkg={pkg} />
+                  <PackageDetailCard key={pkg.id} pkg={pkg} initialCollapsed />
                 ))
               )}
             </div>

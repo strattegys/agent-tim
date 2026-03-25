@@ -51,11 +51,11 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { templateId, name, customerId, customerType, spec } = body;
+    const { templateId, name: nameInput, customerId, customerType, spec } = body;
 
-    if (!templateId || !name) {
+    if (!templateId) {
       return NextResponse.json(
-        { error: "templateId and name are required" },
+        { error: "templateId is required" },
         { status: 400 }
       );
     }
@@ -68,6 +68,11 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const name =
+      typeof nameInput === "string" && nameInput.trim() !== ""
+        ? nameInput.trim()
+        : template.label;
 
     const pkgSpec = spec || { deliverables: template.deliverables };
 

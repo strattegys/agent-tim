@@ -148,8 +148,21 @@ export async function POST(req: NextRequest) {
 
         // IDEA stage: no artifact — human pastes their idea via the task input,
         // then Ghost builds the content brief in CAMPAIGN_SPEC stage.
+      } else if (wfType.itemType === "person" && firstStage.requiresHuman) {
+        const pRows = await query<{ id: string }>(
+          `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, NOW(), NOW())
+           RETURNING id`,
+          ["Next", "Contact", "Warm outreach — awaiting contact details"]
+        );
+        const personId = (pRows[0] as Record<string, unknown>).id as string;
+        await query(
+          `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+           VALUES ($1, $2, 'person', $3, NOW(), NOW())`,
+          [workflowId, firstStage.key, personId]
+        );
       }
-      // For person-type workflows, items will be added as agents find targets
+      // Other person-type workflows: items added by agents (e.g. Scout → Tim cold outreach)
 
       createdWorkflows.push({
         workflowId,

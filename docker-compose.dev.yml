@@ -8,7 +8,8 @@ services:
   web:
     image: node:20-alpine
     working_dir: /app
-    command: sh -c "npm install && rm -rf .next && npx next dev --hostname 0.0.0.0 --port 3001"
+    # --webpack: Turbopack (Next 16 default) often misses file changes on Windows + bind mounts; webpack + polling below is reliable
+    command: sh -c "npm install && rm -rf .next && npx next dev --hostname 0.0.0.0 --port 3001 --webpack"
     ports:
       - "3001:3001"
     volumes:
@@ -21,6 +22,9 @@ services:
     environment:
       - AGENT_ROOT=/agents
       - CRM_DB_HOST=host.docker.internal
+      # Windows + bind mounts: file watchers often miss saves; force polling so edits hit Next dev
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
     tty: true
 
 volumes:

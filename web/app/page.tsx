@@ -15,8 +15,7 @@ import SuziNotesPanel from "@/components/suzi/SuziNotesPanel";
 import StatusRail from "@/components/StatusRail";
 
 import NotificationBell from "@/components/NotificationBell";
-import { agentHasKanban } from "@/lib/agent-config";
-import { getFrontendAgents, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
+import { getFrontendAgents, agentHasKanban, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
 import { TtsQueue, type TtsState } from "@/lib/tts-queue";
 import Link from "next/link";
@@ -806,7 +805,6 @@ function ChatPage() {
               </svg>
             </button>
           </div>
-          <span className="ml-auto text-sm font-mono text-[var(--text-tertiary)]" title="Build code">B25C</span>
         </div>
         {/* Panel content */}
         <div className="flex-1 min-h-0 flex">

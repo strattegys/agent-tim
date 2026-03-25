@@ -14,7 +14,7 @@ const AGENT_COLORS: Record<string, string> = {
   marni: "#D4A017",
   penny: "#E67E22",
   friday: "#9B59B6",
-  king: "#FFFFFF",
+  king: "#5a6d7a",
 };
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
@@ -44,10 +44,21 @@ interface PackageRow {
 
 interface PackageDetailCardProps {
   pkg: PackageRow;
+  /**
+   * When true (Package Planner Draft column), card starts collapsed regardless of pkg.stage quirks.
+   * When omitted, falls back to: collapsed iff stage is DRAFT.
+   */
+  initialCollapsed?: boolean;
 }
 
-export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+export default function PackageDetailCard({ pkg, initialCollapsed }: PackageDetailCardProps) {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof initialCollapsed === "boolean") return initialCollapsed;
+    const stage = String(pkg.stage ?? "")
+      .trim()
+      .toUpperCase();
+    return stage === "DRAFT";
+  });
   const [useFakeData, setUseFakeData] = useState(() => {
     // Read from package spec if available (persisted by activate route), default unchecked
     const spec = typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : pkg.spec;
@@ -254,11 +265,9 @@ export default function PackageDetailCard({ pkg }: PackageDetailCardProps) {
             <div className="text-xs font-semibold text-[var(--text-primary)] truncate">
               {pkg.name}
             </div>
-            {!isCollapsed && (
-              <div className="text-[10px] text-[var(--text-tertiary)]">
-                {pkg.templateId}
-              </div>
-            )}
+            <div className="text-[10px] text-[var(--text-tertiary)] truncate">
+              {pkg.templateId}
+            </div>
           </div>
         </button>
         <div className="flex items-center gap-1.5 shrink-0">

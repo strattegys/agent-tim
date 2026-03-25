@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Client } from "pg";
 
 const PROBE_MS = 4000;
 
@@ -52,12 +53,84 @@ async function probeHttp(
   }
 }
 
+const DATA_PLATFORM_ID = "data_platform";
+const DATA_PLATFORM_LABEL = "Data platform";
+
+/**
+ * Postgres is what Kanban / human-tasks / packages use. Probing Twenty's web URL
+ * often fails in production (UI not reachable from the app host) even when DB is fine.
+ */
+async function probeCrmPostgres(): Promise<ProbeResult> {
+  const password = process.env.CRM_DB_PASSWORD?.trim();
+  if (!password) {
+    return {
+      id: DATA_PLATFORM_ID,
+      label: DATA_PLATFORM_LABEL,
+      status: "skipped",
+      detail: "CRM_DB_PASSWORD not set",
+    };
+  }
+
+  const client = new Client({
+    host: process.env.CRM_DB_HOST || "127.0.0.1",
+    port: parseInt(process.env.CRM_DB_PORT || "5432", 10),
+    database: process.env.CRM_DB_NAME || "default",
+    user: process.env.CRM_DB_USER || "postgres",
+    password,
+    connectionTimeoutMillis: PROBE_MS,
+  });
+
+  const t0 = Date.now();
+  try {
+    await client.connect();
+    await client.query("SELECT 1");
+    const ms = Date.now() - t0;
+    await client.end();
+    return {
+      id: DATA_PLATFORM_ID,
+      label: DATA_PLATFORM_LABEL,
+      status: "ok",
+      ms,
+      detail: "postgres",
+    };
+  } catch (e) {
+    try {
+      await client.end();
+    } catch {
+      /* ignore */
+    }
+    const msg = e instanceof Error ? e.message : String(e);
+    return {
+      id: DATA_PLATFORM_ID,
+      label: DATA_PLATFORM_LABEL,
+      status: "down",
+      detail: msg.slice(0, 96),
+    };
+  }
+}
+
+/** Prefer CRM Postgres when configured; otherwise optional HTTP check to Twenty URL. */
+async function probeDataPlatform(): Promise<ProbeResult> {
+  if (process.env.CRM_DB_PASSWORD?.trim()) {
+    return probeCrmPostgres();
+  }
+  const twentyBase = process.env.TWENTY_CRM_URL?.trim() || "";
+  if (twentyBase) {
+    const r = await probeHttp(DATA_PLATFORM_ID, DATA_PLATFORM_LABEL, twentyBase);
+    return { ...r, detail: r.detail ? `http: ${r.detail}` : "http OK" };
+  }
+  return {
+    id: DATA_PLATFORM_ID,
+    label: DATA_PLATFORM_LABEL,
+    status: "skipped",
+    detail: "set CRM_DB_* or TWENTY_CRM_URL",
+  };
+}
+
 /**
  * GET /api/system-status — lightweight reachability checks (server-side only).
- * URLs come from existing env vars; optional TTS via STATUS_TTS_URL.
  */
 export async function GET() {
-  const twentyBase = process.env.TWENTY_CRM_URL?.trim() || "";
   const siteArticles = process.env.SITE_API_URL?.trim() || "https://strattegys.com/api/articles";
   let siteOrigin = "https://strattegys.com";
   try {
@@ -65,19 +138,27 @@ export async function GET() {
   } catch {
     /* keep default */
   }
-  const ttsUrl = process.env.STATUS_TTS_URL?.trim();
 
-  const [twenty, site, tts] = await Promise.all([
-    probeHttp("twenty", "Twenty CRM", twentyBase || undefined),
+  const [dataPlatform, site] = await Promise.all([
+    probeDataPlatform(),
     probeHttp("site", "Site", siteOrigin, "/"),
-    probeHttp("tts", "TTS", ttsUrl || undefined),
   ]);
+
+  const hasInworldKey = !!process.env.INWORLD_TTS_KEY?.trim();
+  const inworldTts: ProbeResult = {
+    id: "inworld_tts",
+    label: "Inworld TTS",
+    status: hasInworldKey ? "ok" : "skipped",
+    detail: hasInworldKey
+      ? `voice ${process.env.INWORLD_VOICE_ID?.trim() || "default"}`
+      : "add INWORLD_TTS_KEY to web/.env.local",
+  };
 
   const services: ProbeResult[] = [
     { id: "web", label: "Command Central", status: "ok", ms: 0 },
-    twenty,
+    dataPlatform,
     site,
-    tts,
+    inworldTts,
   ];
 
   return NextResponse.json({

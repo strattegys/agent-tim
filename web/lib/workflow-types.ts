@@ -205,6 +205,110 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     },
   },
 
+  // ─── Warm Outreach (Tim) — existing contacts, LinkedIn DM only ─────────
+
+  "warm-outreach": {
+    id: "warm-outreach",
+    label: "Warm Outreach",
+    itemType: "person",
+    description:
+      "Warm outreach to existing contacts via LinkedIn DM. Govind provides contacts one at a time. " +
+      "3-message outreach sequence, then ongoing conversation if they reply.",
+    defaultBoard: {
+      stages: [
+        {
+          key: "AWAITING_CONTACT",
+          label: "Awaiting Contact",
+          color: "#6b8a9e",
+          instructions:
+            "Human provides the next contact: name, how they know Govind, LinkedIn URL if available, " +
+            "and notes on what they do and what might resonate. Tim will research and enrich next.",
+          requiresHuman: true,
+          humanAction:
+            "Who's next? Give me their name, how you know them, and any notes — what they do, " +
+            "what they might care about, anything relevant.",
+        },
+        {
+          key: "RESEARCHING",
+          label: "Researching",
+          color: "#2563EB",
+          instructions:
+            "Tim enriches the contact using LinkedIn fetch-profile and web_search. Document: " +
+            "full name/title, company, recent posts/activity, mutual connections, conversation starters, " +
+            "recommended messaging angle.",
+        },
+        {
+          key: "MESSAGE_DRAFT",
+          label: "Message Draft",
+          color: "#D4A017",
+          instructions:
+            "Tim drafts a LinkedIn DM for this warm contact. Message 1 (opener): personal opening " +
+            "referencing the relationship, brief update on what Govind is building, soft mention of " +
+            "taking on projects, referral or direct ask. Message 2 (bump, ~day 3–5): light follow-up, " +
+            "add something new, 2–4 sentences max. Message 3 (final nudge, ~day 7–10): close the loop " +
+            "with zero pressure, 2–3 sentences max. All messages via the LinkedIn tool only.",
+          requiresHuman: true,
+          humanAction:
+            "Review and approve the message. If the contact has replied, click Replied (on the Messaged step) " +
+            "to enter conversation mode.",
+        },
+        {
+          key: "MESSAGED",
+          label: "Messaged",
+          color: "#D85A30",
+          instructions:
+            "Message sent via LinkedIn DM. Wait for the follow-up window or a reply. " +
+            "After 3 outreach messages with no reply, the sequence ends. If they reply, Govind marks Replied.",
+          requiresHuman: true,
+          humanAction:
+            "Message is out. When you're ready for the next follow-up draft, click Continue. " +
+            "If they replied, click Replied to enter conversation mode.",
+        },
+        {
+          key: "REPLIED",
+          label: "Replied",
+          color: "#16A34A",
+          instructions:
+            "Contact replied on LinkedIn. Transition into conversation mode — Tim drafts replies until Govind ends the sequence.",
+        },
+        {
+          key: "REPLY_DRAFT",
+          label: "Reply Draft",
+          color: "#D4A017",
+          instructions:
+            "Tim drafts a reply to the contact's message. Match their energy; continue naturally. " +
+            "No cap on replies until Govind ends the sequence.",
+          requiresHuman: true,
+          humanAction:
+            "Review Tim's reply. Approve to send, reject to redraft, or End Sequence if the conversation is done.",
+        },
+        {
+          key: "REPLY_SENT",
+          label: "Reply Sent",
+          color: "#D85A30",
+          instructions: "Reply sent via LinkedIn DM. Tim prepares the next reply draft if the conversation continues.",
+        },
+        {
+          key: "ENDED",
+          label: "Ended",
+          color: "#555",
+          instructions:
+            "Sequence complete: either 3 outreach messages with no ongoing conversation, or Govind wrapped up the thread.",
+        },
+      ],
+      transitions: {
+        AWAITING_CONTACT: ["RESEARCHING"],
+        RESEARCHING: ["MESSAGE_DRAFT"],
+        MESSAGE_DRAFT: ["MESSAGED"],
+        MESSAGED: ["MESSAGE_DRAFT", "REPLIED", "ENDED"],
+        REPLIED: ["REPLY_DRAFT"],
+        REPLY_DRAFT: ["REPLY_SENT", "ENDED"],
+        REPLY_SENT: ["REPLY_DRAFT"],
+        ENDED: [],
+      },
+    },
+  },
+
   // ─── Content Pipeline (Ghost) ─────────────────────────────────
 
   "content-pipeline": {

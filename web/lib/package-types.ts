@@ -175,6 +175,23 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
       },
     ],
   },
+  // ─── Vibe coding warm outreach (Tim — one contact at a time) ────────────────
+  "vibe-coding-outreach": {
+    id: "vibe-coding-outreach",
+    label: "Warm Outreach",
+    description:
+      "Warm LinkedIn DMs to existing contacts (vibe coding & AI agent buildout) — one at a time, " +
+      "3-message sequence, conversation mode if they reply",
+    deliverables: [
+      {
+        workflowType: "warm-outreach",
+        ownerAgent: "tim",
+        targetCount: 10,
+        label: "Warm Outreach",
+      },
+    ],
+  },
+
   // ─── AI Article (Ghost-only — single article, no outreach) ────────────────
   "ai-article": {
     id: "ai-article",

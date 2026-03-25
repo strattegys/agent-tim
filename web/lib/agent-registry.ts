@@ -176,7 +176,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
         },
       ],
     },
-    workflowTypes: ["linkedin-outreach"],
+    workflowTypes: ["linkedin-outreach", "warm-outreach"],
     delegation: {
       canDelegateTo: ["scout"],
       acceptsTaskTypes: ["outreach-target", "messaging-content"],
@@ -221,7 +221,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       ],
     },
     workflowTypes: [],
-    ttsVoice: "Zephyr",
+    // Inworld voiceId for /api/tts (same stack as Rainbow Bot — INWORLD_VOICE_ID env is fallback only)
+    ttsVoice: "Olivia",
     vectorMemory: true,
     provider: "groq",
     modelName: "llama-3.3-70b-versatile",
@@ -402,7 +403,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "Handles pricing, invoicing, and financial tracking. " +
       "Currently a placeholder — tools and capabilities coming soon.",
     category: "FinOps",
-    color: "#1A1A2E",
+    // Mid slate — readable on sidebar / header vs --bg-secondary (#17212b); old #1A1A2E blended away
+    color: "#5a6d7a",
     avatar: "/api/agent-avatar?id=king",
     sessionFile: R("/root/.kingbot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.kingbot/system-prompt.md"),

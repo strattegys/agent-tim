@@ -13,7 +13,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
  *
  * Body: {
  *   itemId: string,        — workflow item ID
- *   action: "approve" | "reject" | "input",
+ *   action: "approve" | "reject" | "input" | "replied" | "ended",
  *   notes?: string,        — human's notes/feedback
  *   data?: Record<string, string>,  — structured data (e.g., { url: "..." })
  *   nextStage?: string,    — explicit next stage (if not provided, uses first valid transition)
@@ -33,6 +33,14 @@ export async function POST(req: NextRequest) {
     if (!itemId || !action) {
       return NextResponse.json(
         { error: "itemId and action are required" },
+        { status: 400 }
+      );
+    }
+
+    const allowedActions = ["approve", "reject", "input", "replied", "ended"];
+    if (!allowedActions.includes(action)) {
+      return NextResponse.json(
+        { error: `Invalid action. Use one of: ${allowedActions.join(", ")}` },
         { status: 400 }
       );
     }
@@ -99,25 +107,49 @@ export async function POST(req: NextRequest) {
 
     if (!targetStage && wfType) {
       const transitions = wfType.defaultBoard.transitions[item.stage] || [];
-      if (action === "reject") {
+
+      if (action === "replied") {
+        if (item.stage !== "MESSAGED" || wfTypeId !== "warm-outreach") {
+          return NextResponse.json(
+            { error: "Replied is only valid for warm-outreach items in Messaged stage" },
+            { status: 400 }
+          );
+        }
+        targetStage = transitions.includes("REPLIED") ? "REPLIED" : undefined;
+        if (!targetStage) {
+          return NextResponse.json({ error: "Invalid transition from Messaged" }, { status: 400 });
+        }
+      } else if (action === "ended") {
+        if (item.stage !== "REPLY_DRAFT" || wfTypeId !== "warm-outreach") {
+          return NextResponse.json(
+            { error: "End Sequence is only valid for warm-outreach items in Reply Draft stage" },
+            { status: 400 }
+          );
+        }
+        targetStage = transitions.includes("ENDED") ? "ENDED" : undefined;
+        if (!targetStage) {
+          return NextResponse.json({ error: "Invalid transition from Reply Draft" }, { status: 400 });
+        }
+      } else if (action === "reject") {
         // For rejection, go back or to REJECTED if available
         targetStage = transitions.find((s) => s === "REJECTED") ||
           transitions.find((s) => s === "DRAFTING") || // content pipeline: back to drafting
           transitions[transitions.length - 1]; // last option
-      } else {
+      } else if (action === "approve" || action === "input") {
         // approve or input → advance to first valid transition
         targetStage = transitions[0];
 
-        // MESSAGE_DRAFT cycle handling: count how many times this item
-        // has been at MESSAGE_DRAFT (by counting MESSAGE_DRAFT artifacts)
-        if (item.stage === "MESSAGE_DRAFT") {
+        // MESSAGE_DRAFT cap (Tim outreach only): 3rd approved draft → ENDED
+        if (
+          item.stage === "MESSAGE_DRAFT" &&
+          (wfTypeId === "linkedin-outreach" || wfTypeId === "warm-outreach")
+        ) {
           const msgArtifacts = await query<{ id: string }>(
             `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'MESSAGE_DRAFT' AND "deletedAt" IS NULL`,
             [itemId]
           );
-          const messageCount = msgArtifacts.length + 1; // +1 for current
+          const messageCount = msgArtifacts.length + 1; // +1 for current approval
           if (messageCount >= 3) {
-            // After 3 messages, move to ENDED instead of MESSAGED
             targetStage = "ENDED";
           }
         }
@@ -174,11 +206,22 @@ export async function POST(req: NextRequest) {
     const logs: string[] = [];
     logs.push(`Task resolved: ${item.stage} → ${targetStage} (${action})`);
 
-    // 4. Advance the item
-    await query(
-      `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
-      [targetStage, itemId]
-    );
+    // 4. Advance the item (clear follow-up due date when continuing warm sequence)
+    if (
+      wfTypeId === "warm-outreach" &&
+      item.stage === "MESSAGED" &&
+      targetStage === "MESSAGE_DRAFT"
+    ) {
+      await query(
+        `UPDATE "_workflow_item" SET stage = $1, "dueDate" = NULL, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+        [targetStage, itemId]
+      );
+    } else {
+      await query(
+        `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+        [targetStage, itemId]
+      );
+    }
 
     // 5. Auto-generate artifacts for agent-owned stages
     logs.push(`Generating artifact for ${targetStage}${useFakeData ? ' (fake)' : ' (LLM)'}...`);
@@ -241,18 +284,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 7. Handle message cycling for Tim's outreach (MESSAGE_DRAFT → MESSAGED → MESSAGE_DRAFT, up to 3)
+    // 7. LinkedIn cold outreach: immediate MESSAGED → MESSAGE_DRAFT cycle (up to 3)
     if (finalStage === "MESSAGED" && wfTypeId === "linkedin-outreach") {
-      // Count how many times this item has reached MESSAGED by counting MESSAGE_DRAFT artifacts
-      // Subtract 1 because the first artifact is created during auto-advance (before any human approval)
       const draftArtifacts = await query<{ id: string }>(
         `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'MESSAGE_DRAFT' AND "deletedAt" IS NULL`,
         [itemId]
       );
-      const messageCount = Math.max(0, draftArtifacts.length - 1); // -1 for the initial auto-created artifact
+      const messageCount = Math.max(0, draftArtifacts.length - 1);
 
       if (messageCount >= 3) {
-        // 3 messages sent — move to ENDED
         await query(
           `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
           ["ENDED", itemId]
@@ -260,7 +300,6 @@ export async function POST(req: NextRequest) {
         finalStage = "ENDED";
         autoAdvances.push("MESSAGED → ENDED (3 messages sent)");
       } else {
-        // Cycle back to MESSAGE_DRAFT for next follow-up
         await query(
           `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
           ["MESSAGE_DRAFT", itemId]
@@ -271,8 +310,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 7b. Warm outreach: hold at MESSAGED with follow-up due date (+4 days)
+    if (finalStage === "MESSAGED" && wfTypeId === "warm-outreach") {
+      const followUp = new Date();
+      followUp.setDate(followUp.getDate() + 4);
+      await query(
+        `UPDATE "_workflow_item" SET "dueDate" = $1::timestamptz, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+        [followUp.toISOString(), itemId]
+      );
+      autoAdvances.push(`MESSAGED: dueDate +4d (${followUp.toISOString()})`);
+    }
+
+    // 7c. Warm outreach: REPLY_SENT → REPLY_DRAFT (unlimited reply loop)
+    if (finalStage === "REPLY_SENT" && wfTypeId === "warm-outreach") {
+      await query(
+        `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+        ["REPLY_DRAFT", itemId]
+      );
+      await generateStageArtifact(itemId, item.workflowId, "REPLY_DRAFT", wfType, wf.name, useFakeData);
+      finalStage = "REPLY_DRAFT";
+      autoAdvances.push("REPLY_SENT → REPLY_DRAFT");
+    }
+
     // 8. Check for cross-workflow handoffs (use final stage after auto-advances)
     const handoffs = await checkHandoffs(item, wf, finalStage);
+
+    // 8b. Warm outreach: when one contact ends, open next AWAITING_CONTACT slot (up to targetCount)
+    if (finalStage === "ENDED" && wfTypeId === "warm-outreach") {
+      const spec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
+      const targetCount = typeof spec?.targetCount === "number" ? spec.targetCount : 10;
+      const spawned = await spawnNextWarmOutreachItem(wf.id, targetCount);
+      if (spawned) {
+        logs.push(`Spawned next warm-outreach slot: item ${spawned}`);
+      }
+    }
 
     // 9. When a Tim item reaches ENDED, check if all active items are done
     // Note: INITIATED items stay at CR Sent permanently — they represent
@@ -292,6 +363,36 @@ export async function POST(req: NextRequest) {
     console.error("[resolve] error:", error);
     return NextResponse.json({ error: "Failed to resolve task" }, { status: 500 });
   }
+}
+
+/** Create the next placeholder person + workflow item at AWAITING_CONTACT when under targetCount. */
+async function spawnNextWarmOutreachItem(
+  workflowId: string,
+  targetCount: number
+): Promise<string | null> {
+  const cntRows = await query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM "_workflow_item" WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
+    [workflowId]
+  );
+  const n = parseInt(cntRows[0]?.c || "0", 10);
+  if (n >= targetCount) return null;
+
+  const pRows = await query<{ id: string }>(
+    `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, NOW(), NOW())
+     RETURNING id`,
+    ["Next", "Contact", "Warm outreach — awaiting contact details"]
+  );
+  const personId = (pRows[0] as Record<string, unknown>)?.id as string;
+  if (!personId) return null;
+
+  const ins = await query<{ id: string }>(
+    `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+     VALUES ($1, 'AWAITING_CONTACT', 'person', $2, NOW(), NOW())
+     RETURNING id`,
+    [workflowId, personId]
+  );
+  return ins[0]?.id ?? null;
 }
 
 /**
@@ -703,6 +804,32 @@ async function generateStageArtifact(
     // For other stages, fall through to fake data templates
   }
 
+  // Warm outreach: opener / bump / nudge message drafts (fake data)
+  if (wfType.id === "warm-outreach" && stage === "MESSAGE_DRAFT" && useFakeData) {
+    const draftRows = await query<{ id: string }>(
+      `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'MESSAGE_DRAFT' AND "deletedAt" IS NULL`,
+      [itemId]
+    );
+    const seq = Math.min(draftRows.length + 1, 3);
+    const warmDrafts: Record<number, { name: string; content: string }> = {
+      1: {
+        name: "Warm LinkedIn DM — Opener (1/3)",
+        content: `# Warm DM — Opener\n\nHey [Name] — good to reconnect. Quick update: I've been building out vibe coding and AI agent work for teams (shipping fast, Intuit-style timelines). If you know anyone who needs that kind of build, I'd love a intro — or happy to catch up if it's on your radar.\n\n— Govind\n\n---\n*Tim — message 1 of 3. Friend-to-friend tone per campaign brief. Send via LinkedIn DM only.*`,
+      },
+      2: {
+        name: "Warm LinkedIn DM — Bump (2/3)",
+        content: `# Warm DM — Light follow-up\n\nBumping this — saw you posted about [topic from research]. Still around if a quick chat ever makes sense. No pressure.\n\n— Govind\n\n---\n*Tim — message 2 of 3. 2–4 sentences max.*`,
+      },
+      3: {
+        name: "Warm LinkedIn DM — Final nudge (3/3)",
+        content: `# Warm DM — Close the loop\n\nI'll leave it here — know you're busy. Door's open if anything changes.\n\n— Govind\n\n---\n*Tim — message 3 of 3. Zero pressure, 2–3 sentences.*`,
+      },
+    };
+    const t = warmDrafts[seq];
+    await insertArtifact(itemId, workflowId, stage, t.name, t.content);
+    return;
+  }
+
   // Map of stage keys to artifact generators
   const ARTIFACT_MAP: Record<string, { name: string; content: string } | null> = {
     CAMPAIGN_SPEC: {
@@ -737,6 +864,30 @@ async function generateStageArtifact(
       name: "Outreach Message Draft",
       content: `# Outreach Message — Ready for Review\n\nHi Sarah,\n\nI noticed your recent post about scaling demand gen without scaling headcount — really resonated with some challenges we've been exploring too.\n\nWe just published some research on how B2B companies are using influencer partnerships to drive pipeline more efficiently. Given your experience at CloudScale, I think you'd find the data on peer-driven buying decisions particularly interesting.\n\nHere's the piece if you're curious: [link]\n\nWould love to hear your perspective on this.\n\nBest,\nGovind\n\n---\n*Message drafted by Tim — personalized using Scout's enrichment data*\n*Message 1 of 3 in sequence*`,
     },
+    RESEARCHING: {
+      name: "Warm contact enrichment",
+      content: `# Warm contact — enrichment report\n\n## Profile\n- **Name:** [From Govind's notes + LinkedIn]\n- **Title / company:** …\n- **LinkedIn activity:** Recent posts, themes\n- **Mutual connections:** …\n\n## Conversation starters\n- …\n\n## Recommended angle\nFriend-to-friend, casual, direct — reference shared history; soft mention of vibe coding / agent buildout; no buzzwords, no pricing, no strattegys.com links in DM.\n\n---\n*Simulated research — Tim uses fetch-profile + web_search in production*`,
+    },
+    MESSAGED: {
+      name: "LinkedIn DM sent",
+      content: `# Message sent\n\n**Channel:** LinkedIn DM\n**Status:** Sent (simulated)\n\nLog send time in CRM if needed. Warm outreach: wait for reply window or use **Continue** for the next draft when appropriate.\n\n---\n*Tim*`,
+    },
+    REPLIED: {
+      name: "Contact replied",
+      content: `# Contact replied\n\nGovind marked **Replied** — the contact responded on LinkedIn. Entering conversation mode: Tim will draft replies until you **End Sequence**.\n\n---\n*Transition artifact*`,
+    },
+    REPLY_DRAFT: {
+      name: "Reply draft",
+      content: `# Reply — Ready for Review\n\nThanks for getting back — [draft body matching their energy, continuing naturally].\n\n— Govind\n\n---\n*Tim — approve to send via LinkedIn DM, reject to redraft, or End Sequence.*`,
+    },
+    REPLY_SENT: {
+      name: "Reply sent",
+      content: `# Reply sent\n\n**Channel:** LinkedIn DM\n**Status:** Sent (simulated)\n\nTim will prepare the next reply draft if the thread continues.\n\n---\n*Tim*`,
+    },
+    ENDED: {
+      name: "Sequence summary",
+      content: `# Warm outreach — ended\n\n**Outcome:** Sequence complete (3-message cadence finished without ongoing thread, or conversation wrapped up by Govind).\n\n---\n*Log for campaign analytics*`,
+    },
     CONN_MSG_DRAFTED: {
       name: "Connection Request Message Template",
       content: `# Connection Request Message Template\n\n## Template (under 300 characters)\n\nHi {firstName}, I recently published research on B2B influencer partnerships that's getting a lot of traction. Given your work at {company}, I think you'd find some of the data really relevant. Would love to connect and share insights.\n\n---\n\n## Character Count: 271/300\n\n## Personalization Variables\n- **{firstName}** — Target's first name\n- **{company}** — Target's company name\n\n## Tone\nPeer-to-peer, value-first. References the article without pitching. Positions connection as mutual benefit.\n\n## Usage Notes\nTim will personalize this template for each target using Scout's enrichment data. The connection request is the first touchpoint — keep it light and genuine.\n\n---\n*Template drafted by Marni — awaiting human approval before Tim can start sending*`,
@@ -755,7 +906,7 @@ async function generateStageArtifact(
   if (!artifact) return;
 
   // Check if artifact already exists for this item+stage (allow multiples for cycling stages like MESSAGE_DRAFT)
-  const ALLOW_MULTIPLE_STAGES = new Set(["MESSAGE_DRAFT"]);
+  const ALLOW_MULTIPLE_STAGES = new Set(["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLY_SENT"]);
   if (!ALLOW_MULTIPLE_STAGES.has(stage)) {
     const existing = await query(
       `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,

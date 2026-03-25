@@ -87,13 +87,19 @@ export default function StatusRail({ agents, pendingTaskCount, testingTaskCount 
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
       aria-label="System status"
     >
-      <div className="shrink-0 h-11 border-b border-[var(--border-color)] px-2 flex items-center gap-1.5">
+      <div className="shrink-0 h-11 border-b border-[var(--border-color)] px-2 flex items-center gap-1.5 min-w-0">
         <span
           className="w-1.5 h-1.5 rounded-full bg-[#1D9E75] shrink-0 animate-pulse"
           title="Polling"
         />
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] truncate">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] truncate min-w-0">
           Status
+        </span>
+        <span
+          className="ml-auto shrink-0 text-[10px] font-mono text-[var(--text-tertiary)] tabular-nums"
+          title="Build code"
+        >
+          B25C
         </span>
       </div>
 

@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
       packageName: string;
       ownerAgent: string;
       packageId: string | null;
+      workflowType: string;
       stage: string;
       stageLabel: string;
       humanAction: string;
@@ -93,6 +94,7 @@ export async function GET(req: NextRequest) {
         continue;
       }
       const matchedType = wfSpec?.workflowType as string | undefined;
+      const workflowTypeId = matchedType || "";
 
       if (!matchedType || !humanStages.has(matchedType)) continue;
       const stageMap = humanStages.get(matchedType);
@@ -140,6 +142,14 @@ export async function GET(req: NextRequest) {
             title = [persons[0].firstName, persons[0].lastName].filter(Boolean).join(" ") || "Unknown";
             subtitle = persons[0].jobTitle || "";
           }
+          if (
+            item.stage === "AWAITING_CONTACT" &&
+            matchedType === "warm-outreach" &&
+            title === "Next Contact"
+          ) {
+            title = "Next contact";
+            subtitle = subtitle || "Provide details below";
+          }
         } else if (item.sourceType === "content") {
           const contents = await query<{ title: string; contentType: string }>(
             `SELECT title, "contentType" FROM "_content_item" WHERE id = $1 AND "deletedAt" IS NULL`,
@@ -160,6 +170,7 @@ export async function GET(req: NextRequest) {
           packageName: wf.packageId ? (packageNames[wf.packageId] || "") : "",
           ownerAgent: wf.ownerAgent,
           packageId: wf.packageId,
+          workflowType: workflowTypeId,
           stage: item.stage,
           stageLabel: stageInfo.stageLabel,
           humanAction: stageInfo.humanAction,

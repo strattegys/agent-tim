@@ -55,18 +55,18 @@ export default function MessageBubble({
         onMouseLeave={() => setHovered(false)}
       >
         <div
-          className="w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden text-[var(--text-primary)]"
+          className="w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden"
           style={{
             background: isUser ? "var(--bg-tertiary)" : agentBg,
-            border: isUser ? "1px solid rgba(74, 158, 202, 0.35)" : `1px solid ${agentColor}40`,
+            border: isUser ? "1px solid rgba(74, 158, 202, 0.22)" : `1px solid ${agentColor}33`,
           }}
         >
           {replyTo && (
-            <div className="text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 bg-black/15 border-white/30 text-white/70">
-              <div className="font-medium text-[10px] mb-0.5">
+            <div className="text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 bg-[var(--bg-primary)]/80 border-[var(--border-color)] text-[var(--text-secondary)]">
+              <div className="font-medium text-[10px] mb-0.5 text-[var(--text-tertiary)]">
                 {replyTo.role === "user" ? "You" : agentName}
               </div>
-              <div className="truncate">{replyTo.text.slice(0, 100)}</div>
+              <div className="truncate text-[var(--text-chat-body)]">{replyTo.text.slice(0, 100)}</div>
             </div>
           )}
           {isUser && (
@@ -77,7 +77,10 @@ export default function MessageBubble({
             </div>
           )}
           {!isUser && (
-            <div className="text-sm font-medium mb-1" style={{ color: agentColor }}>
+            <div
+              className="text-sm font-medium mb-1"
+              style={{ color: agentColor, opacity: 0.82 }}
+            >
               {agentName}
               {delegatedFrom && (
                 <span className="text-[var(--text-secondary)] font-normal">
@@ -86,7 +89,7 @@ export default function MessageBubble({
               )}
             </div>
           )}
-          <div className="text-[13px] leading-relaxed prose prose-invert prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-headings:my-1 prose-code:text-xs prose-pre:bg-[var(--bg-primary)] prose-pre:rounded">
+          <div className="message-markdown">
             <ReactMarkdown>{text}</ReactMarkdown>
           </div>
           <div className="flex items-center justify-end gap-2 mt-1">

@@ -12,25 +12,35 @@ const AGENT_COLORS: Record<string, string> = {
   marni: "#D4A017",
   penny: "#E67E22",
   friday: "#9B59B6",
+  king: "#5a6d7a",
 };
 
 /** Human-readable action labels for each stage that requires human input */
 const STAGE_ACTION_LABELS: Record<string, string> = {
   IDEA: "Submit Your Idea",
+  AWAITING_CONTACT: "Provide Next Contact",
   CAMPAIGN_SPEC: "Review Campaign Spec",
   REVIEW: "Review Article Draft",
   DRAFT_PUBLISHED: "Review on Site",
   QUALIFICATION: "Review Qualified Target",
   POST_DRAFTED: "Review LinkedIn Post",
   INITIATED: "Review Connection Request",
+  MESSAGE_DRAFT: "Review Message Draft",
   MESSAGED: "Review Outreach Message",
+  REPLY_DRAFT: "Review Reply Draft",
 };
 
 /** Stages where the task is an input form (no artifact to view, just submit) */
-const INPUT_ONLY_STAGES = new Set(["IDEA"]);
+const INPUT_ONLY_STAGES = new Set(["IDEA", "AWAITING_CONTACT"]);
 
 /** Stages where Reject doesn't make sense — user chats with agent to refine, then submits */
-const NO_REJECT_STAGES = new Set(["IDEA", "CAMPAIGN_SPEC", "REVIEW", "DRAFT_PUBLISHED"]);
+const NO_REJECT_STAGES = new Set([
+  "IDEA",
+  "AWAITING_CONTACT",
+  "CAMPAIGN_SPEC",
+  "REVIEW",
+  "DRAFT_PUBLISHED",
+]);
 
 /** Notes are never used — all info lives in artifacts */
 
@@ -43,12 +53,20 @@ interface HumanTask {
   packageName: string;
   ownerAgent: string;
   packageId: string | null;
+  workflowType: string;
   stage: string;
   stageLabel: string;
   humanAction: string;
   dueDate: string | null;
   itemType: string;
   createdAt: string;
+}
+
+function taskStageHeading(task: HumanTask): string {
+  if (task.stage === "MESSAGED" && task.workflowType === "warm-outreach") {
+    return "Follow-up or mark replied";
+  }
+  return STAGE_ACTION_LABELS[task.stage] || task.stageLabel;
 }
 
 interface HumanTasksPanelProps {
@@ -89,7 +107,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
       .finally(() => {
         if (mountedRef.current) setLoading(false);
       });
-  }, []);
+  }, [packageStageFilter]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -108,7 +126,11 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
   }, [fetchTasks]);
 
   const handleResolve = useCallback(
-    async (itemId: string, action: "approve" | "reject" | "input", notes?: string) => {
+    async (
+      itemId: string,
+      action: "approve" | "reject" | "input" | "replied" | "ended",
+      notes?: string
+    ) => {
       setResolving(itemId);
       try {
         const res = await fetch("/api/crm/human-tasks/resolve", {
@@ -147,7 +169,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
       }
       setResolving(null);
     },
-    [fetchTasks]
+    [fetchTasks, tasks]
   );
 
   if (loading) {
@@ -216,7 +238,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                      {task.packageName ? `${task.packageName} — ` : ""}{STAGE_ACTION_LABELS[task.stage] || task.stageLabel}
+                      {task.packageName ? `${task.packageName} — ` : ""}{taskStageHeading(task)}
                     </span>
                     <span className="flex items-center gap-1 shrink-0">
                       <img
@@ -251,13 +273,17 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                   </span>
                 </div>
 
-                {/* Input area — only for IDEA stage */}
+                {/* Input area — IDEA + warm contact intake */}
                 {INPUT_ONLY_STAGES.has(task.stage) && (
                   <div className="mb-3">
                     <textarea
                       value={ideaInput}
                       onChange={(e) => setIdeaInput(e.target.value)}
-                      placeholder="Describe your article idea — topic, angle, or rough concept..."
+                      placeholder={
+                        task.stage === "AWAITING_CONTACT"
+                          ? "Name, LinkedIn URL, how you know them, and any relevant notes..."
+                          : "Describe your article idea — topic, angle, or rough concept..."
+                      }
                       className="w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg p-2 text-[11px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-none focus:outline-none focus:border-amber-500/50"
                       rows={3}
                     />
@@ -276,10 +302,31 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                     </button>
                   )}
 
-                  <div className="flex items-center gap-1.5 ml-auto">
+                  <div className="flex items-center flex-wrap justify-end gap-1.5 ml-auto">
+                    {task.stage === "MESSAGED" && task.workflowType === "warm-outreach" && (
+                      <button
+                        type="button"
+                        onClick={() => handleResolve(task.itemId, "replied")}
+                        disabled={resolving === task.itemId}
+                        className="text-[10px] px-3 py-1 rounded bg-blue-900/30 border border-blue-800/50 text-blue-300 hover:bg-blue-900/50 transition-colors disabled:opacity-50 font-semibold"
+                      >
+                        Replied
+                      </button>
+                    )}
+                    {task.stage === "REPLY_DRAFT" && task.workflowType === "warm-outreach" && (
+                      <button
+                        type="button"
+                        onClick={() => handleResolve(task.itemId, "ended")}
+                        disabled={resolving === task.itemId}
+                        className="text-[10px] px-3 py-1 rounded bg-zinc-800 border border-zinc-600 text-zinc-300 hover:bg-zinc-700 transition-colors disabled:opacity-50 font-semibold"
+                      >
+                        End Sequence
+                      </button>
+                    )}
                     {/* Reject — only for stages where it makes sense */}
                     {!NO_REJECT_STAGES.has(task.stage) && (
                       <button
+                        type="button"
                         onClick={() => handleResolve(task.itemId, "reject")}
                         disabled={resolving === task.itemId}
                         className="text-[10px] px-3 py-1 rounded bg-red-900/30 border border-red-800/50 text-red-400 hover:bg-red-900/50 transition-colors disabled:opacity-50 font-semibold"
@@ -288,6 +335,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                       </button>
                     )}
                     <button
+                      type="button"
                       onClick={() => handleResolve(
                         task.itemId,
                         INPUT_ONLY_STAGES.has(task.stage) ? "input" : "approve",
@@ -296,7 +344,9 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                       disabled={resolving === task.itemId || (INPUT_ONLY_STAGES.has(task.stage) && (!ideaInput || !ideaInput.trim()))}
                       className="text-[10px] px-3 py-1 rounded bg-green-900/30 border border-green-800/50 text-green-400 hover:bg-green-900/50 transition-colors disabled:opacity-50 font-semibold"
                     >
-                      Submit
+                      {task.stage === "MESSAGED" && task.workflowType === "warm-outreach"
+                        ? "Continue"
+                        : "Submit"}
                     </button>
                   </div>
                 </div>

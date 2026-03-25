@@ -27,7 +27,7 @@ const tool: ToolModule = {
       "Manage service packages that bundle workflows across agents. " +
       "Commands: " +
       "list-templates (show available package templates), " +
-      "create-package (arg1=templateId, arg2=package name, arg3=customerId, arg4=customerType [person|company]), " +
+      "create-package (arg1=templateId, arg2=optional package name — defaults to template label, arg3=customerId, arg4=customerType [person|company]), " +
       "customize-package (arg1=packageId, arg2=JSON spec with deliverables array), " +
       "submit-for-approval (arg1=packageId — sets stage to PENDING_APPROVAL), " +
       "approve-package (arg1=packageId — REQUIRES user approval phrase — creates all workflows), " +
@@ -49,7 +49,7 @@ const tool: ToolModule = {
         arg2: {
           type: "string",
           description:
-            "Second arg: package name (create), JSON spec (customize), or customerId filter (list)",
+            "Second arg: package name (create — omit to use template label), JSON spec (customize), or customerId filter (list)",
         },
         arg3: {
           type: "string",
@@ -86,11 +86,11 @@ const tool: ToolModule = {
     // ─── create-package ──────────────────────────────────────────
     if (cmd === "create-package") {
       if (!args.arg1) return "Error: arg1 (templateId) is required";
-      if (!args.arg2) return "Error: arg2 (package name) is required";
 
       const template = PACKAGE_TEMPLATES[args.arg1];
       if (!template) return `Error: unknown template "${args.arg1}". Use list-templates to see available templates.`;
 
+      const packageName = (args.arg2 && String(args.arg2).trim()) || template.label;
       const customerId = args.arg3 || null;
       const customerType = args.arg4 || "person";
       const spec = JSON.stringify({ deliverables: template.deliverables });
@@ -98,11 +98,11 @@ const tool: ToolModule = {
       const rows = await dbQuery(
         `INSERT INTO "_package" ("templateId", name, "customerId", "customerType", spec, stage, "createdBy", "createdAt", "updatedAt")
          VALUES ($1, $2, $3, $4, $5::jsonb, 'DRAFT', $6, NOW(), NOW()) RETURNING id`,
-        [args.arg1, args.arg2, customerId, customerType, spec, context.agentId || "penny"]
+        [args.arg1, packageName, customerId, customerType, spec, context.agentId || "penny"]
       );
       const id = (rows[0] as Record<string, unknown>).id;
 
-      return `Package created: "${args.arg2}" (id: ${id}) from template "${template.label}" — stage=DRAFT\nDeliverables: ${template.deliverables.map((d) => d.label).join(", ")}`;
+      return `Package created: "${packageName}" (id: ${id}) from template "${template.label}" — stage=DRAFT\nDeliverables: ${template.deliverables.map((d) => d.label).join(", ")}`;
     }
 
     // ─── customize-package ───────────────────────────────────────

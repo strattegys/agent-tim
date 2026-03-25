@@ -40,7 +40,7 @@ web/                  <- Next.js app (the main project)
   lib/                <- Agent config, tools, cron, heartbeat
   public/             <- Static assets, avatars, sounds
 tools/                <- Server-side CRM/LinkedIn shell scripts
-scripts/              <- Deployment scripts
+scripts/              <- Deployment scripts; setup-crm-shared-network.sh (prod Option A)
   deploy-web.sh       <- Manual fallback deploy
 docs/                 <- Historical migration docs
 docker-compose.yml    <- Production stack (Caddy + Next.js)
@@ -90,27 +90,44 @@ Do **not** run both Docker and `npm run dev` on **3001** at the same time — pi
 
 Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.ts). If **`CRM_DB_PASSWORD`** is missing, the app uses an in-memory **`.dev-store/`** — fine for UI experiments, but **pipelines will be empty or fake**.
 
-1. Add **`CRM_DB_PASSWORD`** (and usually **`CRM_DB_PORT`**) to **`web/.env.local`**. See [`web/.env.local.example`](web/.env.local.example).
-2. **[`docker-compose.dev.yml`](docker-compose.dev.yml)** sets **`CRM_DB_HOST=host.docker.internal`** so the **container** reaches Postgres that is listening on **your Windows host** (not `127.0.0.1` inside the container).
-3. **SSH tunnel** (common): forward a local port to Postgres on the Command Central droplet. **5433** avoids clashing with other tunnels on your PC.
+**Local dev (Docker on your PC)**
 
-   **One-liner (Git Bash / WSL / macOS):**
+1. Add **`CRM_DB_PASSWORD`** (and **`CRM_DB_PORT`**) to **`web/.env.local`**. See [`web/.env.local.example`](web/.env.local.example).
+2. **[`docker-compose.dev.yml`](docker-compose.dev.yml)** sets **`CRM_DB_HOST=host.docker.internal`** so the dev container reaches Postgres on your machine.
+3. **SSH tunnel** to Postgres on the droplet (port **5433** avoids local clashes):
 
    ```bash
    ssh -L 5433:localhost:5432 root@137.184.187.233
    ```
 
-   **Scripts (same effect):**
+   **Scripts:** PowerShell `scripts\crm-db-tunnel.ps1` or Git Bash `scripts/crm-db-tunnel.sh` (auto-detects `~/.ssh/` keys; override with **`SSH_IDENTITY_FILE`**).
 
-   - PowerShell (from `COMMAND-CENTRAL`):  
-     `powershell -NoProfile -ExecutionPolicy Bypass -File scripts\crm-db-tunnel.ps1`  
-     Uses `%USERPROFILE%\.ssh\hetzner_ed25519` (or `id_ed25519` / `id_rsa`) when present. Override with env **`SSH_IDENTITY_FILE`**.
-   - Git Bash: `bash scripts/crm-db-tunnel.sh` — same auto-detect under `~/.ssh/`, or set **`SSH_IDENTITY_FILE`**.
+   In **`.env.local`**: **`CRM_DB_HOST=127.0.0.1`**, **`CRM_DB_PORT=5433`**, plus **`CRM_DB_PASSWORD`**.
 
-   Leave that session open. In **`.env.local`**: `CRM_DB_PORT=5433` plus the real **`CRM_DB_PASSWORD`**.
+4. Recreate the dev stack: `docker compose -f docker-compose.dev.yml up -d --force-recreate`
 
-4. Recreate or restart the stack so env is picked up:  
-   `docker compose -f docker-compose.dev.yml up -d --force-recreate`
+**Production (droplet) — shared Docker network (Option A, default)**
+
+Twenty/CRM Postgres often runs **only inside Docker** (not published on the host). Then **`CRM_DB_HOST=host.docker.internal`** hits **`172.17.0.1:5432`** and fails with **ECONNREFUSED**. **Option A** puts Command Central’s `web` container on the same user-defined network as Postgres.
+
+1. SSH to the droplet and run **[`scripts/setup-crm-shared-network.sh`](scripts/setup-crm-shared-network.sh)** from the repo (prints exact next steps):
+
+   ```bash
+   cd /opt/agent-tim && git pull && bash scripts/setup-crm-shared-network.sh
+   ```
+
+2. **`docker network connect crm_shared <postgres_container_name>`** (name from `docker ps`).
+
+3. In **`/opt/agent-tim/web/.env.local`**: **`CRM_DB_HOST=<postgres_container_name>`**, **`CRM_DB_PORT=5432`**, correct **`CRM_DB_NAME`** / user / password. Verify DB with:
+
+   `docker exec -it <postgres_container_name> psql -U postgres -d default -c 'select 1'`
+
+4. Redeploy: **`docker compose -f docker-compose.yml -f docker-compose.crm-network.yml up -d`**.  
+   If the **`crm_shared`** network exists, **GitHub Actions** and **[`scripts/deploy-web.sh`](scripts/deploy-web.sh)** use that overlay automatically.
+
+See **[`docker-compose.crm-network.yml`](docker-compose.crm-network.yml)** for details.
+
+**Alternative (Option B):** publish Postgres **`ports: ["5432:5432"]`** on the host and keep **`CRM_DB_HOST=host.docker.internal`** — only if you accept host-bound 5432.
 
 **Which agent has Kanban?** In this codebase, **Suzi** has **no** Kanban tab (`workflowTypes` is empty). Boards are tied to agents that own workflows — e.g. **Tim** (LinkedIn outreach), **Scout** (research pipeline), **Ghost** (content pipeline), **Marni** (content distribution). Open **Tim** (or the agent that matches your workflow) and use the **pipeline / Kanban** icon, or **`/kanban`**.
 

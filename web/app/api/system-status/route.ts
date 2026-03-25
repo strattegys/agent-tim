@@ -100,11 +100,16 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
       /* ignore */
     }
     const msg = e instanceof Error ? e.message : String(e);
+    let detail = msg.slice(0, 88);
+    if (/ECONNREFUSED/i.test(msg) && /5432/.test(msg)) {
+      detail =
+        (detail + " → host:5432 empty or use docker-compose.crm-network.yml").slice(0, 140);
+    }
     return {
       id: DATA_PLATFORM_ID,
       label: DATA_PLATFORM_LABEL,
       status: "down",
-      detail: msg.slice(0, 96),
+      detail,
     };
   }
 }

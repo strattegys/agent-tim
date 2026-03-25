@@ -82,12 +82,20 @@ echo "  Pulling latest code..."
 git fetch origin master
 git reset --hard origin/master
 
+# Optional: shared Docker network for Twenty Postgres (docker-compose.crm-network.yml)
+if docker network inspect crm_shared >/dev/null 2>&1; then
+  COMPOSE_FILES="-f docker-compose.yml -f docker-compose.crm-network.yml"
+  echo "  Using crm_shared network overlay for web → Postgres."
+else
+  COMPOSE_FILES="-f docker-compose.yml"
+fi
+
 # Build and restart containers
 echo "  Building Docker images..."
-docker compose build --no-cache web
+docker compose $COMPOSE_FILES build --no-cache web
 
 echo "  Starting containers..."
-docker compose up -d
+docker compose $COMPOSE_FILES up -d
 
 echo "  Waiting for server to start..."
 sleep 8
@@ -99,7 +107,7 @@ else
   echo "  ✗ Health check FAILED"
   echo ""
   echo "  Container logs:"
-  docker compose logs --tail=30 web
+  docker compose $COMPOSE_FILES logs --tail=30 web
   exit 1
 fi
 REMOTE_SCRIPT
@@ -114,5 +122,5 @@ echo ""
 
 # Show recent logs
 echo "Recent container logs:"
-ssh "$SERVER" "cd /opt/agent-tim && docker compose logs --tail=5 web" 2>/dev/null || true
+ssh "$SERVER" 'cd /opt/agent-tim && CF="-f docker-compose.yml"; docker network inspect crm_shared >/dev/null 2>&1 && CF="-f docker-compose.yml -f docker-compose.crm-network.yml"; docker compose $CF logs --tail=5 web' 2>/dev/null || true
 echo ""

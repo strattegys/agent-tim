@@ -1,0 +1,32 @@
+# Optional overlay — use when Twenty/CRM Postgres runs in Docker and is NOT published on the host.
+#
+# Symptom without this: connect ECONNREFUSED 172.17.0.1:5432
+# (host.docker.internal on Linux = docker bridge gateway; host:5432 has no listener.)
+#
+# On the droplet:
+#   1. docker network create crm_shared
+#   2. Attach the Postgres container to that network, e.g.:
+#        docker network connect crm_shared <postgres_container_name>
+#      (or add the same external network to Twenty's compose and recreate.)
+#   3. In web/.env.local set:
+#        CRM_DB_HOST=<postgres_container_name>   # e.g. twenty-db-1 or server-postgres-1
+#        CRM_DB_PORT=5432
+#        CRM_DB_NAME=default                      # match Twenty
+#        CRM_DB_USER=postgres
+#        CRM_DB_PASSWORD=...
+#   4. Redeploy:
+#        docker compose -f docker-compose.yml -f docker-compose.crm-network.yml up -d
+#
+# Alternative: publish Postgres on the host (all interfaces), then host.docker.internal works:
+#   In Twenty's compose for postgres:  ports: [ "5432:5432" ]   # not 127.0.0.1:5432:5432
+
+networks:
+  crm_shared:
+    external: true
+    name: crm_shared
+
+services:
+  web:
+    networks:
+      - default
+      - crm_shared

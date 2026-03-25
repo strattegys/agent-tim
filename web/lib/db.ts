@@ -2,7 +2,12 @@ import { devQuery, devTransaction } from "./dev-store";
 
 const USE_DEV_STORE = !process.env.CRM_DB_PASSWORD;
 
-if (process.env.NODE_ENV === "production" && USE_DEV_STORE) {
+// Skip during `next build` / `npm run build` — .env is not loaded in the Docker build stage.
+if (
+  process.env.NODE_ENV === "production" &&
+  USE_DEV_STORE &&
+  process.env.npm_lifecycle_event !== "build"
+) {
   console.warn(
     "[db] CRM_DB_PASSWORD is unset — using empty .dev-store JSON. Set CRM_DB_* + CRM_DB_HOST=host.docker.internal in web/.env.local for real CRM data."
   );

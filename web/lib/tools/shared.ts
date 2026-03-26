@@ -11,16 +11,25 @@ export const LINKEDIN_TIMEOUT = 60000;
 
 export const APPROVAL_PHRASES = [
   "send it now",
+  "send it now:",
   "schedule it now",
   "go ahead and send",
   "go ahead and schedule",
   "approve package",
   "approve it now",
+  /** Explicit outbound intent (avoid phrases that match inside "don't want you to send …") */
+  "i want you to send",
+  "send them this",
+  "send this message",
 ];
 
 export function hasUserApproval(lastUserMessage: string): boolean {
   const lower = lastUserMessage.toLowerCase();
-  return APPROVAL_PHRASES.some((phrase) => lower.includes(phrase));
+  if (APPROVAL_PHRASES.some((phrase) => lower.includes(phrase))) return true;
+  // "send a message to <name>" when the user is clearly instructing (not negated)
+  if (/\bsend a message to\b/.test(lower) && !/\b(don't|do not|never|stop)\b[^.]{0,40}\bsend\b/.test(lower))
+    return true;
+  return false;
 }
 
 export function getToolEnv(): NodeJS.ProcessEnv {

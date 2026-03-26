@@ -4,6 +4,7 @@ import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
 import { insertPackageBriefArtifactIfPresent } from "@/lib/package-brief-artifact";
 import { createTask } from "@/lib/tasks";
+import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 
 /**
  * POST /api/crm/packages/activate
@@ -167,6 +168,7 @@ export async function POST(req: NextRequest) {
           [workflowId, firstStage.key, "content", contentId]
         );
         const itemId = (wiRows[0] as Record<string, unknown>).id as string;
+        await syncHumanTaskOpenForItem(itemId);
 
         // IDEA stage: no artifact — human pastes their idea via the task input,
         // then Ghost builds the content brief in CAMPAIGN_SPEC stage.
@@ -189,6 +191,7 @@ export async function POST(req: NextRequest) {
           await insertPackageBriefArtifactIfPresent(itemId, workflowId, packageId);
           logAct(`Warm-outreach: item ${itemId.slice(0, 8)}… at ${firstStage.key}; PACKAGE_BRIEF if package has brief`);
         }
+        await syncHumanTaskOpenForItem(itemId);
       }
       // Other person-type workflows: items added by agents (e.g. Scout → Tim cold outreach)
 

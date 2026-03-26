@@ -73,6 +73,16 @@ export interface WarmOutreachDiscoverySpec {
   minIntervalMinutes?: number;
   backlogWarnThreshold?: number;
   paused?: boolean;
+  /**
+   * Weekdays (Pacific) only; first slot from `bootstrapStartMinutesPt` if none open; after each intake,
+   * wait `postIntakeDelayMinMinutes`–`postIntakeDelayMaxMinutes` before the next spawn (cron-enforced).
+   */
+  pacedDaily?: boolean;
+  /** Minutes since midnight PT (default 510 = 8:30) — first slot may appear from this time if queue empty */
+  bootstrapStartMinutesPt?: number;
+  postIntakeDelayMinMinutes?: number;
+  postIntakeDelayMaxMinutes?: number;
+  maxOpenDiscoverySlots?: number;
 }
 
 /**
@@ -206,7 +216,8 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
       {
         workflowType: "warm-outreach",
         ownerAgent: "tim",
-        targetCount: 10,
+        /** Total contact slots / campaign cap; pacing is volumeLabel (five DMs/day). */
+        targetCount: 5,
         label: "Warm Outreach",
         volumeLabel: "Five messages per day",
       },
@@ -220,7 +231,7 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
     description:
       "Single article creation using Ghost's AI article builder. " +
       "Ghost builds a campaign spec from a short idea, researches the topic, " +
-      "generates the article via Claude Opus, and publishes to strattegys.com.",
+      "generates the article via the Anthropic API (article_builder), and publishes to strattegys.com.",
     deliverables: [
       {
         workflowType: "content-pipeline",

@@ -3,10 +3,16 @@ import { chatStream } from "@/lib/gemini";
 import { chatStreamAnthropic } from "@/lib/anthropic-chat";
 import { chatStreamGroq } from "@/lib/groq-chat";
 import { getAgentConfig } from "@/lib/agent-config";
+import type { ChatStreamExtraOptions } from "@/lib/chat-stream-options";
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, agent } = await request.json();
+    const body = await request.json();
+    const { message, agent, workQueueContext } = body as {
+      message?: string;
+      agent?: string;
+      workQueueContext?: string;
+    };
     const agentId = agent || "tim";
 
     if (!message || typeof message !== "string") {
@@ -17,6 +23,11 @@ export async function POST(request: NextRequest) {
     }
 
     const config = getAgentConfig(agentId);
+    const extra: ChatStreamExtraOptions | undefined =
+      typeof workQueueContext === "string" && workQueueContext.trim()
+        ? { workQueueContext: workQueueContext.trim().slice(0, 12000) }
+        : undefined;
+
     const chatFn =
       config.provider === "anthropic" ? chatStreamAnthropic :
       config.provider === "groq" ? chatStreamGroq :
@@ -28,7 +39,7 @@ export async function POST(request: NextRequest) {
         try {
           const result = await chatFn(agentId, message, (chunk) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
-          });
+          }, extra);
           if (result.delegatedFrom) {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ delegatedFrom: result.delegatedFrom })}\n\n`));
           }

@@ -112,7 +112,7 @@ const tool: ToolModule = {
     displayName: "Article Builder",
     category: "internal",
     description:
-      "Generates long-form MDX articles using a dedicated Claude Opus call. " +
+      "Generates long-form MDX articles using the Anthropic API (dedicated model). " +
       "Returns article content plus SEO metadata ready for publish_article.",
     operations: ["generate"],
     requiresApproval: false,
@@ -121,7 +121,7 @@ const tool: ToolModule = {
   declaration: {
     name: "article_builder",
     description:
-      "Generate a full long-form article using Claude Opus. " +
+      "Generate a full long-form article using the Anthropic API. " +
       "Provide the topic, research notes, and content brief. Returns MDX content + SEO metadata. " +
       "After receiving the output, use publish_article to create the draft on strattegys.com. " +
       "Args: topic (required), research_notes (required — your research findings), " +
@@ -195,7 +195,7 @@ const tool: ToolModule = {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[article_builder] API error: ${msg}`);
-      return `Error calling Claude Opus: ${msg}`;
+      return `Error calling Anthropic API: ${msg}`;
     }
 
     const textBlocks = response.content.filter(
@@ -203,7 +203,7 @@ const tool: ToolModule = {
     );
     const raw = textBlocks.map((b) => b.text).join("");
 
-    if (!raw) return "Error: Claude Opus returned empty response";
+    if (!raw) return "Error: Anthropic API returned empty response";
 
     const parsed = parseResponse(raw);
 

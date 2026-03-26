@@ -258,11 +258,9 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
           color: "#D85A30",
           instructions:
             "Message sent via LinkedIn DM. Wait for the follow-up window or a reply. " +
-            "After 3 outreach messages with no reply, the sequence ends. If they reply, Govind marks Replied.",
-          requiresHuman: true,
-          humanAction:
-            "Message is out. When you're ready for the next follow-up draft, click Continue. " +
-            "If they replied, click Replied to enter conversation mode.",
+            "After 3 outreach messages with no reply, the sequence ends. If they reply, Govind marks Replied. " +
+            "The next MESSAGE_DRAFT opens automatically when the follow-up due date is reached (or start early from Tim’s work queue).",
+          requiresHuman: false,
         },
         {
           key: "REPLIED",
@@ -352,7 +350,7 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
           instructions:
             "Ghost uses web_search to gather supporting research, then calls article_builder with the " +
             "campaign spec details (topic, research notes, brief, audience, tone, keywords, word count) " +
-            "to generate a full MDX article via Claude Opus. Ghost then creates the draft on strattegys.com " +
+            "to generate a full MDX article via the Anthropic-backed article_builder. Ghost then creates the draft on strattegys.com " +
             "using publish_article create with the generated content and metadata. " +
             "Move to Review when the draft is live on the site.",
         },

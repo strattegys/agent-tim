@@ -12,7 +12,14 @@ import {
 import { sendWarmOutreachLinkedInDm } from "@/lib/unipile-send";
 import { extractPlainDmFromDraftMarkdown } from "@/lib/warm-outreach-draft";
 import { insertPackageBriefArtifactIfPresent, PACKAGE_BRIEF_STAGE } from "@/lib/package-brief-artifact";
-import { spawnAfterWarmOutreachEnded } from "@/lib/warm-outreach-discovery";
+import {
+  scheduleNextWarmDiscoveryAfterIntake,
+  spawnAfterWarmOutreachEnded,
+} from "@/lib/warm-outreach-discovery";
+import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
+import { WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS } from "@/lib/warm-outreach-cadence";
+import { applyWarmContactIntakeToPerson } from "@/lib/warm-contact-intake-apply";
+import { resolveWorkflowRegistryId } from "@/lib/workflow-spec";
 
 function logTs(message: string): string {
   return `[${new Date().toISOString()}] ${message}`;
@@ -28,7 +35,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
  *
  * Body: {
  *   itemId: string,        — workflow item ID
- *   action: "approve" | "reject" | "input" | "replied" | "ended",
+ *   action: "approve" | "reject" | "input" | "replied" | "ended" | "undo_replied",
  *   notes?: string,        — human's notes/feedback
  *   data?: Record<string, string>,  — structured data (e.g., { url: "..." })
  *   nextStage?: string,    — explicit next stage (if not provided, uses first valid transition)
@@ -43,7 +50,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
  */
 export async function POST(req: NextRequest) {
   try {
-    const { itemId, action, notes, data, nextStage } = await req.json();
+    const { itemId, action, notes, data, nextStage, confirmUndo } = await req.json();
 
     if (!itemId || !action) {
       return NextResponse.json(
@@ -52,7 +59,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const allowedActions = ["approve", "reject", "input", "replied", "ended"];
+    const allowedActions = ["approve", "reject", "input", "replied", "ended", "undo_replied"];
     if (!allowedActions.includes(action)) {
       return NextResponse.json(
         { error: `Invalid action. Use one of: ${allowedActions.join(", ")}` },
@@ -100,7 +107,9 @@ export async function POST(req: NextRequest) {
 
     const wf = workflows[0];
     const wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
-    const wfTypeId = wfSpec?.workflowType;
+    const wfTypeRaw =
+      typeof wfSpec?.workflowType === "string" ? wfSpec.workflowType.trim() : "";
+    const wfTypeId = resolveWorkflowRegistryId(wfTypeRaw || null) ?? "";
     const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
 
     // Check useFakeData flag from the package
@@ -115,6 +124,57 @@ export async function POST(req: NextRequest) {
         useFakeData = pkgSpec?.useFakeData !== false; // default true
         console.log(`[resolve] Package ${wf.packageId} useFakeData raw=${pkgSpec?.useFakeData} resolved=${useFakeData}`);
       }
+    }
+
+    /** Warm-outreach only: undo accidental Replied (back to MESSAGED + follow-up hold). */
+    if (action === "undo_replied") {
+      if (!confirmUndo) {
+        return NextResponse.json(
+          { error: "confirmUndo: true is required to undo mistaken Replied" },
+          { status: 400 }
+        );
+      }
+      if (wfTypeId !== "warm-outreach") {
+        return NextResponse.json(
+          { error: "undo_replied is only for warm-outreach workflows" },
+          { status: 400 }
+        );
+      }
+      const st = (item.stage || "").trim().toUpperCase();
+      if (st !== "REPLY_DRAFT" && st !== "REPLIED") {
+        return NextResponse.json(
+          {
+            error:
+              "Undo is only available in Reply Draft or Replied (use after an accidental Replied click)",
+          },
+          { status: 400 }
+        );
+      }
+      await query(
+        `UPDATE "_artifact" SET "deletedAt" = NOW(), "updatedAt" = NOW()
+         WHERE "workflowItemId" = $1 AND stage IN ('REPLIED', 'REPLY_DRAFT') AND "deletedAt" IS NULL`,
+        [itemId]
+      );
+      const followUp = new Date();
+      followUp.setDate(followUp.getDate() + WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS);
+      await query(
+        `UPDATE "_workflow_item" SET stage = 'MESSAGED', "dueDate" = $1::timestamptz, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+        [followUp.toISOString(), itemId]
+      );
+      await syncHumanTaskOpenForItem(itemId);
+      return NextResponse.json({
+        ok: true,
+        itemId,
+        packageId: wf.packageId,
+        previousStage: item.stage,
+        newStage: "MESSAGED",
+        action: "undo_replied",
+        logs: [
+          logTs(
+            "Warm-outreach: undo mistaken Replied — removed REPLIED/REPLY_DRAFT artifacts, restored MESSAGED + follow-up due"
+          ),
+        ],
+      });
     }
 
     // 2. Determine next stage
@@ -174,7 +234,7 @@ export async function POST(req: NextRequest) {
     if (!targetStage) {
       // Terminal human stage — soft-delete the item to mark as resolved
       await query(
-        `UPDATE "_workflow_item" SET "deletedAt" = NOW() WHERE id = $1`,
+        `UPDATE "_workflow_item" SET "deletedAt" = NOW(), "humanTaskOpen" = false WHERE id = $1`,
         [itemId]
       );
 
@@ -221,6 +281,30 @@ export async function POST(req: NextRequest) {
 
     // Activity log for the UI (Package Planner + task panel)
     const logs: string[] = [];
+
+    const stageAtResolve = (item.stage || "").trim().toUpperCase();
+    let applyWarmIntakeFromRequest =
+      wfTypeId === "warm-outreach" &&
+      action === "input" &&
+      item.sourceType === "person" &&
+      item.sourceId &&
+      typeof notes === "string" &&
+      notes.trim();
+
+    if (applyWarmIntakeFromRequest && stageAtResolve !== "AWAITING_CONTACT") {
+      const pr = await query<{ tf: string; tl: string }>(
+        `SELECT TRIM(COALESCE("nameFirstName",'')) AS tf, TRIM(COALESCE("nameLastName",'')) AS tl
+         FROM person WHERE id = $1 AND "deletedAt" IS NULL LIMIT 1`,
+        [item.sourceId]
+      );
+      const stillPlaceholder = pr[0]?.tf === "Next" && pr[0]?.tl === "Contact";
+      if (!stillPlaceholder) applyWarmIntakeFromRequest = false;
+    }
+
+    if (applyWarmIntakeFromRequest) {
+      await applyWarmContactIntakeToPerson(item.sourceId, notes.trim(), logs);
+    }
+
     logs.push(
       logTs(
         `Resolve start: workflow="${wf.name}" type=${wfTypeId || "?"} item=${itemId.slice(0, 8)}… ${item.stage} → ${targetStage} action=${action}`
@@ -352,15 +436,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 7b. Warm outreach: hold at MESSAGED with follow-up due date (+4 days)
+    // 7b. Warm outreach: hold at MESSAGED with follow-up due date
     if (finalStage === "MESSAGED" && wfTypeId === "warm-outreach") {
       const followUp = new Date();
-      followUp.setDate(followUp.getDate() + 4);
+      followUp.setDate(followUp.getDate() + WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS);
       await query(
         `UPDATE "_workflow_item" SET "dueDate" = $1::timestamptz, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
         [followUp.toISOString(), itemId]
       );
-      autoAdvances.push(`MESSAGED: dueDate +4d (${followUp.toISOString()})`);
+      autoAdvances.push(
+        `MESSAGED: dueDate +${WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS}d (${followUp.toISOString()})`
+      );
     }
 
     // 7c. Warm outreach: REPLY_SENT → REPLY_DRAFT (unlimited reply loop)
@@ -372,6 +458,16 @@ export async function POST(req: NextRequest) {
       await generateStageArtifact(itemId, item.workflowId, "REPLY_DRAFT", wfType, wf.name, useFakeData, {});
       finalStage = "REPLY_DRAFT";
       autoAdvances.push("REPLY_SENT → REPLY_DRAFT");
+    }
+
+    // 7d. Paced warm-outreach: after contact intake submit, gate the next discovery spawn (cron + timestamp)
+    if (
+      wfTypeId === "warm-outreach" &&
+      action === "input" &&
+      stageAtResolve === "AWAITING_CONTACT" &&
+      finalStage !== "AWAITING_CONTACT"
+    ) {
+      await scheduleNextWarmDiscoveryAfterIntake(item.workflowId);
     }
 
     // 8. Check for cross-workflow handoffs (use final stage after auto-advances)
@@ -390,6 +486,8 @@ export async function POST(req: NextRequest) {
     // 9. When a Tim item reaches ENDED, check if all active items are done
     // Note: INITIATED items stay at CR Sent permanently — they represent
     // connection requests that were never accepted. No auto-expiry.
+
+    await syncHumanTaskOpenForItem(itemId);
 
     return NextResponse.json({
       ok: true,
@@ -510,6 +608,7 @@ async function checkHandoffs(
         // Generate the post draft artifact
         if (postItemId) {
           await generateStageArtifact(postItemId, sibling.id, "POST_DRAFTED", distType, sibling.name, true);
+          await syncHumanTaskOpenForItem(postItemId);
         }
       }
       handoffs.push({ targetWorkflow: sibling.name, stage: `CONN_MSG_DRAFTED + ${targetCount} posts` });
@@ -594,6 +693,7 @@ async function checkHandoffs(
             `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
             ["INITIATED", newItemId]
           );
+          await syncHumanTaskOpenForItem(newItemId);
           await generateStageArtifact(newItemId, sibling.id, "INITIATED", outreachType, sibling.name, true);
           handoffs.push({ targetWorkflow: sibling.name, stage: "INITIATED (CR pending)" });
         }
@@ -748,6 +848,7 @@ async function autoAdvanceItem(
     currentStage = nextStageKey;
   }
 
+  await syncHumanTaskOpenForItem(itemId);
   return currentStage;
 }
 
@@ -1619,7 +1720,7 @@ Use ## for main sections and ### for subsections. Lead with a strong hook. Back 
   } catch (err) {
     const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     console.error("[generateRealArticleDraft-v2] CAUGHT ERROR:", errMsg);
-    return `# LLM CALL FAILED\n\nError: ${errMsg}\n\nModel: claude-opus-4-20250514\nANTHROPIC_API_KEY configured: ${!!process.env.ANTHROPIC_API_KEY}`;
+    return `# LLM CALL FAILED\n\nError: ${errMsg}\n\nProvider: Anthropic API (article draft path)\nANTHROPIC_API_KEY configured: ${!!process.env.ANTHROPIC_API_KEY}`;
   }
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 
 /**
  * POST /api/crm/packages/simulate
@@ -111,6 +112,7 @@ export async function POST(req: NextRequest) {
             `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
             [nextStage, item.id]
           );
+          await syncHumanTaskOpenForItem(item.id);
           await generateStageArtifact(item.id, wf.id, nextStage, wfType, wf.name);
           log.push(`${wf.name}: ${item.stage} → ${nextStage}`);
           advanced++;
@@ -127,12 +129,14 @@ export async function POST(req: NextRequest) {
                 `UPDATE "_workflow_item" SET stage = 'ENDED', "updatedAt" = NOW() WHERE id = $1 AND "deletedAt" IS NULL`,
                 [item.id]
               );
+              await syncHumanTaskOpenForItem(item.id);
               log.push(`${wf.name}: MESSAGED → ENDED (3 messages sent)`);
             } else {
               await query(
                 `UPDATE "_workflow_item" SET stage = 'MESSAGE_DRAFT', "updatedAt" = NOW() WHERE id = $1 AND "deletedAt" IS NULL`,
                 [item.id]
               );
+              await syncHumanTaskOpenForItem(item.id);
               await generateStageArtifact(item.id, wf.id, "MESSAGE_DRAFT", wfType, wf.name);
               log.push(`${wf.name}: MESSAGED → MESSAGE_DRAFT (msg ${messageCount + 1}/3)`);
             }
@@ -466,6 +470,7 @@ async function autoAdvanceItem(
       `UPDATE "_workflow_item" SET stage = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
       [nextStageKey, itemId]
     );
+    await syncHumanTaskOpenForItem(itemId);
     await generateStageArtifact(itemId, workflowId, nextStageKey, wfType, workflowName);
     currentStage = nextStageKey;
   }

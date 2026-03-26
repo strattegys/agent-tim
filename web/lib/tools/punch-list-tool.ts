@@ -15,6 +15,45 @@ import type { ToolModule } from "./types";
 
 const RANK_HELP = `Column (rank 1–6): ${punchListColumnsSummary()}. You may pass a number or a name like "now", "later", "next", "sometime", "backlog", "idea" (also "some time").`;
 
+/** LLMs often emit action/item_id instead of command/item_number — map so tools still run. */
+function normalizePunchListArgs(raw: Record<string, string>): Record<string, string> {
+  const args: Record<string, string> = { ...raw };
+  if (!args.command && args.action) {
+    const a = args.action.toLowerCase().replace(/-/g, "_");
+    const actionToCommand: Record<string, string> = {
+      mark_done: "done",
+      mark_as_done: "done",
+      complete: "done",
+      done: "done",
+      reopen: "reopen",
+      list: "list",
+      add: "add",
+      update: "update",
+      archive: "archive",
+      archive_done: "archive_done",
+      note: "note",
+    };
+    if (actionToCommand[a]) args.command = actionToCommand[a];
+  }
+  const idish = args.item_id || args.itemId;
+  if (idish && !args.item_number && !args.id) {
+    const s = String(idish).replace(/^#/, "").trim();
+    if (/^\d+$/.test(s)) args.item_number = s;
+    else args.id = s;
+  }
+  return args;
+}
+
+/** Comma/space-separated #numbers from item_number and optional item_numbers. */
+function itemNumberTokens(args: Record<string, string>): string[] {
+  const combined = [args.item_number, args.item_numbers].filter(Boolean).join(",");
+  if (!combined.trim()) return [];
+  return combined
+    .split(/[\s,]+/)
+    .map((s) => s.replace(/^#/, "").trim())
+    .filter(Boolean);
+}
+
 const tool: ToolModule = {
   metadata: {
     id: "punch_list",
@@ -28,7 +67,7 @@ const tool: ToolModule = {
 
   declaration: {
     name: "punch_list",
-    description: `Manage the punch list (Kanban columns, not a single priority number). Commands: 'list', 'add' (requires column + category — see Suzi's instructions), 'update', 'done', 'reopen', 'archive', 'archive_done', 'note'. ${RANK_HELP} Category is a short tag; match existing tags when possible.`,
+    description: `Manage the punch list (Kanban columns, not a single priority number). Use parameter command (not "action"): list, add (requires column + category), update, done, reopen, archive, archive_done, note. For item IDs use item_number (not item_id) with the # shown on cards. To mark multiple done in one round-trip, use command done and item_number "1032,1033". ${RANK_HELP} Category is a short tag; match existing tags when possible.`,
     parameters: {
       type: "object" as const,
       properties: {
@@ -55,7 +94,13 @@ const tool: ToolModule = {
         },
         item_number: {
           type: "string",
-          description: "Persistent item number (e.g. '1001', '1023') as shown in the list. Use this instead of id when the user refers to items by number.",
+          description:
+            "Persistent item number(s) as shown on cards (e.g. '1001' or '1001,1023'). For done/reopen/archive on several items, pass comma-separated numbers in ONE call instead of many tool calls.",
+        },
+        item_numbers: {
+          type: "string",
+          description:
+            "Optional extra numbers when batching (usually prefer comma-separated item_number). Same format as item_number.",
         },
         id: {
           type: "string",
@@ -70,7 +115,8 @@ const tool: ToolModule = {
     },
   },
 
-  async execute(args, { agentId }) {
+  async execute(args0, { agentId }) {
+    const args = normalizePunchListArgs(args0);
     const cmd = args.command;
 
     if (cmd === "list") {
@@ -114,16 +160,58 @@ const tool: ToolModule = {
       return `Punch list item created: #${item.itemNumber} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}] (id: ${item.id})`;
     }
 
-    // Resolve item number to ID
-    let resolvedId = args.id;
-    if (args.item_number && !resolvedId) {
+    const tokens = itemNumberTokens(args);
+    if (
+      tokens.length > 1 &&
+      (cmd === "done" || cmd === "reopen" || cmd === "archive")
+    ) {
       const items = await listPunchListItems(agentId);
-      const itemNum = parseInt(args.item_number);
-      const match = items.find((i) => i.itemNumber === itemNum);
+      const lines: string[] = [];
+      for (const t of tokens) {
+        const itemNum = parseInt(t, 10);
+        if (Number.isNaN(itemNum)) {
+          lines.push(`Error: Invalid item number "${t}".`);
+          continue;
+        }
+        const match = items.find((i) => i.itemNumber === itemNum);
+        if (!match) {
+          lines.push(`Error: Item #${t} not found.`);
+          continue;
+        }
+        if (cmd === "done") {
+          await updatePunchListItem(match.id, { status: "done" });
+          lines.push(`Punch list item #${itemNum} marked done.`);
+        } else if (cmd === "reopen") {
+          await updatePunchListItem(match.id, { status: "open" });
+          lines.push(`Punch list item #${itemNum} reopened.`);
+        } else {
+          await archivePunchListItem(match.id);
+          lines.push(`Punch list item #${itemNum} archived.`);
+        }
+      }
+      return lines.join("\n");
+    }
+
+    if (
+      tokens.length > 1 &&
+      cmd &&
+      !["done", "reopen", "archive"].includes(cmd)
+    ) {
+      return `Error: One item per call for "${cmd}". To mark several done at once, use command "done" with item_number "1032,1033" (comma-separated).`;
+    }
+
+    // Resolve single item number to ID
+    let resolvedId = args.id;
+    if (tokens.length === 1 && !resolvedId) {
+      const items = await listPunchListItems(agentId);
+      const itemNum = parseInt(tokens[0], 10);
+      const match = Number.isNaN(itemNum)
+        ? undefined
+        : items.find((i) => i.itemNumber === itemNum);
       if (match) {
         resolvedId = match.id;
-      } else {
-        return `Error: Item #${args.item_number} not found.`;
+      } else if (["update", "done", "reopen", "archive", "note"].includes(cmd || "")) {
+        return `Error: Item #${tokens[0]} not found.`;
       }
     }
 

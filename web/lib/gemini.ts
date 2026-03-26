@@ -4,6 +4,7 @@ import { toolDeclarations, executeTool, TOOL_REGISTRY } from "./tools";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
+import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
 
 const MAX_TOOL_ITERATIONS = 20;
 
@@ -386,11 +387,15 @@ export interface ChatStreamResult {
 export async function chatStream(
   agentId: string,
   userMessage: string,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  extra?: ChatStreamExtraOptions
 ): Promise<ChatStreamResult> {
   const ai = getClient();
   const config = getAgentConfig(agentId);
-  const systemPrompt = await getSystemPrompt(config.systemPromptFile, agentId, userMessage);
+  const systemPrompt = appendEphemeralContext(
+    await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
+    extra?.workQueueContext
+  );
   const history = getHistory(config.sessionFile);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

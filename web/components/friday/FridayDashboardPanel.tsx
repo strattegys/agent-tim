@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import FridayPackageCard, { type FridayPackageRow } from "./FridayPackageCard";
+import FridayPackageCard, {
+  type FridayPackageRow,
+  type FridayWorkflowBreakdown,
+} from "./FridayPackageCard";
 import HumanTasksPanel from "./HumanTasksPanel";
 import ToolsPanel from "./ToolsPanel";
 import { panelBus } from "@/lib/events";
@@ -39,22 +42,52 @@ export default function FridayDashboardPanel({
   const mountedRef = useRef(true);
 
   const fetchPackages = useCallback(() => {
-    fetch("/api/crm/packages?operational=true&includeStats=true")
+    fetch("/api/crm/packages?operational=true&includeStats=true&includeWorkflowBreakdown=true")
       .then((r) => r.json())
       .then((data) => {
         if (!mountedRef.current) return;
         const rows = (data.packages || []) as Record<string, unknown>[];
         setPackages(
-          rows.map((p) => ({
-            id: String(p.id),
-            name: String(p.name || ""),
-            templateId: String(p.templateId || ""),
-            stage: String(p.stage || "").toUpperCase(),
-            packageNumber: p.packageNumber != null ? Number(p.packageNumber) : undefined,
-            workflowCount: Number(p.workflowCount) || 0,
-            itemCount: p.itemCount != null ? Number(p.itemCount) : undefined,
-            createdAt: String(p.createdAt || ""),
-          }))
+          rows.map((p) => {
+            const rawWf = p.workflows;
+            const workflows: FridayWorkflowBreakdown[] | undefined = Array.isArray(rawWf)
+              ? (rawWf as Record<string, unknown>[]).map((w) => ({
+                  id: String(w.id),
+                  name: String(w.name || ""),
+                  ownerAgent: String(w.ownerAgent || ""),
+                  workflowType: String(w.workflowType || ""),
+                  targetCount: Number(w.targetCount) || 0,
+                  volumeLabel:
+                    w.volumeLabel != null && String(w.volumeLabel).trim() !== ""
+                      ? String(w.volumeLabel)
+                      : null,
+                  totalItems: Number(w.totalItems) || 0,
+                  stageCounts:
+                    w.stageCounts && typeof w.stageCounts === "object" && !Array.isArray(w.stageCounts)
+                      ? (w.stageCounts as Record<string, number>)
+                      : {},
+                  stages: Array.isArray(w.stages)
+                    ? (w.stages as Record<string, unknown>[]).map((s) => ({
+                        key: String(s.key),
+                        label: String(s.label),
+                        color: typeof s.color === "string" ? s.color : "#64748b",
+                        requiresHuman: Boolean(s.requiresHuman),
+                      }))
+                    : [],
+                }))
+              : undefined;
+            return {
+              id: String(p.id),
+              name: String(p.name || ""),
+              templateId: String(p.templateId || ""),
+              stage: String(p.stage || "").toUpperCase(),
+              packageNumber: p.packageNumber != null ? Number(p.packageNumber) : undefined,
+              workflowCount: Number(p.workflowCount) || 0,
+              itemCount: p.itemCount != null ? Number(p.itemCount) : undefined,
+              createdAt: String(p.createdAt || ""),
+              workflows,
+            };
+          })
         );
       })
       .catch(() => {

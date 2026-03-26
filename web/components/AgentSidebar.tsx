@@ -2,7 +2,7 @@
 
 import type { AgentConfig } from "@/lib/agent-frontend";
 import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
-import { getAppBrandTitle } from "@/lib/app-brand";
+import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
 import AgentAvatar from "./AgentAvatar";
 import NotificationBell from "./NotificationBell";
 
@@ -28,18 +28,27 @@ export default function AgentSidebar({
   timMessagingTaskCount = 0,
 }: AgentSidebarProps) {
   const appTitle = getAppBrandTitle();
+  const headline = getAppHeadline();
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
-      <div className="h-11 shrink-0 px-3 border-b border-[var(--border-color)] flex items-center gap-2 min-w-0">
-        <span
-          className="text-xs font-semibold text-[var(--text-primary)] leading-tight truncate min-w-0"
-          title={appTitle}
-        >
-          {appTitle}
-        </span>
-        <div className="ml-auto shrink-0">
+      <div className="shrink-0 px-2 py-2 border-b border-[var(--border-color)] min-w-0 relative">
+        <div className="absolute top-2 right-2 z-10">
           <NotificationBell />
         </div>
+        <p
+          className="text-[10px] font-semibold text-[var(--text-primary)] leading-snug pr-7"
+          title={headline}
+        >
+          {headline}
+        </p>
+        {appTitle !== headline && (
+          <p
+            className="text-[9px] text-[var(--text-secondary)] mt-1 truncate"
+            title={appTitle}
+          >
+            {appTitle}
+          </p>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {TEAM_CATEGORIES.map((category) => {
@@ -85,8 +94,7 @@ export default function AgentSidebar({
                           style={{
                             background: !agent.online
                               ? "#555"
-                              : (agent.id === "friday" && pendingTaskCount > 0) ||
-                                  (agent.id === "penny" && testingTaskCount > 0) ||
+                              : (agent.id === "penny" && testingTaskCount > 0) ||
                                   (agent.id === "tim" && timMessagingTaskCount > 0)
                                 ? "#F59E0B"
                                 : "#1D9E75",

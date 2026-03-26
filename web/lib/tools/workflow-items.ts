@@ -12,6 +12,7 @@ const tool: ToolModule = {
       "add-content-to-workflow",
       "list-items",
       "move-item",
+      "update-workflow-artifact",
     ],
     requiresApproval: false,
   },
@@ -31,7 +32,7 @@ const tool: ToolModule = {
         command: {
           type: "string",
           description:
-            "Command: add-person-to-workflow, add-content-to-workflow, list-items, move-item",
+            "Command: add-person-to-workflow, add-content-to-workflow, list-items, move-item, update-workflow-artifact",
         },
         arg1: {
           type: "string",
@@ -45,7 +46,7 @@ const tool: ToolModule = {
         arg3: {
           type: "string",
           description:
-            "Third arg: stage (add-person), description (add-content)",
+            "Third arg: stage (add-person), description (add-content), or full markdown body (update-workflow-artifact)",
         },
         arg4: {
           type: "string",
@@ -113,6 +114,8 @@ const tool: ToolModule = {
         [args.arg1, args.arg2, stage, nextPos]
       );
       const itemId = (inserted[0] as Record<string, unknown>).id;
+      const { syncHumanTaskOpenForItem } = await import("@/lib/workflow-item-human-task");
+      await syncHumanTaskOpenForItem(String(itemId));
 
       // Get person name for confirmation
       const personRows = await dbQuery(
@@ -181,6 +184,8 @@ const tool: ToolModule = {
         [args.arg1, contentId, stage, nextPos]
       );
       const itemId = (inserted[0] as Record<string, unknown>).id;
+      const { syncHumanTaskOpenForItem } = await import("@/lib/workflow-item-human-task");
+      await syncHumanTaskOpenForItem(String(itemId));
 
       return `Created content "${title}" and added to workflow at stage ${stage} (content id: ${contentId}, item id: ${itemId})`;
     }
@@ -275,10 +280,39 @@ const tool: ToolModule = {
         [newStage, nextPos, args.arg1]
       );
 
+      const { syncHumanTaskOpenForItem } = await import("@/lib/workflow-item-human-task");
+      await syncHumanTaskOpenForItem(String(args.arg1));
+
       return `Item ${args.arg1} moved to stage ${newStage}`;
     }
 
-    return "Unknown workflow_items command. Use: add-person-to-workflow, add-content-to-workflow, list-items, move-item";
+    // ─── update-workflow-artifact ────────────────────────────────
+    if (cmd === "update-workflow-artifact") {
+      if (!args.arg1) return "Error: arg1 (workflowItemId) is required";
+      if (!args.arg2) return "Error: arg2 (stage, e.g. MESSAGE_DRAFT) is required";
+      if (args.arg3 === undefined || args.arg3 === "")
+        return "Error: arg3 (new markdown content) is required";
+
+      const stageNorm = args.arg2.trim().toUpperCase();
+      const updated = await dbQuery(
+        `UPDATE "_artifact" AS a SET content = $1, "updatedAt" = NOW()
+         FROM (
+           SELECT id FROM "_artifact"
+           WHERE "workflowItemId"::text = $2 AND UPPER(TRIM(stage)) = $3 AND "deletedAt" IS NULL
+           ORDER BY "createdAt" DESC
+           LIMIT 1
+         ) AS sub
+         WHERE a.id = sub.id
+         RETURNING a.id`,
+        [args.arg3, args.arg1.trim(), stageNorm]
+      );
+      if (updated.length === 0) {
+        return `No artifact found for workflow item ${args.arg1.slice(0, 8)}… at stage ${stageNorm} (create one first or check stage spelling).`;
+      }
+      return `Updated artifact ${(updated[0] as Record<string, unknown>).id} (${stageNorm}) for workflow item ${args.arg1.slice(0, 8)}…`;
+    }
+
+    return "Unknown workflow_items command. Use: add-person-to-workflow, add-content-to-workflow, list-items, move-item, update-workflow-artifact";
   },
 };
 

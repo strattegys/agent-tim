@@ -1,0 +1,101 @@
+/**
+ * Persisted queue flag on _workflow_item: true when the item’s stage requires a human
+ * (from the workflow board’s stages[].requiresHuman). Tim’s work queue selects
+ * humanTaskOpen = true + ownerAgent instead of re-deriving type from spec alone.
+ */
+
+import { query } from "@/lib/db";
+
+export function humanTaskOpenFromBoardStages(boardStages: unknown, itemStage: string): boolean {
+  const sk = (itemStage || "").trim().toUpperCase();
+  if (!sk) return false;
+  let arr: unknown = boardStages;
+  if (typeof boardStages === "string") {
+    try {
+      arr = JSON.parse(boardStages) as unknown;
+    } catch {
+      return false;
+    }
+  }
+  if (!Array.isArray(arr)) return false;
+  for (const s of arr) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) continue;
+    const key = String((s as { key?: string }).key || "").trim().toUpperCase();
+    if (key !== sk) continue;
+    return Boolean((s as { requiresHuman?: boolean }).requiresHuman);
+  }
+  return false;
+}
+
+/** Label + human-facing instruction from the board JSON for a stage key. */
+export function boardHumanMetaForStage(
+  boardStages: unknown,
+  itemStage: string
+): { label: string; humanAction: string } | null {
+  const sk = (itemStage || "").trim().toUpperCase();
+  if (!sk) return null;
+  let arr: unknown = boardStages;
+  if (typeof boardStages === "string") {
+    try {
+      arr = JSON.parse(boardStages) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(arr)) return null;
+  for (const s of arr) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) continue;
+    const key = String((s as { key?: string }).key || "").trim().toUpperCase();
+    if (key !== sk) continue;
+    const requiresHuman = Boolean((s as { requiresHuman?: boolean }).requiresHuman);
+    if (!requiresHuman) return null;
+    const label = String((s as { label?: string }).label || sk);
+    const humanAction = String(
+      (s as { humanAction?: string }).humanAction || "Complete this step in the work queue."
+    );
+    return { label, humanAction };
+  }
+  return null;
+}
+
+function workflowTypeFromSpec(spec: unknown): string {
+  if (spec == null) return "";
+  try {
+    const o = typeof spec === "string" ? JSON.parse(spec) : spec;
+    return String((o as { workflowType?: string }).workflowType || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export async function syncHumanTaskOpenForItem(itemId: string): Promise<void> {
+  const wi = await query<{ stage: string; workflowId: string }>(
+    `SELECT stage, "workflowId" FROM "_workflow_item" WHERE id = $1 AND "deletedAt" IS NULL`,
+    [itemId]
+  );
+  if (wi.length === 0) return;
+
+  const wf = await query<{ boardId: string | null; spec: unknown }>(
+    `SELECT "boardId", spec FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
+    [wi[0].workflowId]
+  );
+  const boardId = wf[0]?.boardId ?? null;
+  let stages: unknown = null;
+  if (boardId) {
+    const b = await query<{ stages: unknown }>(
+      `SELECT stages FROM "_board" WHERE id = $1 AND "deletedAt" IS NULL`,
+      [boardId]
+    );
+    stages = b[0]?.stages ?? null;
+  }
+  let open = humanTaskOpenFromBoardStages(stages, wi[0].stage);
+  const stageU = (wi[0].stage || "").trim().toUpperCase();
+  const wfType = workflowTypeFromSpec(wf[0]?.spec);
+  if (wfType === "warm-outreach" && stageU === "MESSAGED") {
+    open = false;
+  }
+  await query(
+    `UPDATE "_workflow_item" SET "humanTaskOpen" = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+    [open, itemId]
+  );
+}

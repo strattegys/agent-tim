@@ -33,6 +33,9 @@ export default function PushToTalk({ onTranscript, disabled, ttsSpeaking, onStop
   const [supported, setSupported] = useState(true);
   const recognitionRef = useRef<any>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** True until user clicks stop or silence timeout — used to survive Chrome's onend after each utterance. */
+  const listeningIntentRef = useRef(false);
+  const noSpeechRetriesRef = useRef(0);
 
   const clearSilenceTimer = useCallback(() => {
     if (silenceTimerRef.current) {
@@ -50,6 +53,8 @@ export default function PushToTalk({ onTranscript, disabled, ttsSpeaking, onStop
   }, []);
 
   const stop = useCallback(() => {
+    listeningIntentRef.current = false;
+    noSpeechRetriesRef.current = 0;
     clearSilenceTimer();
     recognitionRef.current?.stop();
     recognitionRef.current = null;
@@ -68,34 +73,79 @@ export default function PushToTalk({ onTranscript, disabled, ttsSpeaking, onStop
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
 
+    listeningIntentRef.current = true;
+    noSpeechRetriesRef.current = 0;
+
     const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = false;
     recognition.lang = "en-US";
 
+    const tryRestart = () => {
+      if (!listeningIntentRef.current || !recognitionRef.current) return;
+      try {
+        recognitionRef.current.start();
+      } catch {
+        listeningIntentRef.current = false;
+        recognitionRef.current = null;
+        setIsListening(false);
+      }
+    };
+
     recognition.onresult = (e: any) => {
       const last = e.results[e.results.length - 1];
       if (last.isFinal) {
+        noSpeechRetriesRef.current = 0;
         onTranscript(last[0].transcript.trim());
         resetSilenceTimer();
       }
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (e: any) => {
+      const code = e?.error as string | undefined;
+      if (code === "aborted") return;
+      if ((code === "no-speech" || code === "audio-capture") && listeningIntentRef.current) {
+        noSpeechRetriesRef.current += 1;
+        if (noSpeechRetriesRef.current > 12) {
+          listeningIntentRef.current = false;
+          clearSilenceTimer();
+          setIsListening(false);
+          recognitionRef.current = null;
+          return;
+        }
+        window.setTimeout(tryRestart, 100);
+        return;
+      }
+      if (code === "not-allowed") {
+        listeningIntentRef.current = false;
+        setSupported(false);
+      }
       clearSilenceTimer();
       setIsListening(false);
       recognitionRef.current = null;
     };
 
     recognition.onend = () => {
+      if (!listeningIntentRef.current) {
+        clearSilenceTimer();
+        recognitionRef.current = null;
+        setIsListening(false);
+        return;
+      }
+      // Chromium ends the session after many final results; restart while the user still has the mic "on".
       clearSilenceTimer();
-      setIsListening(false);
-      recognitionRef.current = null;
+      window.setTimeout(tryRestart, 0);
     };
 
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsListening(true);
+    try {
+      recognition.start();
+      recognitionRef.current = recognition;
+      setIsListening(true);
+    } catch {
+      listeningIntentRef.current = false;
+      recognitionRef.current = null;
+      setIsListening(false);
+    }
   }, [onTranscript, disabled, resetSilenceTimer, clearSilenceTimer]);
 
   const toggle = useCallback(() => {

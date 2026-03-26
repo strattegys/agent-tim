@@ -2,6 +2,9 @@ export interface StageConfig {
   key: string;
   label: string;
   color: string;
+  /** From board JSON — stage needs a human before advancing */
+  requiresHuman?: boolean;
+  humanAction?: string;
 }
 
 export interface Board {
@@ -44,4 +47,6 @@ export interface WorkflowItem {
   extra: string; // person: companyName, content: url
   linkedinUrl?: string; // person only
   email?: string; // person only
+  /** Persisted: item is in a human-required stage (work queue). */
+  humanTaskOpen?: boolean;
 }

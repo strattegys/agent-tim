@@ -59,6 +59,7 @@ interface HumanTask {
   dueDate: string | null;
   itemType: string;
   createdAt: string;
+  waitingFollowUp?: boolean;
 }
 
 function taskStageHeading(task: HumanTask): string {
@@ -95,7 +96,9 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
   const visibleTasks = tab === "now" ? nowTasks : laterTasks;
 
   const fetchTasks = useCallback(() => {
-    fetch(`/api/crm/human-tasks${packageStageFilter ? `?packageStage=${packageStageFilter}` : ""}`)
+    fetch(`/api/crm/human-tasks${packageStageFilter ? `?packageStage=${packageStageFilter}` : ""}`, {
+      credentials: "include",
+    })
       .then((r) => r.json())
       .then((data) => {
         if (mountedRef.current) setTasks(data.tasks || []);

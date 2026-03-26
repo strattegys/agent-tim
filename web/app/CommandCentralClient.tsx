@@ -18,13 +18,27 @@ import NotificationBell from "@/components/NotificationBell";
 import { getFrontendAgents, agentHasKanban, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
 import { TtsQueue, type TtsState } from "@/lib/tts-queue";
-import { getAppBrandTitle } from "@/lib/app-brand";
+import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
+import {
+  formatTimWorkQueueContext,
+  type TimWorkQueueSelection,
+} from "@/lib/tim-work-context";
 import Link from "next/link";
 
 
 const AGENTS: AgentConfig[] = getFrontendAgents();
 
 type RightPanel = "info" | "kanban" | "dashboard" | "reminders" | "notes" | "tasks" | "messages";
+
+const VALID_RIGHT_PANELS: RightPanel[] = [
+  "info",
+  "kanban",
+  "dashboard",
+  "reminders",
+  "notes",
+  "tasks",
+  "messages",
+];
 
 export default function CommandCentralClient() {
   const searchParams = useSearchParams();
@@ -50,6 +64,22 @@ export default function CommandCentralClient() {
     if (agent === "friday" && p === "tasks") return "dashboard";
     return p || defaultPanelFor(agent);
   });
+
+  // Deep links (e.g. Friday → ?agent=tim&panel=messages): searchParams update but state
+  // was only initialized on mount — sync when the URL changes.
+  useEffect(() => {
+    if (paramAgent && AGENTS.some((a) => a.id === paramAgent)) {
+      setActiveAgent(paramAgent);
+    }
+    if (paramPanel && VALID_RIGHT_PANELS.includes(paramPanel as RightPanel)) {
+      if (paramAgent === "friday" && paramPanel === "tasks") {
+        setRightPanel("dashboard");
+      } else {
+        setRightPanel(paramPanel as RightPanel);
+      }
+    }
+  }, [paramAgent, paramPanel]);
+
   useEffect(() => {
     setRightPanel((prev) =>
       prev === "messages" && activeAgent !== "tim" ? defaultPanelFor(activeAgent) : prev
@@ -65,12 +95,21 @@ export default function CommandCentralClient() {
       activeAgent === "friday" && prev === "tasks" ? "dashboard" : prev
     );
   }, [activeAgent]);
+
+  /** After Tim intake / approve, surface the work queue if the user was on agent info. */
+  useEffect(() => {
+    return panelBus.on("tim_human_task_progress", () => {
+      if (activeAgentRef.current !== "tim") return;
+      setRightPanel((p) => (p === "info" ? "messages" : p));
+    });
+  }, []);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [sidebarView, setSidebarView] = useState<"agents" | "toys">("agents");
 
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
   const [testingTaskCount, setTestingTaskCount] = useState(0);
   const [timMessagingTaskCount, setTimMessagingTaskCount] = useState(0);
+  const [timWorkSelection, setTimWorkSelection] = useState<TimWorkQueueSelection | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -87,8 +126,12 @@ export default function CommandCentralClient() {
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
+  /** Inworld voiceId from server (registry + INWORLD_VOICE_ID) so local dev matches production. */
+  const [effectiveTtsVoice, setEffectiveTtsVoice] = useState<string | null>(null);
   const ttsQueueRef = useRef<TtsQueue | null>(null);
   const loadedAgentRef = useRef<string | null>(null);
+  const activeAgentRef = useRef(activeAgent);
+  activeAgentRef.current = activeAgent;
   const abortRef = useRef<AbortController | null>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -144,6 +187,7 @@ export default function CommandCentralClient() {
 
   const agent = agents.find((a) => a.id === activeAgent) || agents[0];
   const appBrandTitle = getAppBrandTitle();
+  const appHeadline = getAppHeadline();
 
   // Filter messages by search query
   const filteredMessages = useMemo(() => {
@@ -206,23 +250,29 @@ export default function CommandCentralClient() {
   // Poll for pending human tasks (Friday=ACTIVE, Penny=PENDING_APPROVAL)
   useEffect(() => {
     const checkTasks = () => {
-      fetch("/api/crm/human-tasks?packageStage=ACTIVE")
-        .then((r) => r.json())
+      fetch("/api/crm/human-tasks?packageStage=ACTIVE", { credentials: "include" })
+        .then(async (r) => (r.ok ? r.json() : { count: 0 }))
         .then((d) => setPendingTaskCount(d.count || 0))
         .catch(() => {});
-      fetch("/api/crm/human-tasks?packageStage=PENDING_APPROVAL")
-        .then((r) => r.json())
+      fetch("/api/crm/human-tasks?packageStage=PENDING_APPROVAL", { credentials: "include" })
+        .then(async (r) => (r.ok ? r.json() : { count: 0 }))
         .then((d) => setTestingTaskCount(d.count || 0))
         .catch(() => {});
-      fetch("/api/crm/human-tasks?ownerAgent=tim&messagingOnly=true&packageStage=ACTIVE")
-        .then((r) => r.json())
+      // Tim work queue: all human-required tasks on Tim-owned workflows (same rules as /human-tasks).
+      // Previously packageStage=ACTIVE could miss rows if package join/stage lagged workflow items.
+      fetch("/api/crm/human-tasks?ownerAgent=tim", { credentials: "include" })
+        .then(async (r) => (r.ok ? r.json() : { count: 0 }))
         .then((d) => setTimMessagingTaskCount(d.count || 0))
         .catch(() => {});
     };
     checkTasks();
-    const interval = setInterval(checkTasks, 10000);
+    const interval = setInterval(checkTasks, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (activeAgent !== "tim") setTimWorkSelection(null);
+  }, [activeAgent]);
 
   // Load last messages for all agents on mount + initialize lastSeenCounts
   useEffect(() => {
@@ -282,6 +332,32 @@ export default function CommandCentralClient() {
       .catch(() => setMessages([]));
   }, [activeAgent]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/agent-config?agent=${encodeURIComponent(activeAgent)}`, {
+      credentials: "include",
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.voiceRuntime) return;
+        const vr = data.voiceRuntime as {
+          registryVoiceId?: string | null;
+          envFallbackVoiceId?: string | null;
+        };
+        const v =
+          (typeof vr.registryVoiceId === "string" && vr.registryVoiceId.trim()) ||
+          (typeof vr.envFallbackVoiceId === "string" && vr.envFallbackVoiceId.trim()) ||
+          null;
+        setEffectiveTtsVoice(v);
+      })
+      .catch(() => {
+        if (!cancelled) setEffectiveTtsVoice(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAgent]);
+
   const handleReply = useCallback((msg: Message) => {
     setReplyTo({ id: msg.id, text: msg.text, role: msg.role });
   }, []);
@@ -317,11 +393,20 @@ export default function CommandCentralClient() {
         const controller = new AbortController();
         abortRef.current = controller;
 
+        const body: {
+          message: string;
+          agent: string;
+          workQueueContext?: string;
+        } = { message: apiMessage, agent: activeAgent };
+        if (activeAgent === "tim" && timWorkSelection) {
+          body.workQueueContext = formatTimWorkQueueContext(timWorkSelection);
+        }
+
         const res = await fetch("/api/chat/stream", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: apiMessage, agent: activeAgent }),
+          body: JSON.stringify(body),
           signal: controller.signal,
         });
 
@@ -353,10 +438,10 @@ export default function CommandCentralClient() {
         const decoder = new TextDecoder();
         let buffer = "";
 
-        // Start TTS queue if agent has a voice
-        const ttsQueue = agent.ttsVoice
+        const voiceId = (effectiveTtsVoice ?? agent.ttsVoice)?.trim() || "";
+        const ttsQueue = voiceId
           ? new TtsQueue({
-              voice: agent.ttsVoice,
+              voice: voiceId,
               onStateChange: (state: TtsState) => {
                 setTtsSpeaking(state === "speaking" || state === "loading");
               },
@@ -421,7 +506,7 @@ export default function CommandCentralClient() {
         ttsQueue?.flush();
 
         // Play notification chime — skip if agent has TTS voice (avoid overlap)
-        if (!agent.ttsVoice) {
+        if (!voiceId) {
           try {
             const audio = new Audio("/sounds/notification.wav");
             audio.volume = 0.3;
@@ -449,7 +534,7 @@ export default function CommandCentralClient() {
         setIsLoading(false);
       }
     },
-    [isLoading, activeAgent, replyTo]
+    [isLoading, activeAgent, replyTo, effectiveTtsVoice, agent.ttsVoice, timWorkSelection]
   );
 
   const stopResponse = useCallback(() => {
@@ -466,16 +551,21 @@ export default function CommandCentralClient() {
     <div className="flex h-screen w-screen overflow-hidden">
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
-        <div className="h-12 shrink-0 border-b border-[var(--border-color)] flex items-center px-3 gap-2 min-w-0">
-          <span
-            className="text-xs font-semibold text-[var(--text-primary)] leading-tight truncate min-w-0"
-            title={appBrandTitle}
-          >
-            {appBrandTitle}
-          </span>
-          <div className="ml-auto shrink-0">
+        <div className="shrink-0 border-b border-[var(--border-color)] px-3 py-2 min-w-0 relative">
+          <div className="absolute top-2 right-3 z-10">
             <NotificationBell />
           </div>
+          <p
+            className="text-[10px] font-semibold text-[var(--text-primary)] leading-snug pr-10"
+            title={appHeadline}
+          >
+            {appHeadline}
+          </p>
+          {appBrandTitle !== appHeadline && (
+            <p className="text-[9px] text-[var(--text-secondary)] mt-0.5 truncate pr-10" title={appBrandTitle}>
+              {appBrandTitle}
+            </p>
+          )}
         </div>
         <div className="flex-1 overflow-y-auto">
           {AGENT_CATEGORIES.filter((c) => c !== "Toys").map((category) => {
@@ -519,8 +609,7 @@ export default function CommandCentralClient() {
                           style={{
                             background: !a.online
                               ? "#555"
-                              : (a.id === "friday" && pendingTaskCount > 0) ||
-                                  (a.id === "tim" && timMessagingTaskCount > 0)
+                              : a.id === "tim" && timMessagingTaskCount > 0
                                 ? "#F59E0B"
                                 : "#1D9E75",
                           }}
@@ -580,8 +669,7 @@ export default function CommandCentralClient() {
               style={{
                 background: !agent.online
                   ? "#555"
-                  : (activeAgent === "friday" && pendingTaskCount > 0) ||
-                      (activeAgent === "tim" && timMessagingTaskCount > 0)
+                  : activeAgent === "tim" && timMessagingTaskCount > 0
                     ? "#F59E0B"
                     : "#1D9E75",
               }}
@@ -757,8 +845,7 @@ export default function CommandCentralClient() {
                 style={{
                   background: !agent.online
                     ? "#555"
-                    : (activeAgent === "friday" && pendingTaskCount > 0) ||
-                        (activeAgent === "tim" && timMessagingTaskCount > 0)
+                    : activeAgent === "tim" && timMessagingTaskCount > 0
                       ? "#F59E0B"
                       : "#1D9E75",
                 }}
@@ -774,7 +861,7 @@ export default function CommandCentralClient() {
                 onClick={() =>
                   setRightPanel(activeAgent === "tim" ? "messages" : "kanban")
                 }
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] relative ${
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                   activeAgent === "tim"
                     ? rightPanel === "messages" || rightPanel === "kanban"
                       ? "text-[var(--accent-green)]"
@@ -783,18 +870,13 @@ export default function CommandCentralClient() {
                       ? "text-[var(--accent-green)]"
                       : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title={activeAgent === "tim" ? "Message queue & pipeline" : "Pipeline board"}
+                title={activeAgent === "tim" ? "Work queue & pipeline" : "Pipeline board"}
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="5" height="18" rx="1" />
                   <rect x="10" y="3" width="5" height="12" rx="1" />
                   <rect x="17" y="3" width="5" height="8" rx="1" />
                 </svg>
-                {activeAgent === "tim" && timMessagingTaskCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 rounded-full bg-[#F59E0B] text-[8px] text-black font-bold flex items-center justify-center">
-                    {timMessagingTaskCount > 9 ? "9+" : timMessagingTaskCount}
-                  </span>
-                )}
               </button>
             )}
             {(activeAgent === "friday" || activeAgent === "penny") && (
@@ -859,6 +941,8 @@ export default function CommandCentralClient() {
             <TimAgentPanel
               tab={rightPanel === "kanban" ? "kanban" : "messages"}
               onTab={(t) => setRightPanel(t)}
+              messageQueueCount={timMessagingTaskCount}
+              onTimWorkSelectionChange={setTimWorkSelection}
             />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />

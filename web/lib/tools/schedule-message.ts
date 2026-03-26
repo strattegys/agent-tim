@@ -54,8 +54,12 @@ const tool: ToolModule = {
     },
   },
 
-  async execute(args, { lastUserMessage }) {
+  async execute(args, { lastUserMessage, agentId }) {
     const cmd = args.command;
+
+    if (agentId === "tim") {
+      return "BLOCKED: Tim does not schedule or send LinkedIn messages from chat. Use the work queue and Submit when ready.";
+    }
 
     if (cmd === "schedule") {
       if (!hasUserApproval(lastUserMessage)) {

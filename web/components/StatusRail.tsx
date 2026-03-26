@@ -163,7 +163,7 @@ export default function StatusRail({
           </div>
           <ul className="font-mono text-[10px] space-y-1">
             {teamAgents.map((a) => {
-              const warnFriday = a.id === "friday" && pendingTaskCount > 0;
+              const showFridayTaskCount = a.id === "friday" && pendingTaskCount > 0;
               const warnPenny = a.id === "penny" && testingTaskCount > 0;
               const warnTim = a.id === "tim" && timMessagingTaskCount > 0;
               return (
@@ -171,12 +171,12 @@ export default function StatusRail({
                   <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
-                      background: !a.online ? "#555" : warnFriday || warnPenny || warnTim ? "#F59E0B" : "#1D9E75",
+                      background: !a.online ? "#555" : warnPenny || warnTim ? "#F59E0B" : "#1D9E75",
                     }}
                   />
                   <span className="truncate text-[var(--text-secondary)]">{a.name}</span>
-                  {warnFriday && (
-                    <span className="text-[#F59E0B] shrink-0" title="Human tasks">
+                  {showFridayTaskCount && (
+                    <span className="text-[var(--text-tertiary)] shrink-0 tabular-nums" title="Active-package human tasks (see Friday → Human tasks)">
                       {pendingTaskCount}
                     </span>
                   )}
@@ -186,7 +186,7 @@ export default function StatusRail({
                     </span>
                   )}
                   {warnTim && (
-                    <span className="text-[#F59E0B] shrink-0" title="Tim message queue">
+                    <span className="text-[#F59E0B] shrink-0" title="Tim work queue (open tasks)">
                       {timMessagingTaskCount}
                     </span>
                   )}

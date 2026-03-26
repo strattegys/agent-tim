@@ -4,7 +4,8 @@
 -- Enable pgvector extension (requires superuser)
 CREATE EXTENSION IF NOT EXISTS vector;
 
-SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6";
+-- Extension types (vector) live in public — keep public on the path for CREATE TABLE.
+SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6", public;
 
 -- ============================================================
 -- 1. Vector memory table
@@ -40,13 +41,19 @@ CREATE INDEX IF NOT EXISTS idx_memory_agent_category
   WHERE "deletedAt" IS NULL;
 
 -- ============================================================
--- 2. Rename reminder category "fact" → "note"
+-- 2. Rename reminder category "fact" → "note" (Twenty schema only)
 -- ============================================================
 
--- Update existing rows
-UPDATE "_reminder" SET category = 'note' WHERE category = 'fact';
-
--- Drop old constraint, add new one with "note" instead of "fact"
-ALTER TABLE "_reminder" DROP CONSTRAINT IF EXISTS "_reminder_category_check";
-ALTER TABLE "_reminder" ADD CONSTRAINT "_reminder_category_check"
-  CHECK (category IN ('birthday','holiday','recurring','one-time','note'));
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'workspace_9rc10n79wgdr0r3z6mzti24f6'
+      AND table_name = '_reminder'
+  ) THEN
+    UPDATE "_reminder" SET category = 'note' WHERE category = 'fact';
+    ALTER TABLE "_reminder" DROP CONSTRAINT IF EXISTS "_reminder_category_check";
+    ALTER TABLE "_reminder" ADD CONSTRAINT "_reminder_category_check"
+      CHECK (category IN ('birthday','holiday','recurring','one-time','note'));
+  END IF;
+END $$;

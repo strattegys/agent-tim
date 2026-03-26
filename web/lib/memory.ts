@@ -171,7 +171,7 @@ ${messages.slice(-100).join("\n")}`;
     let result: string | undefined;
 
     if (agentConfig.provider === "anthropic") {
-      // Use Claude for Anthropic agents
+      // Anthropic API for agents with provider "anthropic"
       const Anthropic = (await import("@anthropic-ai/sdk")).default;
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
       const response = await client.messages.create({

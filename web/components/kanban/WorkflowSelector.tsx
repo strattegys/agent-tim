@@ -88,6 +88,13 @@ export default function WorkflowSelector({
 
   const selected = workflows.find((w) => w.id === selectedId);
 
+  // Tim: if nothing selected and only one workflow, open it so the board isn’t empty by default
+  useEffect(() => {
+    if (agentId !== "tim" || loading || selectedId) return;
+    if (workflows.length !== 1) return;
+    onSelect(workflows[0].id);
+  }, [agentId, loading, selectedId, workflows, onSelect]);
+
   // Notify parent when the selected workflow (with board data) is resolved
   useEffect(() => {
     onWorkflowLoaded?.(selected ?? null);

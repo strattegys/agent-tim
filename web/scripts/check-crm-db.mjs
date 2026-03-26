@@ -1,6 +1,7 @@
 /**
- * Verify CRM Postgres is reachable from YOUR machine (same path as the SSH tunnel).
+ * Verify CRM Postgres is reachable (same path as Next.js / SSH tunnel).
  * Run:  cd web && npm run check-crm-db
+ * process.env wins over .env.local so docker-compose.dev.yml overrides (host/port) apply in-container.
  */
 import fs from "fs";
 import path from "path";
@@ -27,30 +28,31 @@ function parseEnvLocal(file) {
   return out;
 }
 
-const env = parseEnvLocal(envPath);
-const password = env.CRM_DB_PASSWORD?.trim();
-const port = parseInt(env.CRM_DB_PORT || "5433", 10);
-const database = env.CRM_DB_NAME || "default";
-const user = env.CRM_DB_USER || "postgres";
-const configuredHost = (env.CRM_DB_HOST || "").trim();
+const file = parseEnvLocal(envPath);
+const pick = (k, def = "") => {
+  const v = process.env[k]?.trim();
+  if (v) return v;
+  const f = file[k]?.trim();
+  return f || def;
+};
+const password = pick("CRM_DB_PASSWORD");
+const port = parseInt(pick("CRM_DB_PORT", "5433"), 10);
+const database = pick("CRM_DB_NAME", "default");
+const user = pick("CRM_DB_USER", "postgres");
+const configuredHost = pick("CRM_DB_HOST");
 
 if (!password) {
   console.error("CRM_DB_PASSWORD is missing in web/.env.local");
   process.exit(1);
 }
 
-if (
-  configuredHost &&
-  configuredHost !== "127.0.0.1" &&
-  configuredHost !== "localhost"
-) {
-  console.warn(
-    `Note: CRM_DB_HOST=${configuredHost} — this check always probes 127.0.0.1 (SSH tunnel). For local npm run dev with a tunnel, set CRM_DB_HOST=127.0.0.1 in .env.local.`
-  );
-}
+const host =
+  configuredHost && configuredHost !== ""
+    ? configuredHost
+    : "127.0.0.1";
 
 const client = new pg.Client({
-  host: "127.0.0.1",
+  host,
   port,
   database,
   user,
@@ -58,12 +60,39 @@ const client = new pg.Client({
   connectionTimeoutMillis: 5000,
 });
 
+const SCHEMA = "workspace_9rc10n79wgdr0r3z6mzti24f6";
+
 try {
   await client.connect();
   await client.query("SELECT 1");
+
+  const ext = await client.query(
+    "SELECT 1 AS ok FROM pg_extension WHERE extname = 'vector' LIMIT 1"
+  );
+  const hasVector = ext.rows.length > 0;
+
+  const mem = await client.query(
+    `SELECT 1 AS ok FROM information_schema.tables
+     WHERE table_schema = $1 AND table_name = '_memory' LIMIT 1`,
+    [SCHEMA]
+  );
+  const hasMemory = mem.rows.length > 0;
+
   await client.end();
+
+  if (!hasVector || !hasMemory) {
+    console.error(
+      `CRM Postgres at ${host}:${port} is reachable but agent vector memory is not ready:` +
+        ` vector extension=${hasVector ? "yes" : "NO"}` +
+        ` ; _memory table=${hasMemory ? "yes" : "NO"}.` +
+        `\nFix: use crm-db image pgvector/pgvector:pg16 and run (repo root):\n` +
+        `  docker compose --env-file web/.env.local -f docker-compose.yml exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 < web/scripts/migrate-vector-memory.sql`
+    );
+    process.exit(1);
+  }
+
   console.log(
-    `OK — CRM Postgres at 127.0.0.1:${port}. Docker dev uses host.docker.internal:${port}.`
+    `OK — CRM Postgres at ${host}:${port} (pgvector + _memory in ${SCHEMA}).`
   );
   process.exit(0);
 } catch (e) {

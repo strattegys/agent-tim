@@ -5,6 +5,7 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
+import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
 
 const MAX_TOOL_ITERATIONS = 20;
 
@@ -53,19 +54,19 @@ function buildMessages(
 }
 
 /**
- * Streaming chat with Claude — handles tool calls, then streams the final text.
+ * Streaming chat via Anthropic API — handles tool calls, then streams the final text.
  */
 export async function chatStreamAnthropic(
   agentId: string,
   userMessage: string,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  extra?: ChatStreamExtraOptions
 ): Promise<ChatStreamResult> {
   const client = getClient();
   const config = getAgentConfig(agentId);
-  const systemPrompt = await getSystemPrompt(
-    config.systemPromptFile,
-    agentId,
-    userMessage
+  const systemPrompt = appendEphemeralContext(
+    await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
+    extra?.workQueueContext
   );
   const history = getHistory(config.sessionFile);
   const tools = buildAnthropicTools(config.tools);
@@ -235,7 +236,7 @@ export async function chatStreamAnthropic(
 }
 
 /**
- * Autonomous (non-streaming) chat with Claude — used by heartbeat.
+ * Autonomous (non-streaming) chat via Anthropic API — used by heartbeat.
  */
 export async function autonomousChatAnthropic(
   agentId: string,

@@ -31,7 +31,9 @@ function getPool(): import("pg").Pool {
   return _pool;
 }
 
-const SCHEMA = "workspace_9rc10n79wgdr0r3z6mzti24f6";
+/** Twenty / CRM workspace schema (Kanban, workflows, person, _workflow_item, …). */
+export const CRM_WORKSPACE_SCHEMA = "workspace_9rc10n79wgdr0r3z6mzti24f6";
+const SCHEMA = CRM_WORKSPACE_SCHEMA;
 
 let warnedDevStoreInDevelopment = false;
 

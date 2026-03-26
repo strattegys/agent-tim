@@ -9,6 +9,7 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
+import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
 
 const MAX_TOOL_ITERATIONS = 20;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
@@ -118,13 +119,13 @@ async function ollamaChat(
 export async function chatStreamOllama(
   agentId: string,
   userMessage: string,
-  onChunk: (chunk: string) => void
+  onChunk: (chunk: string) => void,
+  extra?: ChatStreamExtraOptions
 ): Promise<ChatStreamResult> {
   const config = getAgentConfig(agentId);
-  const systemPrompt = await getSystemPrompt(
-    config.systemPromptFile,
-    agentId,
-    userMessage
+  const systemPrompt = appendEphemeralContext(
+    await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
+    extra?.workQueueContext
   );
   const history = getHistory(config.sessionFile);
   const tools = buildOllamaTools(config.tools);

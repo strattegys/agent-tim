@@ -100,9 +100,30 @@ export async function devQuery(sql: string, params?: unknown[]): Promise<Row[]> 
     return selectWorkflows(s, p);
   }
 
+  // GET /api/crm/human-tasks — JOIN wi + w (+ optional package). Generic workflow_item SELECT
+  // cannot apply w.ownerAgent / wi.humanTaskOpen filters (those columns live on joined rows).
+  if (
+    s.includes('FROM "_workflow_item"') &&
+    s.includes('INNER JOIN "_workflow"') &&
+    s.includes("humanTaskOpen") &&
+    s.includes("SELECT")
+  ) {
+    return selectHumanTasksQueueJoin(s, p);
+  }
+
   // SELECT from _workflow_item
   if (s.includes('FROM "_workflow_item"') && s.includes("SELECT")) {
     return selectWorkflowItems(s, p);
+  }
+
+  // SELECT stages FROM "_board" WHERE id = $1 (human-task flag sync)
+  if (s.includes('FROM "_board"') && s.includes("SELECT") && s.includes("stages")) {
+    const boards = loadTable("boards").filter((r) => !r.deletedAt);
+    if (p.length >= 1) {
+      const bid = String(p[0]);
+      return boards.filter((r) => r.id === bid).map((r) => ({ stages: r.stages }));
+    }
+    return [];
   }
 
   // SELECT from _artifact
@@ -324,6 +345,71 @@ function selectWorkflows(sql: string, params: unknown[]): Row[] {
 
   const orphanList = /packageId/i.test(sql) && /IS\s+NULL/i.test(sql);
   return filtered.slice(0, orphanList ? 500 : 50);
+}
+
+// ─── SELECT human-tasks queue (JOIN simulation) ─────────────────
+
+function selectHumanTasksQueueJoin(sql: string, params: unknown[]): Row[] {
+  const s = sql.replace(/\s+/g, " ").trim();
+  const hasOwner = s.includes('LOWER(TRIM(COALESCE(w."ownerAgent"');
+  const hasPkg = s.includes('JOIN "_package"');
+  let i = 0;
+  const ownerWant = hasOwner && params[i] != null ? String(params[i++]).trim().toLowerCase() : null;
+  const pkgStageWant = hasPkg && params[i] != null ? String(params[i++]).trim().toUpperCase() : null;
+
+  const pkgs = loadTable("packages").filter((r) => !r.deletedAt);
+  const workflows = loadTable("workflows").filter((r) => !r.deletedAt);
+  const boards = loadTable("boards").filter((r) => !r.deletedAt);
+  const items = loadTable("workflow_items").filter((r) => !r.deletedAt);
+
+  const out: Row[] = [];
+  for (const wi of items) {
+    const w = workflows.find((wf) => wf.id === wi.workflowId);
+    if (!w) continue;
+    let wfType = "";
+    try {
+      const spec = typeof w.spec === "string" ? JSON.parse(w.spec) : w.spec;
+      wfType = String((spec as { workflowType?: string })?.workflowType || "").trim();
+    } catch {
+      wfType = "";
+    }
+    const timMessagedWait =
+      ownerWant === "tim" &&
+      String(wi.stage || "").trim().toUpperCase() === "MESSAGED" &&
+      wfType === "warm-outreach";
+    if (wi.humanTaskOpen !== true && !timMessagedWait) continue;
+    if (ownerWant != null && String(w.ownerAgent || "").trim().toLowerCase() !== ownerWant) continue;
+    if (pkgStageWant != null) {
+      if (w.packageId) {
+        const pkg = pkgs.find((p) => p.id === w.packageId);
+        const st = String(pkg?.stage || "").trim().toUpperCase();
+        if (st !== pkgStageWant) continue;
+      }
+    }
+    const b = boards.find((bd) => bd.id === w.boardId);
+    out.push({
+      id: wi.id,
+      workflowId: wi.workflowId,
+      stage: wi.stage,
+      sourceType: wi.sourceType,
+      sourceId: wi.sourceId,
+      dueDate: wi.dueDate ?? null,
+      createdAt: wi.createdAt,
+      workflowName: w.name,
+      ownerAgent: w.ownerAgent,
+      packageId: w.packageId ?? null,
+      spec: w.spec,
+      itemType: w.itemType,
+      board_stages: b?.stages ?? null,
+    });
+  }
+  out.sort((a, b) => {
+    const da = a.dueDate ? Date.parse(String(a.dueDate)) : 0;
+    const db = b.dueDate ? Date.parse(String(b.dueDate)) : 0;
+    if (da !== db) return da - db;
+    return String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+  });
+  return out;
 }
 
 // ─── SELECT workflow items ──────────────────────────────────────

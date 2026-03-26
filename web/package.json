@@ -11,6 +11,7 @@
     "push:inworld:prod": "node scripts/push-inworld-production.mjs",
     "db:exec": "node scripts/db-exec.mjs",
     "check-crm-db": "node scripts/check-crm-db.mjs",
+    "db:vector-memory": "node scripts/db-exec.mjs scripts/migrate-vector-memory.sql",
     "migrate:orphan-workflows": "node scripts/migrate-orphan-workflows-to-packages.mjs"
   },
   "dependencies": {

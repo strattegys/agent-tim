@@ -88,9 +88,10 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     name: "Tim",
     role: "Marketing & Sales Assistant",
     description:
-      "Executes LinkedIn outreach — sends connection requests, manages responses, " +
-      "schedules follow-ups. Receives qualified targets from Scout and messaging " +
-      "content from Marni.",
+      "Helps Govind work outreach tasks in the Command Central work queue — draft copy, " +
+      "CRM context, workflow artifacts. Outbound LinkedIn sends only when Govind clicks " +
+      "Submit on a queue item (not via Tim's chat tools). Receives targets from Scout and " +
+      "messaging ideas from Marni.",
     category: "MarkOps",
     color: "#1D9E75",
     avatar: "/api/agent-avatar?id=tim",
@@ -102,17 +103,14 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     temperature: 0.2,
     tools: [
       "twenty_crm",
-      "linkedin",
-      "schedule_message",
       "web_search",
       "memory",
       "delegate_task",
       "workflow_items",
     ],
-    capabilities: ["LinkedIn DMs", "CRM search", "Follow-ups", "Workflows"],
+    capabilities: ["Work queue drafts", "CRM search", "Workflow artifacts", "Follow-ups"],
     connections: [
       { label: "CRM", connected: true, toolId: "twenty_crm" },
-      { label: "LinkedIn", connected: true, toolId: "linkedin" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
     routines: [
@@ -155,7 +153,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
         schedule: "*/30 * * * *",
         timeZone: "America/Los_Angeles",
         description:
-          "Pacific time: every :00 and :30; only adds slots 8:30–16:30 PT. Active warm-outreach: up to N/day (~1h apart); pauses when backlog high",
+          "Pacific: :00 & :30, 8:30–16:30 PT. Default: up to N/day + min interval. Package spec warmOutreachDiscovery.pacedDaily: weekdays only, first slot from bootstrap time if empty, next slot after post-intake delay (resolve sets nextEligibleSpawnAt; no LLM)",
         handler: "warm-outreach-discovery",
       },
     ],
@@ -240,7 +238,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       ],
     },
     workflowTypes: [],
-    // Inworld voiceId for /api/tts (same stack as Rainbow Bot — INWORLD_VOICE_ID env is fallback only)
+    // Inworld voiceId for Suzi read-aloud — keep in sync with production `INWORLD_VOICE_ID` (typically Olivia).
     ttsVoice: "Olivia",
     vectorMemory: true,
     provider: "groq",
@@ -258,7 +256,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     role: "Right Hand Robot",
     description:
       "Your right hand robot — manages workflows, monitors tools, and helps coordinate agents. " +
-      "System prompt updates and backend changes are handled via Claude Code.",
+      "System prompt updates and backend changes are done in the repo (Cursor) and deployed via CI/CD.",
     category: "Utility",
     color: "#9B59B6",
     avatar: "/api/agent-avatar?id=friday",
@@ -377,7 +375,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   penny: {
     id: "penny",
     name: "Penny",
-    role: "Package Builder & Client Liaison",
+    role: "Chief Success Agent",
     description:
       "Creates service packages from templates, customizes deliverables for clients, " +
       "manages approval workflows, and triggers cross-agent workflow creation on approval.",

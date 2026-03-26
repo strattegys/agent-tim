@@ -1,12 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { getAppBrandTitle, isDevAppBranding } from "@/lib/app-brand";
+import { getAppBrandTitle, getAppHeadline, isDevAppBranding } from "@/lib/app-brand";
 
 export function generateMetadata(): Metadata {
   const title = getAppBrandTitle();
   return {
     title,
-    description: "AI Agent Hub — Tim, Suzi, Rainbow",
+    description: getAppHeadline(),
     manifest: "/manifest.json",
     icons: {
       icon: [
@@ -18,7 +18,7 @@ export function generateMetadata(): Metadata {
     appleWebApp: {
       capable: true,
       statusBarStyle: "black-translucent",
-      title: isDevAppBranding() ? "Command Central DEV" : "Command Central",
+      title: isDevAppBranding() ? "Agent Team · Dev" : "Agent Team",
     },
   };
 }

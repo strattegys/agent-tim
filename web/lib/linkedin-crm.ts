@@ -8,9 +8,9 @@ import { execFileSync } from "child_process";
 import { join } from "path";
 import { triageNewConnection } from "./linkedin-triage";
 import { writeNotification } from "./notifications";
+import { normalizeUnipileDsn } from "./unipile-profile";
 
 const UNIPILE_API_KEY = process.env.UNIPILE_API_KEY || "";
-const UNIPILE_DSN = process.env.UNIPILE_DSN || "";
 const UNIPILE_ACCOUNT_ID = process.env.UNIPILE_ACCOUNT_ID || "";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
@@ -310,12 +310,13 @@ function saveProcessed(data: ProcessedConnections): void {
 async function fetchRecentConnections(
   limit = 20
 ): Promise<UnipileRelation[]> {
-  if (!UNIPILE_API_KEY || !UNIPILE_DSN || !UNIPILE_ACCOUNT_ID) {
+  const dsn = normalizeUnipileDsn(process.env.UNIPILE_DSN);
+  if (!UNIPILE_API_KEY || !dsn || !UNIPILE_ACCOUNT_ID) {
     console.warn("[linkedin-crm] Unipile not configured");
     return [];
   }
 
-  const url = `https://${UNIPILE_DSN}/api/v1/users/relations?account_id=${UNIPILE_ACCOUNT_ID}&limit=${limit}`;
+  const url = `https://${dsn}/api/v1/users/relations?account_id=${UNIPILE_ACCOUNT_ID}&limit=${limit}`;
 
   return new Promise((resolve) => {
     const req = https.request(

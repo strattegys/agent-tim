@@ -1,5 +1,6 @@
 import { signIn, auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
 
 export default async function LoginPage() {
   const session = await auth();
@@ -12,8 +13,12 @@ export default async function LoginPage() {
           <div className="w-16 h-16 rounded-full bg-[#2b5278] mx-auto flex items-center justify-center mb-4">
             <span className="text-2xl font-bold text-white">S</span>
           </div>
-          <h1 className="text-xl font-semibold text-[#f5f5f5]">Command Central</h1>
-          <p className="text-[13px] text-[#6b8a9e] mt-1">Strattegys Multi-Agent Hub</p>
+          <h1 className="text-lg sm:text-xl font-semibold text-[#f5f5f5] leading-snug max-w-md mx-auto px-2">
+            {getAppHeadline()}
+          </h1>
+          {getAppBrandTitle() !== getAppHeadline() && (
+            <p className="text-[13px] text-[#6b8a9e] mt-3">{getAppBrandTitle()}</p>
+          )}
         </div>
         <form
           action={async () => {

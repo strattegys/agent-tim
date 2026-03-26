@@ -9,6 +9,7 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
+import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
 
 const MAX_TOOL_ITERATIONS = 20;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -197,7 +198,7 @@ async function groqChat(
 
 // ── Streaming chat ──
 
-export type GroqStreamOptions = {
+export type GroqStreamOptions = ChatStreamExtraOptions & {
   /** Override session file (e.g. LinkedIn triage JSONL). */
   sessionFile?: string;
   /** Text persisted as the user turn (defaults to userMessage). */
@@ -213,10 +214,9 @@ export async function chatStreamGroq(
   const config = getAgentConfig(agentId);
   const sessionFile = streamOptions?.sessionFile ?? config.sessionFile;
   const persistedUserText = streamOptions?.saveMessage ?? userMessage;
-  const systemPrompt = await getSystemPrompt(
-    config.systemPromptFile,
-    agentId,
-    userMessage
+  const systemPrompt = appendEphemeralContext(
+    await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
+    streamOptions?.workQueueContext
   );
   const history = getHistory(sessionFile);
   const tools = buildGroqTools(config.tools);

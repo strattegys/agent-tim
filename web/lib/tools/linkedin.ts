@@ -25,7 +25,12 @@ const tool: ToolModule = {
   declaration: {
     name: "linkedin",
     description:
-      "Execute a LinkedIn operation via Unipile API. IMPORTANT: ONLY use send-message or send-connection when the user explicitly says 'send it now'. NEVER send messages without explicit approval. For send-message, use the ACoAAA provider ID from the contact's LinkedIn URL in the CRM — vanity slugs may not work for all profiles.",
+      "Execute a LinkedIn operation via Unipile (this tool only — never Python/pseudocode). " +
+      "Valid commands: fetch-profile, send-message, recent-messages, send-connection, account-info, get-chat-messages. " +
+      "There is NO search_profile or linkedin.foo() API — use twenty_crm search-contacts to find someone, read their LinkedIn URL, then fetch-profile or send-message. " +
+      "Invoke this tool with parameters command, arg1 (profile id / URL / slug), arg2 (message body for send-message). " +
+      "send-message and send-connection require explicit user approval in the same turn (see system prompt). " +
+      "For send-message, prefer ACoAAA provider ID from CRM linkedinLink; full URLs and vanity slugs often work.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -49,8 +54,11 @@ const tool: ToolModule = {
     },
   },
 
-  async execute(args, { lastUserMessage }) {
+  async execute(args, { lastUserMessage, agentId }) {
     const dangerousCmds = ["send-message", "send-connection"];
+    if (dangerousCmds.includes(args.command) && agentId === "tim") {
+      return "BLOCKED: Tim no longer sends LinkedIn messages from chat. Govind must use the work queue: edit the draft in the right panel, then click Submit. You can help by updating the draft via workflow_items update-workflow-artifact.";
+    }
     if (dangerousCmds.includes(args.command) && !hasUserApproval(lastUserMessage)) {
       return "BLOCKED: Cannot send messages without explicit user approval. The user must say 'send it now' before you can send. Present your draft and wait for approval.";
     }

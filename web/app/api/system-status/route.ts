@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { Client } from "pg";
 import { getAllAgentSpecs } from "@/lib/agent-registry";
+import { CRM_WORKSPACE_SCHEMA } from "@/lib/db";
+import { normalizeUnipileDsn } from "@/lib/unipile-profile";
 
 const PROBE_MS = 4000;
 
@@ -134,8 +136,26 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
   try {
     await client.connect();
     await client.query("SELECT 1");
+    // CRM tables live in workspace schema, not default search_path (public).
+    const { rows } = await client.query<{ ok: boolean }>(
+      `SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = $1 AND table_name = '_workflow_item'
+      ) AS ok`,
+      [CRM_WORKSPACE_SCHEMA]
+    );
     const ms = Date.now() - t0;
     await client.end();
+    if (!rows[0]?.ok) {
+      return {
+        id: DATA_PLATFORM_ID,
+        label: DATA_PLATFORM_LABEL,
+        status: "down",
+        ms,
+        detail:
+          "schema incomplete (no _workflow_item) — run web/scripts/migrate-workflows.sql on this CRM DB",
+      };
+    }
     return {
       id: DATA_PLATFORM_ID,
       label: DATA_PLATFORM_LABEL,
@@ -193,7 +213,7 @@ async function probeUnipile(): Promise<ProbeResult> {
   const id = "unipile";
   const label = "Unipile (LinkedIn)";
   const apiKey = process.env.UNIPILE_API_KEY?.trim();
-  const dsn = process.env.UNIPILE_DSN?.trim();
+  const dsn = normalizeUnipileDsn(process.env.UNIPILE_DSN);
   const accountId = process.env.UNIPILE_ACCOUNT_ID?.trim();
 
   if (!apiKey || !dsn) {

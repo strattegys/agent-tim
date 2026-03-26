@@ -51,31 +51,86 @@ function loadEnvLocal() {
   }
 }
 
-/** Split SQL on semicolons outside single-quoted strings (PostgreSQL standard escaping ''). */
+/**
+ * Opening delimiter for PostgreSQL dollar-quoted string at sql[i], or null.
+ * Supports $$ and $tag$ (tag = [A-Za-z0-9_]*).
+ */
+function dollarQuoteOpen(sql, i) {
+  if (sql[i] !== "$") return null;
+  let j = i + 1;
+  while (j < sql.length && /[A-Za-z0-9_]/.test(sql[j])) j++;
+  if (j >= sql.length || sql[j] !== "$") return null;
+  const delim = sql.slice(i, j + 1);
+  return { delim, next: j + 1 };
+}
+
+/** Split SQL on semicolons outside '...' and $tag$...$tag$ (so DO $$ ... $$ blocks stay one statement). */
 function splitStatements(sql) {
   const statements = [];
   let buf = "";
+  let i = 0;
   let inSingle = false;
-  for (let i = 0; i < sql.length; i++) {
+  let dollarClose = "";
+
+  while (i < sql.length) {
     const ch = sql[i];
-    if (inSingle && ch === "'" && sql[i + 1] === "'") {
-      buf += "''";
+
+    if (dollarClose) {
+      if (sql.startsWith(dollarClose, i)) {
+        buf += dollarClose;
+        i += dollarClose.length;
+        dollarClose = "";
+        continue;
+      }
+      buf += ch;
       i++;
       continue;
     }
-    if (ch === "'") {
-      inSingle = !inSingle;
+
+    if (inSingle) {
+      if (ch === "'" && sql[i + 1] === "'") {
+        buf += "''";
+        i += 2;
+        continue;
+      }
+      if (ch === "'") {
+        inSingle = false;
+        buf += ch;
+        i++;
+        continue;
+      }
       buf += ch;
+      i++;
       continue;
     }
-    if (!inSingle && ch === ";") {
+
+    if (ch === "'") {
+      inSingle = true;
+      buf += ch;
+      i++;
+      continue;
+    }
+
+    const dq = dollarQuoteOpen(sql, i);
+    if (dq) {
+      dollarClose = dq.delim;
+      buf += dq.delim;
+      i = dq.next;
+      continue;
+    }
+
+    if (ch === ";") {
       const t = stripSqlCommentsAndBlankLines(buf);
       if (t) statements.push(t);
       buf = "";
+      i++;
       continue;
     }
+
     buf += ch;
+    i++;
   }
+
   const last = stripSqlCommentsAndBlankLines(buf);
   if (last) statements.push(last);
   return statements;

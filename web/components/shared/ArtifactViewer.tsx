@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type ReactNode } from "react";
 import ChatInput from "@/components/ChatInput";
+import ArtifactTabScrollRow from "@/components/shared/ArtifactTabScrollRow";
 
 interface Artifact {
   id: string;
@@ -23,6 +24,15 @@ interface PersonItem {
   createdAt: string;
 }
 
+/** Header actions that require browser confirm before running (e.g. Tim Replied / End sequence). */
+export interface ArtifactConfirmedWorkflowAction {
+  id: string;
+  label: string;
+  confirmMessage: string;
+  onConfirm: () => Promise<void>;
+  variant?: "neutral" | "amber" | "danger";
+}
+
 interface ArtifactViewerProps {
   /** Fetch artifacts for this workflow item */
   workflowItemId?: string;
@@ -40,12 +50,30 @@ interface ArtifactViewerProps {
   agentId?: string;
   /** If set, show a Submit button that resolves the active task then closes */
   onSubmitTask?: () => Promise<void>;
+  /** Shown next to Submit; each runs only after `confirm()` (workflow advances). */
+  confirmedWorkflowActions?: ArtifactConfirmedWorkflowAction[];
   /**
    * When true with workflowId, load every artifact in the workflow (all items, full history).
    * Use for package-card Inspect — person-type workflows default to a people table without this.
    */
   allWorkflowArtifacts?: boolean;
+  /** modal = fullscreen dimmed overlay (default). inline = fills parent (e.g. Tim work queue detail pane). */
+  variant?: "modal" | "inline";
+  /** inline only: stack Tim chat under the artifact (wider draft area). Default side. */
+  chatPlacement?: "side" | "bottom";
+  /** Show artifact tabs even when only one artifact (testing-style tab bar). */
+  alwaysShowArtifactTabs?: boolean;
+  /** Inline artifact chat (side/bottom). Tim work queue uses main Tim chat instead. */
+  showArtifactChat?: boolean;
+  /** Created/stage footer under the document */
+  showArtifactFooter?: boolean;
+  /** When set (ms), re-fetch artifacts on an interval — picks up tool-driven DB updates (e.g. Tim editing draft). */
+  pollArtifactsMs?: number;
+  /** When the user switches artifact tabs (or data loads), for Tim work-queue → main chat context. */
+  onActiveArtifactChange?: (info: { stage: string; label: string } | null) => void;
   onClose: () => void;
+  /** Shown under the header title (e.g. Tim warm-outreach contact name / company / title). */
+  headerDetail?: ReactNode;
 }
 
 /**
@@ -57,7 +85,7 @@ const AGENT_INFO: Record<string, { name: string; role: string; color: string }> 
   marni: { name: "Marni", role: "Content Distribution", color: "#D4A017" },
   scout: { name: "Scout", role: "Prospect Discovery", color: "#2563EB" },
   tim: { name: "Tim", role: "Outbound & Messaging", color: "#1D9E75" },
-  penny: { name: "Penny", role: "Package Management", color: "#E67E22" },
+  penny: { name: "Penny", role: "Chief Success Agent", color: "#E67E22" },
   friday: { name: "Friday", role: "Operations & Tasks", color: "#9B59B6" },
 };
 
@@ -69,9 +97,20 @@ export default function ArtifactViewer({
   title,
   agentId,
   onSubmitTask,
+  confirmedWorkflowActions,
   allWorkflowArtifacts = false,
+  variant = "modal",
+  chatPlacement = "side",
+  alwaysShowArtifactTabs = false,
+  showArtifactChat = true,
+  showArtifactFooter = true,
+  pollArtifactsMs,
+  onActiveArtifactChange,
   onClose,
+  headerDetail,
 }: ArtifactViewerProps) {
+  const isInline = variant === "inline";
+  const chatBelow = isInline && chatPlacement === "bottom" && showArtifactChat;
   const isPerson = itemType === "person";
   const usePeopleView = isPerson && !allWorkflowArtifacts;
 
@@ -89,7 +128,13 @@ export default function ArtifactViewer({
   const [loading, setLoading] = useState(!preloaded);
   const [uploading, setUploading] = useState(false);
   const [taskSubmitting, setTaskSubmitting] = useState(false);
+  const [busyWorkflowActionId, setBusyWorkflowActionId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsEditing(false);
+    setEditContent("");
+  }, [activeIdx, workflowItemId, workflowId]);
 
   // Upload featured image → strattegys, then update frontmatter
   const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -154,17 +199,22 @@ export default function ArtifactViewer({
     if (!active || saving) return;
     setSaving(true);
     try {
-      await fetch(`/api/crm/artifacts/${active.id}`, {
+      const res = await fetch(`/api/crm/artifacts/${active.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: editContent }),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(typeof err.error === "string" ? err.error : "Save failed. Try again.");
+        return;
+      }
       setArtifacts((prev) =>
         prev.map((a, i) => (i === activeIdx ? { ...a, content: editContent } : a))
       );
       setIsEditing(false);
     } catch {
-      // stay in edit mode on error
+      alert("Save failed. Check your connection and try again.");
     }
     setSaving(false);
   }, [artifacts, activeIdx, editContent, saving]);
@@ -251,33 +301,83 @@ export default function ArtifactViewer({
       fetch(`/api/crm/artifacts?${params}`)
         .then((r) => r.json())
         .then((data) => {
-          const arts = data.artifacts || [];
+          const arts = sortArtifactsForTabs((data.artifacts || []) as Artifact[]);
           setArtifacts(arts);
-          if (arts.length > 0) setActiveIdx(arts.length - 1);
+          if (arts.length > 0) {
+            setActiveIdx(arts.length - 1);
+          } else {
+            setActiveIdx(0);
+          }
           setLoading(false);
         })
         .catch(() => setLoading(false));
     }
   }, [workflowItemId, workflowId, preloaded, usePeopleView]);
 
+  const selectedArtifactIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedArtifactIdRef.current = artifacts[activeIdx]?.id ?? null;
+  }, [artifacts, activeIdx]);
+
+  useEffect(() => {
+    const ms = pollArtifactsMs && pollArtifactsMs > 0 ? pollArtifactsMs : 0;
+    if (!ms || !workflowItemId || preloaded || usePeopleView) return;
+    const params = new URLSearchParams();
+    params.set("workflowItemId", workflowItemId);
+    const url = `/api/crm/artifacts?${params}`;
+    const tick = () => {
+      fetch(url, { credentials: "include" })
+        .then((r) => r.json())
+        .then((data) => {
+          const arts = sortArtifactsForTabs((data.artifacts || []) as Artifact[]);
+          const hold = selectedArtifactIdRef.current;
+          setArtifacts(arts);
+          if (hold) {
+            const ni = arts.findIndex((a) => a.id === hold);
+            if (ni >= 0) setActiveIdx(ni);
+          }
+        })
+        .catch(() => {});
+    };
+    const id = window.setInterval(tick, ms);
+    return () => clearInterval(id);
+  }, [pollArtifactsMs, workflowItemId, preloaded, usePeopleView]);
+
+  useEffect(() => {
+    if (!onActiveArtifactChange) return;
+    if (usePeopleView) {
+      onActiveArtifactChange(null);
+      return;
+    }
+    if (loading) return;
+    const a = artifacts[activeIdx];
+    if (!a) onActiveArtifactChange(null);
+    else onActiveArtifactChange({ stage: a.stage, label: artifactTabLabel(a) });
+  }, [onActiveArtifactChange, usePeopleView, loading, artifacts, activeIdx]);
+
   const active = artifacts[activeIdx];
+
+  const hasUnsavedArtifactEdit =
+    !usePeopleView && isEditing && !!active && editContent !== active.content;
 
   // Person mode: group by stage
   const personStages = usePeopleView ? [...new Set(people.map((p) => p.stage))] : [];
   const filteredPeople = usePeopleView ? people.filter((p) => p.stage === activeStage) : [];
 
-  return (
+  const shell = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+      className={
+        isInline
+          ? "bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)] flex flex-col shadow-sm overflow-hidden h-full min-h-0 w-full"
+          : "bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] max-w-[95vw] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden"
+      }
+      style={isInline ? undefined : { width: !usePeopleView && active ? 980 : 520 }}
     >
-      <div style={{ width: !usePeopleView && active ? 980 : 520 }} className="bg-[var(--bg-secondary)] rounded-xl border border-[var(--border-color)] max-w-[95vw] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border-color)]">
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between gap-3 px-5 py-3 border-b border-[var(--border-color)]">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
             <svg
+              className="shrink-0 mt-0.5"
               width="18"
               height="18"
               viewBox="0 0 24 24"
@@ -298,11 +398,16 @@ export default function ArtifactViewer({
                 </>
               )}
             </svg>
-            <span className="text-sm font-bold text-[var(--text-primary)]">
-              {usePeopleView ? "People Pipeline" : (title || active?.name || "Artifacts")}
-            </span>
+            <div className="min-w-0 flex flex-col gap-1">
+              <span className="text-sm font-bold text-[var(--text-primary)]">
+                {usePeopleView ? "People Pipeline" : (title || active?.name || "Artifacts")}
+              </span>
+              {headerDetail ? (
+                <div className="min-w-0 text-[var(--text-secondary)]">{headerDetail}</div>
+              ) : null}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
             {!usePeopleView && active && !isEditing && (
               <button
                 onClick={handleStartEdit}
@@ -348,23 +453,56 @@ export default function ArtifactViewer({
               </svg>
               {uploading ? "Uploading..." : "Attach Image"}
             </button>
+            {(confirmedWorkflowActions ?? []).map((a) => {
+              const tone =
+                a.variant === "danger"
+                  ? "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                  : a.variant === "amber"
+                    ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                    : "border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border-color)]";
+              const wfBusy = busyWorkflowActionId !== null;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  disabled={wfBusy || taskSubmitting || saving || hasUnsavedArtifactEdit}
+                  onClick={async () => {
+                    if (!window.confirm(a.confirmMessage)) return;
+                    setBusyWorkflowActionId(a.id);
+                    try {
+                      await a.onConfirm();
+                    } finally {
+                      setBusyWorkflowActionId(null);
+                    }
+                  }}
+                  className={`text-[10px] px-2.5 py-1 rounded font-semibold border transition-colors disabled:opacity-50 disabled:pointer-events-none ${tone}`}
+                >
+                  {busyWorkflowActionId === a.id ? "…" : a.label}
+                </button>
+              );
+            })}
             {onSubmitTask && (
               <button
                 type="button"
-                disabled={taskSubmitting}
+                title={
+                  hasUnsavedArtifactEdit
+                    ? "Save your draft edits before submitting this task."
+                    : undefined
+                }
+                disabled={taskSubmitting || saving || busyWorkflowActionId !== null || hasUnsavedArtifactEdit}
                 onClick={async () => {
-                  if (taskSubmitting) return;
+                  if (taskSubmitting || hasUnsavedArtifactEdit) return;
                   setTaskSubmitting(true);
                   try {
                     await onSubmitTask();
-                    onClose();
+                    if (!isInline) onClose();
                   } finally {
                     setTaskSubmitting(false);
                   }
                 }}
                 className="text-[10px] px-3 py-1 rounded bg-green-900/30 border border-green-800/50 text-green-400 hover:bg-green-900/50 transition-colors font-semibold disabled:opacity-50 disabled:pointer-events-none"
               >
-                {taskSubmitting ? "Submitting…" : "Submit"}
+                {taskSubmitting ? "Submitting…" : hasUnsavedArtifactEdit ? "Save to submit" : "Submit"}
               </button>
             )}
           </div>
@@ -402,38 +540,67 @@ export default function ArtifactViewer({
             </div>
           )
         ) : (
-          artifacts.length > 1 && (
-            <div className="flex gap-1 px-5 py-2 border-b border-[var(--border-color)] overflow-x-auto shrink-0" style={{ scrollbarWidth: "none" }}>
-              {artifacts.map((a, i) => (
-                <button
-                  key={a.id}
-                  onClick={() => setActiveIdx(i)}
-                  className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[140px] ${
-                    i === activeIdx
-                      ? "bg-[var(--accent-green)] text-white font-semibold"
-                      : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                  }`}
-                >
-                  {allWorkflowArtifacts ? (
-                    <span className="flex flex-col gap-0.5 min-w-0">
-                      <span className="text-[9px] uppercase tracking-wide opacity-80 truncate">{a.stage}</span>
-                      <span className="font-medium leading-tight line-clamp-2 break-words whitespace-normal">
-                        {a.name}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="whitespace-nowrap truncate block max-w-[200px]">{a.name}</span>
-                  )}
-                </button>
-              ))}
+          (alwaysShowArtifactTabs ? artifacts.length >= 1 : artifacts.length > 1) && (
+            <div className="px-3 sm:px-5 py-2 border-b border-[var(--border-color)] shrink-0 min-w-0">
+              <ArtifactTabScrollRow activeIndex={activeIdx} className="min-w-0">
+                {artifacts.map((a, i) => {
+                  const newestIdx = artifacts.length - 1;
+                  const isNewest = i === newestIdx && artifacts.length > 1;
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      data-artifact-tab-index={i}
+                      onClick={() => setActiveIdx(i)}
+                      className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[180px] ${
+                        i === activeIdx
+                          ? "bg-[var(--accent-green)] text-white font-semibold"
+                          : isNewest
+                            ? "bg-[var(--bg-tertiary)] text-[var(--accent-green)] ring-2 ring-[var(--accent-green)]/70 font-semibold"
+                            : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      {allWorkflowArtifacts ? (
+                        <span className="flex flex-col gap-0.5 min-w-0">
+                          <span className="text-[9px] uppercase tracking-wide opacity-80 truncate">{a.stage}</span>
+                          <span className="font-medium leading-tight line-clamp-2 break-words whitespace-normal">
+                            {a.name}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="whitespace-nowrap truncate block max-w-[220px]">
+                          {artifactTabLabel(a)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </ArtifactTabScrollRow>
             </div>
           )
         )}
 
-        {/* Content — artifact left, chat right */}
-        <div className="flex-1 min-h-0 flex flex-row">
+        {/* Content — artifact + chat (side or stacked when inline+bottom) */}
+        <div
+          className={`flex-1 min-h-0 ${chatBelow && !usePeopleView && active ? "flex flex-col" : "flex flex-row"}`}
+        >
           {/* Artifact content */}
-          <div className="overflow-y-auto px-5 py-4" style={!usePeopleView && active ? { width: 620, flexShrink: 0, borderRight: "1px solid var(--border-color)" } : { flex: 1 }}>
+          <div
+            className={`overflow-y-auto px-5 py-4 ${
+              !usePeopleView && active && isInline && !chatBelow ? "flex-1 min-w-0 border-r border-[var(--border-color)]" : ""
+            } ${chatBelow && !usePeopleView && active ? "flex-1 min-h-0 min-w-0 border-b border-[var(--border-color)]" : ""}`}
+            style={
+              chatBelow
+                ? undefined
+                : isInline
+                  ? !usePeopleView && active
+                    ? undefined
+                    : { flex: 1 }
+                  : !usePeopleView && active
+                    ? { width: 620, flexShrink: 0, borderRight: "1px solid var(--border-color)" }
+                    : { flex: 1 }
+            }
+          >
             {loading ? (
               <div className="text-center text-[var(--text-tertiary)] py-8">
                 Loading...
@@ -494,9 +661,18 @@ export default function ArtifactViewer({
             )}
           </div>
 
-          {/* Agent chat sidebar */}
-          {!usePeopleView && active && (
-            <div style={{ width: 360 }} className="shrink-0 flex flex-col">
+          {/* Agent chat sidebar (optional — Tim work queue uses main chat) */}
+          {showArtifactChat && !usePeopleView && active && (
+            <div
+              className={`flex flex-col shrink-0 ${
+                chatBelow
+                  ? "w-full min-h-[200px] max-h-[min(40vh,360px)] border-t border-[var(--border-color)] bg-[var(--bg-primary)]/30"
+                  : isInline
+                    ? "w-[min(360px,38%)] min-w-[260px] border-l border-[var(--border-color)]"
+                    : ""
+              }`}
+              style={chatBelow || isInline ? undefined : { width: 360 }}
+            >
               {/* Agent header */}
               {(() => {
                 const agent = AGENT_INFO[agentId || "ghost"] || AGENT_INFO.ghost;
@@ -557,7 +733,7 @@ export default function ArtifactViewer({
           <div className="px-5 py-2.5 border-t border-[var(--border-color)] text-[10px] text-[var(--text-tertiary)]">
             {people.length} total people across {personStages.length} stages
           </div>
-        ) : active ? (
+        ) : active && showArtifactFooter ? (
           <div className="px-5 py-2.5 border-t border-[var(--border-color)] flex items-center justify-between gap-2 text-[10px] text-[var(--text-tertiary)] flex-wrap">
             <span>
               Created: {new Date(active.createdAt).toLocaleString()}
@@ -582,14 +758,49 @@ export default function ArtifactViewer({
           </div>
         ) : null}
       </div>
+  );
+
+  if (isInline) {
+    return <div className="flex flex-col h-full min-h-0 w-full min-w-0">{shell}</div>;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      {shell}
     </div>
+  );
+}
+
+/** Tab label for standard single-workflow artifact strips (matches testing flows). */
+export function artifactTabLabel(a: { stage: string; name: string }): string {
+  const s = (a.stage || "").toUpperCase();
+  if (s === "PACKAGE_BRIEF") return "Package raise";
+  if (s === "RESEARCHING") return "Research";
+  if (s === "CAMPAIGN_SPEC") return "Campaign spec";
+  if (s === "AWAITING_CONTACT") return "Contact notes";
+  if (s === "IDEA") return "Idea";
+  if (s === "MESSAGE_DRAFT") return "Message draft";
+  if (s === "MESSAGED") return "Messaged";
+  if (s === "REPLY_DRAFT") return "Reply draft";
+  return a.name?.trim() || a.stage || "Artifact";
+}
+
+/** Oldest left → newest right (creation order). */
+function sortArtifactsForTabs<T extends { createdAt: string }>(list: T[]): T[] {
+  return [...list].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
 }
 
 /**
  * Simple markdown renderer — converts basic markdown to HTML.
  */
-function MarkdownRenderer({ content }: { content: string }) {
+export function MarkdownRenderer({ content }: { content: string }) {
   const html = markdownToHtml(content);
   return (
     <div

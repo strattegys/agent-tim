@@ -11,9 +11,11 @@ interface KanbanCardProps {
   alert?: ItemAlert;
   isSelected: boolean;
   onClick: () => void;
+  /** Human-required stage / open work-queue task for the workflow owner */
+  needsHumanAttention?: boolean;
 }
 
-export default function KanbanCard({ item, alert, isSelected, onClick }: KanbanCardProps) {
+export default function KanbanCard({ item, alert, isSelected, onClick, needsHumanAttention }: KanbanCardProps) {
   return (
     <button
       onClick={onClick}
@@ -25,6 +27,17 @@ export default function KanbanCard({ item, alert, isSelected, onClick }: KanbanC
     >
       <div className="flex items-center gap-1.5">
         <span className="text-sm font-medium text-[var(--text-primary)] truncate flex-1">{item.title}</span>
+        {needsHumanAttention && (
+          <span
+            className="shrink-0 inline-flex items-center gap-0.5 text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/25"
+            title="Human task — shows in the workflow owner’s work queue until completed"
+          >
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" className="shrink-0 opacity-90" aria-hidden>
+              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+            </svg>
+            Human
+          </span>
+        )}
         {alert && (
           <span
             className={`shrink-0 w-2 h-2 rounded-full ${

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import type { WorkflowItemType } from "@/lib/board-types";
+import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 
 interface PersonRow {
   [key: string]: unknown;
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
       const rows = await query<PersonRow>(
         `SELECT
           wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi.position,
+          wi."humanTaskOpen" AS "humanTaskOpen",
           p."nameFirstName" AS "firstName",
           p."nameLastName" AS "lastName",
           p."jobTitle" AS "jobTitle",
@@ -78,6 +80,7 @@ export async function GET(request: NextRequest) {
         sourceType: r.sourceType,
         sourceId: r.sourceId,
         position: r.position || 0,
+        humanTaskOpen: Boolean((r as { humanTaskOpen?: boolean }).humanTaskOpen),
         title: [r.firstName, r.lastName].filter(Boolean).join(" ") || "Unknown",
         subtitle: r.jobTitle || "",
         extra: r.companyName || "",
@@ -92,6 +95,7 @@ export async function GET(request: NextRequest) {
       const rows = await query<ContentRow>(
         `SELECT
           wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi.position,
+          wi."humanTaskOpen" AS "humanTaskOpen",
           ci.title, ci.description, ci.url, ci."contentType", ci."publishDate"
         FROM "_workflow_item" wi
         LEFT JOIN "_content_item" ci ON ci.id = wi."sourceId" AND ci."deletedAt" IS NULL
@@ -108,6 +112,7 @@ export async function GET(request: NextRequest) {
         sourceType: r.sourceType,
         sourceId: r.sourceId,
         position: r.position || 0,
+        humanTaskOpen: Boolean((r as { humanTaskOpen?: boolean }).humanTaskOpen),
         title: r.title || "Untitled",
         subtitle: r.contentType || "article",
         extra: r.url || "",
@@ -155,7 +160,9 @@ export async function POST(request: NextRequest) {
          RETURNING id`,
         [workflowId, stage, "content", contentId]
       );
-      return NextResponse.json({ id: wiRows[0].id, sourceId: contentId });
+      const newWi = wiRows[0].id;
+      await syncHumanTaskOpenForItem(newWi);
+      return NextResponse.json({ id: newWi, sourceId: contentId });
     }
 
     // Otherwise link an existing source record
@@ -169,7 +176,9 @@ export async function POST(request: NextRequest) {
        RETURNING id`,
       [workflowId, stage, sourceType, sourceId]
     );
-    return NextResponse.json({ id: rows[0].id });
+    const newId = rows[0].id;
+    await syncHumanTaskOpenForItem(newId);
+    return NextResponse.json({ id: newId });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to create workflow item";
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -205,6 +214,9 @@ export async function PATCH(request: NextRequest) {
       `UPDATE "_workflow_item" SET ${sets.join(", ")} WHERE id = $${idx} AND "deletedAt" IS NULL`,
       params
     );
+    if (stage !== undefined) {
+      await syncHumanTaskOpenForItem(String(id));
+    }
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to update workflow item";
@@ -219,7 +231,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
     }
     await query(
-      `UPDATE "_workflow_item" SET "deletedAt" = NOW() WHERE id = $1 AND "deletedAt" IS NULL`,
+      `UPDATE "_workflow_item" SET "deletedAt" = NOW(), "humanTaskOpen" = false WHERE id = $1 AND "deletedAt" IS NULL`,
       [id]
     );
     return NextResponse.json({ success: true });

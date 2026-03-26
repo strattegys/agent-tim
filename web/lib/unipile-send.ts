@@ -5,6 +5,7 @@
 import {
   fetchUnipileLinkedInProfile,
   isUnipileConfigured,
+  normalizeUnipileDsn,
 } from "./unipile-profile";
 
 function pickStr(v: unknown): string | undefined {
@@ -38,9 +39,9 @@ export async function sendUnipileLinkedInMessage(
   plainText: string
 ): Promise<UnipileSendResult> {
   const key = process.env.UNIPILE_API_KEY;
-  const dsn = process.env.UNIPILE_DSN;
+  const dsn = normalizeUnipileDsn(process.env.UNIPILE_DSN);
   const accountId = process.env.UNIPILE_ACCOUNT_ID;
-  if (!key?.trim() || !dsn?.trim() || !accountId?.trim()) {
+  if (!key?.trim() || !dsn || !accountId?.trim()) {
     return { ok: false, error: "Unipile not configured (UNIPILE_API_KEY, UNIPILE_DSN, UNIPILE_ACCOUNT_ID)" };
   }
 

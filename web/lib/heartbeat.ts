@@ -7,6 +7,7 @@ import { getPendingTasks, getCompletedTasks, updateTask, acknowledgeTask } from 
 import { writeNotification } from "./notifications";
 import type { WarmOutreachHeartbeatFinding } from "./warm-outreach-discovery";
 import { checkWarmOutreachBacklogFindings } from "./warm-outreach-discovery";
+import { checkWarmOutreachDailyPaceFindings } from "./warm-outreach-daily-progress";
 
 /**
  * Heartbeat System — Autonomous Agent Task Checking
@@ -436,12 +437,28 @@ async function checkWarmOutreachBacklogSafe(): Promise<HeartbeatFinding[]> {
   }
 }
 
+async function checkWarmOutreachDailyPaceSafe(): Promise<HeartbeatFinding[]> {
+  try {
+    const raw = await checkWarmOutreachDailyPaceFindings();
+    return raw.map((f: WarmOutreachHeartbeatFinding) => ({
+      category: f.category,
+      title: f.title,
+      detail: f.detail,
+      priority: f.priority,
+    }));
+  } catch (error) {
+    console.error("[heartbeat] Warm outreach daily pace check failed:", error);
+    return [];
+  }
+}
+
 export async function runTimHeartbeat(
   detectOnly = false
 ): Promise<HeartbeatFinding[]> {
   console.log("[heartbeat] Tim heartbeat starting...");
 
   const warmBacklog = await checkWarmOutreachBacklogSafe();
+  const warmDailyPace = await checkWarmOutreachDailyPaceSafe();
 
   const allFindings: HeartbeatFinding[] = [
     ...checkLinkedInAlerts(),
@@ -450,6 +467,7 @@ export async function runTimHeartbeat(
     ...checkWorkflowHealth(),
     ...checkCompletedTasks(),
     ...warmBacklog,
+    ...warmDailyPace,
   ];
 
   if (allFindings.length === 0) {

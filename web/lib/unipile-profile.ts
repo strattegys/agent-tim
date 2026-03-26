@@ -3,10 +3,19 @@
  * Used for warm-outreach RESEARCHING enrichment in the CRM app — no bash / linkedin.sh required.
  */
 
+/** Host:port only — strips `https://` and path if someone pastes a full URL. */
+export function normalizeUnipileDsn(raw: string | undefined | null): string {
+  let s = String(raw ?? "").trim();
+  if (!s) return "";
+  s = s.replace(/^https?:\/\//i, "");
+  s = s.split("/")[0]?.trim() ?? "";
+  return s;
+}
+
 export function isUnipileConfigured(): boolean {
   return Boolean(
     process.env.UNIPILE_API_KEY?.trim() &&
-      process.env.UNIPILE_DSN?.trim() &&
+      normalizeUnipileDsn(process.env.UNIPILE_DSN) &&
       process.env.UNIPILE_ACCOUNT_ID?.trim()
   );
 }
@@ -32,9 +41,9 @@ export async function fetchUnipileLinkedInProfile(
   identifier: string
 ): Promise<unknown | null> {
   const key = process.env.UNIPILE_API_KEY;
-  const dsn = process.env.UNIPILE_DSN;
+  const dsn = normalizeUnipileDsn(process.env.UNIPILE_DSN);
   const accountId = process.env.UNIPILE_ACCOUNT_ID;
-  if (!key?.trim() || !dsn?.trim() || !accountId?.trim()) {
+  if (!key?.trim() || !dsn || !accountId?.trim()) {
     return null;
   }
 
@@ -75,6 +84,58 @@ function pickStr(v: unknown): string | undefined {
 
 function pickNum(v: unknown): number | undefined {
   return typeof v === "number" && !Number.isNaN(v) ? v : undefined;
+}
+
+/** Fields we can write to CRM `person` from a successful Unipile user profile fetch. */
+export type UnipileProfileCrmFields = {
+  firstName: string;
+  lastName: string;
+  jobTitle: string | null;
+  companyName: string | null;
+  profileUrl: string | null;
+};
+
+/**
+ * Map Unipile `GET /users/{identifier}` JSON → CRM person columns (warm-outreach intake).
+ */
+export function extractUnipileProfileCrmFields(data: unknown): UnipileProfileCrmFields | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  if (typeof o.httpStatus === "number" && o.httpStatus >= 400) return null;
+  if (o.error != null || o.detail != null) return null;
+
+  let firstName = pickStr(o.first_name) ?? "";
+  let lastName = pickStr(o.last_name) ?? "";
+  const compound = pickStr(o.name);
+  if (!firstName && compound) {
+    const parts = compound.split(/\s+/).filter(Boolean);
+    firstName = parts[0] ?? "";
+    lastName = parts.slice(1).join(" ") || "";
+  }
+  if (!firstName.trim()) return null;
+
+  const headline = pickStr(o.headline) ?? null;
+  let jobTitle: string | null = headline;
+  let companyName: string | null = null;
+  const work = o.work_experience;
+  if (Array.isArray(work) && work.length > 0 && work[0] && typeof work[0] === "object") {
+    const w0 = work[0] as Record<string, unknown>;
+    const pos = pickStr(w0.position || w0.title);
+    const co = pickStr(w0.company);
+    if (co) companyName = co;
+    if (pos && !jobTitle) jobTitle = pos;
+  }
+
+  const pub = pickStr(o.public_identifier);
+  const profileUrl = pub ? `https://www.linkedin.com/in/${pub}` : null;
+
+  return {
+    firstName: firstName.trim(),
+    lastName: lastName.trim(),
+    jobTitle: jobTitle?.trim() || null,
+    companyName,
+    profileUrl,
+  };
 }
 
 /** Turn Unipile UserProfile JSON into markdown for artifacts + LLM context. */

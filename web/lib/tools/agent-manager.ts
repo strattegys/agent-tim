@@ -26,7 +26,7 @@ const tool: ToolModule = {
   declaration: {
     name: "agent_manager",
     description:
-      "Manage agents in the Strattegys Command Central system. Create new agents, read/update system prompts, check agent status, and restart services. Use create-agent to provision server directories and system prompt for a new agent. After create-agent, the agent must still be registered in the codebase configs (agent-config.ts, config.ts) and deployed — tell the user to do this via Claude Code. Available commands: list-agents, get-agent-config, read-prompt, update-prompt, create-agent, restart-agent, agent-status.",
+      "Manage agents in the Strattegys Command Central system. Create new agents, read/update system prompts, check agent status, and restart services. Use create-agent to provision server directories and system prompt for a new agent. After create-agent, the agent must still be registered in the codebase configs (agent-config.ts, config.ts) and deployed — tell the user to register them in the codebase (Cursor) and deploy via git. Available commands: list-agents, get-agent-config, read-prompt, update-prompt, create-agent, restart-agent, agent-status.",
     parameters: {
       type: "object" as const,
       properties: {

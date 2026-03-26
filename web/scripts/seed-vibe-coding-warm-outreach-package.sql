@@ -138,6 +138,27 @@ $TIM_WARM_OUTREACH_BRIEF$
 WHERE "deletedAt" IS NULL
   AND "templateId" = 'vibe-coding-outreach';
 
+-- Paced weekdays + 8:30 PT bootstrap + 30–40m delay after each intake (merged; keeps other cadence keys)
+UPDATE "_package"
+SET
+  spec = jsonb_set(
+    COALESCE(spec, '{}'::jsonb),
+    '{warmOutreachDiscovery}',
+    COALESCE(spec->'warmOutreachDiscovery', '{}'::jsonb)
+      || jsonb_build_object(
+        'pacedDaily', true,
+        'discoveriesPerDay', 5,
+        'bootstrapStartMinutesPt', 510,
+        'postIntakeDelayMinMinutes', 30,
+        'postIntakeDelayMaxMinutes', 40,
+        'maxOpenDiscoverySlots', 1
+      ),
+    true
+  ),
+  "updatedAt" = NOW()
+WHERE "deletedAt" IS NULL
+  AND "templateId" = 'vibe-coding-outreach';
+
 -- Show result (0 rows if duplicate name was skipped)
 SELECT id, name, "templateId", stage, "createdAt"
 FROM "_package"

@@ -6,11 +6,12 @@
 
 import { query } from "./db";
 import { insertPackageBriefArtifactIfPresent } from "./package-brief-artifact";
+import { syncHumanTaskOpenForItem } from "./workflow-item-human-task";
 
 /** Pacific wall clock for outreach cadence (cron uses same zone). */
 export const WARM_OUTREACH_PACIFIC_TZ = "America/Los_Angeles";
 
-function pacificMinutesSinceMidnight(d = new Date()): number {
+export function pacificMinutesSinceMidnight(d = new Date()): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: WARM_OUTREACH_PACIFIC_TZ,
     hour: "numeric",
@@ -32,13 +33,22 @@ export function isWarmOutreachPacificBusinessHoursNow(d = new Date()): boolean {
   return m >= start && m <= end;
 }
 
-function pacificCalendarDateString(d = new Date()): string {
+export function pacificCalendarDateString(d = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: WARM_OUTREACH_PACIFIC_TZ,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(d);
+}
+
+/** Monday–Friday on the Pacific calendar (for paced discovery spawns). */
+export function isPacificWeekday(d = new Date()): boolean {
+  const wd = new Intl.DateTimeFormat("en-US", {
+    timeZone: WARM_OUTREACH_PACIFIC_TZ,
+    weekday: "short",
+  }).format(d);
+  return wd !== "Sat" && wd !== "Sun";
 }
 
 export const DEFAULT_WARM_OUTREACH_DISCOVERY = {
@@ -50,6 +60,20 @@ export const DEFAULT_WARM_OUTREACH_DISCOVERY = {
   backlogWarnThreshold: 10,
   /** When true, hourly job skips spawning (ENDED replacement still respects backlog only) */
   paused: false,
+  /**
+   * When true: **weekdays only** (Pacific); first discovery slot from `bootstrapStartMinutesPt` (default 8:30)
+   * if none are open; only `maxOpenDiscoverySlots` open AWAITING_CONTACT rows (default 1); after each intake
+   * submit, cron waits until `nextEligibleSpawnAt` (randomized postIntake delay) before spawning the next slot.
+   * Does not rely on the LLM — the resolve handler sets the timestamp; cron enforces it.
+   */
+  pacedDaily: false,
+  /** First moment (PT, minutes since midnight) the paced job may add the **first** slot if none exist */
+  bootstrapStartMinutesPt: 8 * 60 + 30,
+  /** Random delay after intake submit before the next discovery slot may spawn (minutes, inclusive range) */
+  postIntakeDelayMinMinutes: 30,
+  postIntakeDelayMaxMinutes: 40,
+  /** In paced mode: spawn only if fewer than this many AWAITING_CONTACT items exist */
+  maxOpenDiscoverySlots: 1,
 } as const;
 
 export type WarmOutreachDiscoveryConfig = {
@@ -57,6 +81,11 @@ export type WarmOutreachDiscoveryConfig = {
   minIntervalMinutes: number;
   backlogWarnThreshold: number;
   paused: boolean;
+  pacedDaily: boolean;
+  bootstrapStartMinutesPt: number;
+  postIntakeDelayMinMinutes: number;
+  postIntakeDelayMaxMinutes: number;
+  maxOpenDiscoverySlots: number;
 };
 
 export interface WarmOutreachHeartbeatFinding {
@@ -66,10 +95,12 @@ export interface WarmOutreachHeartbeatFinding {
   priority: "high" | "medium" | "low";
 }
 
-type DiscoveryCadenceState = {
+export type DiscoveryCadenceState = {
   day: string;
   count: number;
   lastSpawnAt: string;
+  /** Paced mode: wall-clock earliest instant the cron may spawn the next discovery slot */
+  nextEligibleSpawnAt?: string;
 };
 
 function parseJsonObject(spec: unknown): Record<string, unknown> {
@@ -83,7 +114,7 @@ function parseJsonObject(spec: unknown): Record<string, unknown> {
 export function mergeWarmOutreachDiscovery(pkgSpec: unknown): WarmOutreachDiscoveryConfig {
   const root = parseJsonObject(pkgSpec);
   const raw = root.warmOutreachDiscovery as Partial<WarmOutreachDiscoveryConfig> | undefined;
-  return {
+  const base: WarmOutreachDiscoveryConfig = {
     discoveriesPerDay: clampInt(raw?.discoveriesPerDay, DEFAULT_WARM_OUTREACH_DISCOVERY.discoveriesPerDay, 0, 24),
     minIntervalMinutes: clampInt(
       raw?.minIntervalMinutes,
@@ -98,6 +129,43 @@ export function mergeWarmOutreachDiscovery(pkgSpec: unknown): WarmOutreachDiscov
       500
     ),
     paused: Boolean(raw?.paused),
+    pacedDaily: Boolean(raw?.pacedDaily),
+    bootstrapStartMinutesPt: clampInt(
+      raw?.bootstrapStartMinutesPt,
+      DEFAULT_WARM_OUTREACH_DISCOVERY.bootstrapStartMinutesPt,
+      0,
+      24 * 60 - 1
+    ),
+    postIntakeDelayMinMinutes: DEFAULT_WARM_OUTREACH_DISCOVERY.postIntakeDelayMinMinutes,
+    postIntakeDelayMaxMinutes: DEFAULT_WARM_OUTREACH_DISCOVERY.postIntakeDelayMaxMinutes,
+    maxOpenDiscoverySlots: clampInt(
+      raw?.maxOpenDiscoverySlots,
+      DEFAULT_WARM_OUTREACH_DISCOVERY.maxOpenDiscoverySlots,
+      1,
+      50
+    ),
+  };
+  let postMin = clampInt(
+    raw?.postIntakeDelayMinMinutes,
+    DEFAULT_WARM_OUTREACH_DISCOVERY.postIntakeDelayMinMinutes,
+    5,
+    24 * 60
+  );
+  let postMax = clampInt(
+    raw?.postIntakeDelayMaxMinutes,
+    DEFAULT_WARM_OUTREACH_DISCOVERY.postIntakeDelayMaxMinutes,
+    5,
+    24 * 60
+  );
+  if (postMin > postMax) {
+    const swap = postMin;
+    postMin = postMax;
+    postMax = swap;
+  }
+  return {
+    ...base,
+    postIntakeDelayMinMinutes: postMin,
+    postIntakeDelayMaxMinutes: postMax,
   };
 }
 
@@ -176,6 +244,7 @@ export async function insertWarmOutreachDiscoveryItem(
   if (!itemId) return null;
 
   await insertPackageBriefArtifactIfPresent(itemId, workflowId, packageId);
+  await syncHumanTaskOpenForItem(itemId);
   return itemId;
 }
 
@@ -257,11 +326,80 @@ export async function spawnAfterWarmOutreachEnded(
   const awaiting = await countAwaitingContact(workflowId);
   if (awaiting >= cfg.backlogWarnThreshold) return null;
 
-  return insertWarmOutreachDiscoveryItem(workflowId, packageId);
+  const itemId = await insertWarmOutreachDiscoveryItem(workflowId, packageId);
+  if (!itemId) return null;
+
+  if (cfg.pacedDaily) {
+    const cadence = (wfSpec.discoveryCadence || {}) as Partial<DiscoveryCadenceState>;
+    const day = pacificCalendarDateString();
+    const countToday = cadence.day === day ? (typeof cadence.count === "number" ? cadence.count : 0) : 0;
+    await updateWorkflowDiscoveryCadence(workflowId, wfSpec, {
+      day,
+      count: countToday + 1,
+      lastSpawnAt: new Date().toISOString(),
+    });
+  }
+
+  return itemId;
 }
 
 /**
- * Hourly cron: add at most one slot per workflow when under daily + interval + backlog limits.
+ * Paced weekdays: first slot from bootstrap time (default 8:30 PT) if none open; later slots only after
+ * `nextEligibleSpawnAt` (set when Govind submits intake). At most `maxOpenDiscoverySlots` AWAITING rows.
+ */
+async function trySpawnWarmOutreachPaced(
+  row: WarmOutreachActiveRow,
+  cfg: WarmOutreachDiscoveryConfig,
+  wfSpec: Record<string, unknown>
+): Promise<{ spawned: boolean; reason?: string }> {
+  if (!isPacificWeekday()) return { spawned: false, reason: "weekend" };
+
+  const awaiting = await countAwaitingContact(row.workflowId);
+  if (awaiting >= cfg.maxOpenDiscoverySlots) {
+    return { spawned: false, reason: "open_discovery_slot" };
+  }
+
+  const cadence = (wfSpec.discoveryCadence || {}) as Partial<DiscoveryCadenceState>;
+  const day = pacificCalendarDateString();
+  const countToday = cadence.day === day ? (typeof cadence.count === "number" ? cadence.count : 0) : 0;
+
+  if (countToday >= cfg.discoveriesPerDay) return { spawned: false, reason: "daily_cap" };
+
+  const m = pacificMinutesSinceMidnight();
+  let allowSpawn = false;
+
+  if (countToday === 0) {
+    if (m >= cfg.bootstrapStartMinutesPt) allowSpawn = true;
+  } else {
+    const nel =
+      cadence.day === day && typeof cadence.nextEligibleSpawnAt === "string"
+        ? cadence.nextEligibleSpawnAt
+        : undefined;
+    const t = nel ? Date.parse(nel) : NaN;
+    if (!Number.isFinite(t)) {
+      allowSpawn = true;
+    } else {
+      allowSpawn = Date.now() >= t;
+    }
+  }
+
+  if (!allowSpawn) return { spawned: false, reason: "paced_wait" };
+
+  const itemId = await insertWarmOutreachDiscoveryItem(row.workflowId, row.packageId);
+  if (!itemId) return { spawned: false, reason: "insert_failed" };
+
+  await updateWorkflowDiscoveryCadence(row.workflowId, wfSpec, {
+    day,
+    count: countToday + 1,
+    lastSpawnAt: new Date().toISOString(),
+  });
+
+  return { spawned: true };
+}
+
+/**
+ * Cron: add at most one slot per workflow. Legacy mode uses daily cap + min interval; paced mode uses
+ * weekdays, bootstrap window, and post-intake `nextEligibleSpawnAt` (see `scheduleNextWarmDiscoveryAfterIntake`).
  */
 export async function trySpawnWarmOutreachDiscoveryCron(row: WarmOutreachActiveRow): Promise<{
   spawned: boolean;
@@ -278,6 +416,10 @@ export async function trySpawnWarmOutreachDiscoveryCron(row: WarmOutreachActiveR
 
   const total = await countTotalItems(row.workflowId);
   if (total >= targetCount) return { spawned: false, reason: "target_cap" };
+
+  if (cfg.pacedDaily) {
+    return trySpawnWarmOutreachPaced(row, cfg, wfSpec);
+  }
 
   const cadence = (wfSpec.discoveryCadence || {}) as Partial<DiscoveryCadenceState>;
   const day = pacificCalendarDateString();
@@ -301,7 +443,66 @@ export async function trySpawnWarmOutreachDiscoveryCron(row: WarmOutreachActiveR
   return { spawned: true };
 }
 
+/**
+ * After Govind submits warm-outreach contact intake, set the earliest time the cron may spawn the next slot.
+ * No LLM involved — heartbeat can still remind, but pacing is enforced here.
+ */
+export async function scheduleNextWarmDiscoveryAfterIntake(workflowId: string): Promise<void> {
+  const wfRows = await query<{ packageId: string | null; spec: unknown }>(
+    `SELECT "packageId", spec FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
+    [workflowId]
+  );
+  if (wfRows.length === 0) return;
+  const packageId = wfRows[0].packageId;
+  const wfSpec = parseJsonObject(wfRows[0].spec);
+  if (String(wfSpec.workflowType || "") !== "warm-outreach") return;
+
+  let pkgSpec: Record<string, unknown> = {};
+  if (packageId) {
+    const p = await query<{ spec: unknown }>(
+      `SELECT spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+      [packageId]
+    );
+    if (p[0]) pkgSpec = parseJsonObject(p[0].spec);
+  }
+  const cfg = mergeWarmOutreachDiscovery(pkgSpec);
+  if (!cfg.pacedDaily) return;
+
+  const lo = cfg.postIntakeDelayMinMinutes;
+  const hi = cfg.postIntakeDelayMaxMinutes;
+  const span = Math.max(0, hi - lo);
+  const mins = lo + (span > 0 ? Math.floor(Math.random() * (span + 1)) : 0);
+  const when = new Date(Date.now() + mins * 60 * 1000);
+
+  const cadence = (wfSpec.discoveryCadence || {}) as Partial<DiscoveryCadenceState>;
+  const day = pacificCalendarDateString();
+  const count = cadence.day === day && typeof cadence.count === "number" ? cadence.count : 0;
+  const lastSpawnAt =
+    typeof cadence.lastSpawnAt === "string" && cadence.lastSpawnAt
+      ? cadence.lastSpawnAt
+      : new Date().toISOString();
+
+  await updateWorkflowDiscoveryCadence(workflowId, wfSpec, {
+    day,
+    count,
+    lastSpawnAt,
+    nextEligibleSpawnAt: when.toISOString(),
+  });
+}
+
 export async function runWarmOutreachDiscoveryTick(): Promise<{ spawned: number; skipped: number }> {
+  try {
+    const { advanceWarmOutreachMessagedFollowupsPastDue } = await import("./warm-outreach-followup-due");
+    const advanced = await advanceWarmOutreachMessagedFollowupsPastDue();
+    if (advanced > 0) {
+      console.log(
+        `[warm-outreach-discovery] auto-advanced ${advanced} warm-outreach item(s) MESSAGED → MESSAGE_DRAFT (follow-up due)`
+      );
+    }
+  } catch (e) {
+    console.warn("[warm-outreach-discovery] follow-up due advance:", e);
+  }
+
   try {
     if (!isWarmOutreachPacificBusinessHoursNow()) {
       return { spawned: 0, skipped: 0 };
@@ -347,4 +548,54 @@ export async function checkWarmOutreachBacklogFindings(): Promise<WarmOutreachHe
     }
   }
   return findings;
+}
+
+/**
+ * Ops: insert one AWAITING_CONTACT slot for an active warm-outreach workflow. Honors target_cap, backlog
+ * threshold, and paced `maxOpenDiscoverySlots`. Does not bypass Pacific weekday/hours (use
+ * `runWarmOutreachDiscoveryTick` for normal cron behavior).
+ */
+export async function forceInsertWarmOutreachDiscoverySlot(
+  workflowId: string,
+  opts?: { ignorePacedOpenCap?: boolean }
+): Promise<{
+  ok: boolean;
+  itemId?: string;
+  error?: string;
+}> {
+  const rows = await queryWarmOutreachActiveRows();
+  const row = rows.find((r) => r.workflowId === workflowId);
+  if (!row) {
+    return { ok: false, error: "workflow_not_found_or_not_active_warm_outreach" };
+  }
+
+  const cfg = mergeWarmOutreachDiscovery(row.pkgSpec);
+  const wfSpec = row.wfSpec;
+  const targetCount = typeof wfSpec.targetCount === "number" ? wfSpec.targetCount : 10;
+  const total = await countTotalItems(workflowId);
+  if (total >= targetCount) return { ok: false, error: "target_cap" };
+
+  const awaiting = await countAwaitingContact(workflowId);
+  if (awaiting >= cfg.backlogWarnThreshold) return { ok: false, error: "backlog" };
+  if (
+    cfg.pacedDaily &&
+    awaiting >= cfg.maxOpenDiscoverySlots &&
+    !opts?.ignorePacedOpenCap
+  ) {
+    return { ok: false, error: "open_discovery_slot" };
+  }
+
+  const itemId = await insertWarmOutreachDiscoveryItem(workflowId, row.packageId);
+  if (!itemId) return { ok: false, error: "insert_failed" };
+
+  const cadence = (wfSpec.discoveryCadence || {}) as Partial<DiscoveryCadenceState>;
+  const day = pacificCalendarDateString();
+  const countToday = cadence.day === day ? (typeof cadence.count === "number" ? cadence.count : 0) : 0;
+  await updateWorkflowDiscoveryCadence(workflowId, wfSpec, {
+    day,
+    count: countToday + 1,
+    lastSpawnAt: new Date().toISOString(),
+  });
+
+  return { ok: true, itemId };
 }

@@ -13,7 +13,7 @@ import {
 } from "../punch-list-columns";
 import type { ToolModule } from "./types";
 
-const RANK_HELP = `Column (rank 1–6): ${punchListColumnsSummary()}. You may pass a number or a name like "later", "next", "some time", "backlog", "idea".`;
+const RANK_HELP = `Column (rank 1–6): ${punchListColumnsSummary()}. You may pass a number or a name like "now", "later", "next", "sometime", "backlog", "idea" (also "some time").`;
 
 const tool: ToolModule = {
   metadata: {
@@ -46,7 +46,7 @@ const tool: ToolModule = {
         },
         rank: {
           type: "string",
-          description: `Kanban column: 1–6 or name (Now, Later, Next, Some time, Backlog, Idea). ${RANK_HELP}`,
+          description: `Kanban column: 1–6 or name (Now, Later, Next, Sometime, Backlog, Idea). ${RANK_HELP}`,
         },
         category: {
           type: "string",

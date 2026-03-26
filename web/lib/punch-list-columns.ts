@@ -1,26 +1,31 @@
-/** Kanban columns: `rank` 1–6 in DB maps to these labels (UI + Suzi tool). */
-export const PUNCH_LIST_RANK_LABELS: Record<number, string> = {
-  1: "Now",
-  2: "Later",
-  3: "Next",
-  4: "Some time",
-  5: "Backlog",
-  6: "Idea",
-};
+/**
+ * Punch list Kanban — fixed six columns (left → right).
+ * DB stores `rank` 1–6; UI always renders all columns even when empty.
+ */
+export const PUNCH_LIST_COLUMNS = [
+  { rank: 1, label: "Now", color: "#a67070" },
+  { rank: 2, label: "Later", color: "#a68970" },
+  { rank: 3, label: "Next", color: "#a6a066" },
+  { rank: 4, label: "Sometime", color: "#7fa67a" },
+  { rank: 5, label: "Backlog", color: "#8888a8" },
+  { rank: 6, label: "Idea", color: "#8a9099" },
+] as const;
 
-export const PUNCH_LIST_RANK_COLORS: Record<number, string> = {
-  1: "#a67070",
-  2: "#a68970",
-  3: "#a6a066",
-  4: "#7fa67a",
-  5: "#8888a8",
-  6: "#8a9099",
-};
+export type PunchListColumnSpec = (typeof PUNCH_LIST_COLUMNS)[number];
+export type PunchListRank = PunchListColumnSpec["rank"];
 
-const MIN_RANK = 1;
-const MAX_RANK = 6;
+export const PUNCH_LIST_RANK_LABELS: Record<number, string> = Object.fromEntries(
+  PUNCH_LIST_COLUMNS.map((c) => [c.rank, c.label])
+) as Record<number, string>;
 
-/** Parse rank from "3", "next", "some time", etc. Returns null if invalid. */
+export const PUNCH_LIST_RANK_COLORS: Record<number, string> = Object.fromEntries(
+  PUNCH_LIST_COLUMNS.map((c) => [c.rank, c.color])
+) as Record<number, string>;
+
+const MIN_RANK = PUNCH_LIST_COLUMNS[0].rank;
+const MAX_RANK = PUNCH_LIST_COLUMNS[PUNCH_LIST_COLUMNS.length - 1].rank;
+
+/** Parse rank from "3", "next", "sometime", "some time", etc. Returns null if invalid. */
 export function parsePunchListRank(input: string): number | null {
   const t = input.trim().toLowerCase().replace(/_/g, " ");
   const n = parseInt(t, 10);
@@ -45,7 +50,5 @@ export function punchListColumnLabel(rank: number): string {
 }
 
 export function punchListColumnsSummary(): string {
-  return Object.entries(PUNCH_LIST_RANK_LABELS)
-    .map(([r, label]) => `${r}=${label}`)
-    .join(", ");
+  return PUNCH_LIST_COLUMNS.map((c) => `${c.rank}=${c.label}`).join(", ");
 }

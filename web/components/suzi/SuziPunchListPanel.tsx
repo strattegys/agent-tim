@@ -3,10 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import PunchListCard, { type PunchListItem } from "./PunchListCard";
 import { panelBus } from "@/lib/events";
-import {
-  PUNCH_LIST_RANK_COLORS,
-  PUNCH_LIST_RANK_LABELS,
-} from "@/lib/punch-list-columns";
+import { PUNCH_LIST_COLUMNS } from "@/lib/punch-list-columns";
 
 const STATUS_FILTERS = ["All", "Open", "Done"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -105,8 +102,6 @@ export default function SuziPunchListPanel({
     group.push(item);
     rankGroups.set(item.rank, group);
   }
-  const sortedRanks = [...rankGroups.keys()].sort((a, b) => a - b);
-
   // Status counts
   const statusCounts: Record<string, number> = { All: items.length };
   for (const item of items) {
@@ -330,27 +325,10 @@ export default function SuziPunchListPanel({
               Loading punch list...
             </p>
           </div>
-        ) : sortedRanks.length === 0 ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <p className="text-sm text-[var(--text-tertiary)]">
-                {search || selectedCategory
-                  ? "No items match your filters"
-                  : statusFilter === "All"
-                    ? "No punch list items yet"
-                    : `No ${statusFilter.toLowerCase()} items`}
-              </p>
-              <p className="text-xs text-[var(--text-tertiary)] mt-1">
-                Ask Suzi to add one!
-              </p>
-            </div>
-          </div>
         ) : (
-          <div className="flex gap-2 p-2 h-full">
-            {sortedRanks.map((rank) => {
+          <div className="flex gap-2 p-2 h-full min-h-[200px]">
+            {PUNCH_LIST_COLUMNS.map(({ rank, label, color }) => {
               const rankItems = rankGroups.get(rank) || [];
-              const color = PUNCH_LIST_RANK_COLORS[rank] || "#9CA3AF";
-              const label = PUNCH_LIST_RANK_LABELS[rank] || `Column ${rank}`;
               const isDropTarget = dropTargetRank === rank;
               return (
                 <div

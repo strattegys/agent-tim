@@ -28,7 +28,7 @@ export async function countWarmOutreachIntakeSubmitsPacificDate(
        INNER JOIN "_workflow_item" wi ON wi.id = a."workflowItemId" AND wi."deletedAt" IS NULL
        INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
        WHERE a."deletedAt" IS NULL
-         AND (w.spec->>'workflowType') = 'warm-outreach'
+         AND ((w.spec::jsonb)->>'workflowType') = 'warm-outreach'
          AND UPPER(TRIM(a.stage::text)) IN ('AWAITING_CONTACT', 'IDEA')
          AND a.name ILIKE 'Human input:%'
          AND LENGTH(TRIM(COALESCE(a.content, ''))) > 0

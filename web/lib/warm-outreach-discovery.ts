@@ -277,7 +277,7 @@ export async function queryWarmOutreachActiveRows(): Promise<WarmOutreachActiveR
      WHERE w."deletedAt" IS NULL
        AND UPPER(w.stage::text) = 'ACTIVE'
        AND UPPER(p.stage::text) = 'ACTIVE'
-       AND (w.spec->>'workflowType') = 'warm-outreach'`
+       AND ((w.spec::jsonb)->>'workflowType') = 'warm-outreach'`
   );
 
   return rows.map((r) => ({

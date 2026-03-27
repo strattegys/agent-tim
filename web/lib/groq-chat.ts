@@ -4,7 +4,7 @@
  */
 
 import { getSystemPrompt } from "./system-prompt";
-import { toolDeclarations, executeTool } from "./tools";
+import { toolDeclarations, executeTool, TOOL_REGISTRY } from "./tools";
 import { parseGroqToolArgumentsJson } from "./tool-args-normalize";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
@@ -136,6 +136,82 @@ function extractBalancedJsonObject(
       if (depth === 0) return { json: s.slice(start, i + 1), end: i + 1 };
     }
   }
+  return null;
+}
+
+/** From s[start] === '[', match the closing ']' of that array; respects strings. */
+function extractBalancedJsonArray(
+  s: string,
+  start: number
+): { json: string; end: number } | null {
+  if (s[start] !== "[") return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i]!;
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (inString) {
+      if (c === "\\") escape = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "[") depth++;
+    else if (c === "]") {
+      depth--;
+      if (depth === 0) return { json: s.slice(start, i + 1), end: i + 1 };
+    }
+  }
+  return null;
+}
+
+/** Parse JSON object/array from raw text, markdown fence, or first balanced [...] / {...} in prose. */
+function tryParseEmbeddedJsonPayload(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const tryParse = (s: string): unknown | null => {
+    try {
+      return JSON.parse(s);
+    } catch {
+      return null;
+    }
+  };
+
+  let p = tryParse(trimmed);
+  if (p !== null) return p;
+
+  const fence = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) {
+    p = tryParse(fence[1]!.trim());
+    if (p !== null) return p;
+  }
+
+  const arrIdx = trimmed.indexOf("[");
+  if (arrIdx >= 0) {
+    const bal = extractBalancedJsonArray(trimmed, arrIdx);
+    if (bal) {
+      p = tryParse(bal.json);
+      if (p !== null) return p;
+    }
+  }
+
+  const objIdx = trimmed.indexOf("{");
+  if (objIdx >= 0) {
+    const bal = extractBalancedJsonObject(trimmed, objIdx);
+    if (bal) {
+      p = tryParse(bal.json);
+      if (p !== null) return p;
+    }
+  }
+
   return null;
 }
 
@@ -319,6 +395,103 @@ function tryRecoverToolCallsFromTextContent(content: string): GroqToolCall[] {
   return loose ? [loose] : [];
 }
 
+function isPlainObject(x: unknown): x is Record<string, unknown> {
+  return x !== null && typeof x === "object" && !Array.isArray(x);
+}
+
+function normalizeToolNameForRegistry(name: string): string {
+  return name.trim().replace(/-/g, "_");
+}
+
+/**
+ * Llama often returns a JSON array/object in `content` instead of using API `tool_calls`
+ * (e.g. [{ "tool": "punch_list", "action": "add", ... }]). Execute those as real tools.
+ */
+function tryRecoverJsonToolCallsFromContent(content: string): GroqToolCall[] {
+  const trimmed = content.trim();
+  if (!trimmed || trimmed.length > 12_000) return [];
+
+  const parsed = tryParseEmbeddedJsonPayload(trimmed);
+  if (parsed === null) return [];
+
+  const out: GroqToolCall[] = [];
+  const ts = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+  const pushFromOpenAiShape = (o: Record<string, unknown>) => {
+    const fn = o.function;
+    if (!isPlainObject(fn)) return;
+    const n = fn.name;
+    const args = fn.arguments;
+    if (typeof n !== "string") return;
+    const name = normalizeToolNameForRegistry(n);
+    if (!TOOL_REGISTRY[name]) return;
+    const argStr =
+      typeof args === "string" ? args : JSON.stringify(args ?? {});
+    out.push({
+      id: `recovered-json-${ts()}`,
+      type: "function",
+      function: { name, arguments: argStr },
+    });
+  };
+
+  const pushFromLooseObject = (item: Record<string, unknown>, idx: number) => {
+    if (Array.isArray(item.tool_calls)) {
+      for (const tc of item.tool_calls) {
+        if (isPlainObject(tc)) pushFromOpenAiShape(tc);
+      }
+      return;
+    }
+
+    const nestedFn = item.function;
+    if (isPlainObject(nestedFn) && typeof nestedFn.name === "string") {
+      pushFromOpenAiShape({ function: nestedFn });
+      return;
+    }
+
+    const rawName =
+      (typeof item.tool === "string" && item.tool) ||
+      (typeof item.name === "string" && item.name);
+    if (!rawName) return;
+    const name = normalizeToolNameForRegistry(rawName);
+    if (!TOOL_REGISTRY[name]) return;
+
+    let argStr: string;
+    if (isPlainObject(item.arguments)) {
+      argStr = JSON.stringify(item.arguments);
+    } else if (typeof item.arguments === "string") {
+      argStr = item.arguments;
+    } else {
+      const { tool, name: _n, function: _f, arguments: _a, ...rest } = item;
+      argStr = JSON.stringify(rest);
+    }
+
+    out.push({
+      id: `recovered-json-${ts()}-${idx}`,
+      type: "function",
+      function: { name, arguments: argStr },
+    });
+  };
+
+  if (Array.isArray(parsed)) {
+    parsed.forEach((item, i) => {
+      if (isPlainObject(item)) pushFromLooseObject(item, i);
+    });
+    return out;
+  }
+
+  if (isPlainObject(parsed)) {
+    if (Array.isArray(parsed.tool_calls)) {
+      for (const tc of parsed.tool_calls) {
+        if (isPlainObject(tc)) pushFromOpenAiShape(tc);
+      }
+      return out;
+    }
+    pushFromLooseObject(parsed, 0);
+  }
+
+  return out;
+}
+
 function mergeRecoveredToolCalls(
   content: string,
   tool_calls?: GroqToolCall[]
@@ -326,10 +499,17 @@ function mergeRecoveredToolCalls(
   if (tool_calls && tool_calls.length > 0) {
     return { content, tool_calls };
   }
-  const recovered = tryRecoverToolCallsFromTextContent(content);
-  if (recovered.length > 0) {
+  const fromTag = tryRecoverToolCallsFromTextContent(content);
+  if (fromTag.length > 0) {
     console.log("[groq] Recovered tool call(s) from assistant text (malformed <function=...>)");
-    return { content: "", tool_calls: recovered };
+    return { content: "", tool_calls: fromTag };
+  }
+  const fromJson = tryRecoverJsonToolCallsFromContent(content);
+  if (fromJson.length > 0) {
+    console.log(
+      `[groq] Recovered ${fromJson.length} tool call(s) from assistant text (JSON payload — model skipped API tool_calls)`
+    );
+    return { content: "", tool_calls: fromJson };
   }
   return { content, tool_calls: undefined };
 }
@@ -374,7 +554,8 @@ function buildMessages(
     ? systemPrompt +
       "\n\nIMPORTANT: Use the provided tool-calling API to invoke tools. " +
       "NEVER write tool calls as XML/text like <function=name{...}> or <function=tool.subcommand({...})>. " +
-      "The tool name is a single identifier (e.g. workflow_items); pass command and args as one JSON object. " +
+      "NEVER reply with only a JSON array/object as plain text — that does not execute tools; the API must emit real tool_calls. " +
+      "The tool name is a single identifier (e.g. punch_list, workflow_items); pass command and args as one JSON object inside each tool call. " +
       "Always use the structured tool_calls API. " +
       "After tools run, your reply must match the tool results exactly (same item #s and actions)—do not invent a different outcome."
     : systemPrompt;
@@ -459,8 +640,10 @@ async function groqChat(
         console.error("[groq] Failed to recover malformed tool call:", parseErr);
       }
 
-      // If recovery failed, retry without tools
-      console.log("[groq] Retrying without tools after tool_use_failed");
+      // If recovery failed, retry without tools (assistant may hallucinate actions — logged for ops)
+      console.warn(
+        "[groq] Retrying without tools after tool_use_failed — user may see a non-tool reply; check failed_generation in logs"
+      );
       const retryBody = { ...body };
       delete retryBody.tools;
       delete retryBody.tool_choice;

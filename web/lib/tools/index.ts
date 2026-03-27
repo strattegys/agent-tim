@@ -26,6 +26,7 @@ import publishArticle from "./publish-article";
 import articleBuilder from "./article-builder";
 
 // ── Registry (keyed by tool name) ─────────────────────────────────────────
+/** Exported for providers that need to validate recovered / malformed tool names. */
 export const TOOL_REGISTRY: Record<string, ToolModule> = {
   twenty_crm: twentyCrm,
   linkedin: linkedin,

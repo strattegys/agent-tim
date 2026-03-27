@@ -73,12 +73,21 @@ export function formatSuziWorkPanelContext(input: SuziWorkPanelContextInput): st
   }
 
   const spec = TABS[input.subTab];
+  const punchMustUseTool =
+    input.subTab === "punchlist"
+      ? [
+          "",
+          "**Execution rule (Punch List tab):** When the user asks to add, move, complete, archive, or list punch-list items, you must complete a **real** `punch_list` tool call in this turn (via the API). Do not only describe or show JSON — that does not change the board.",
+        ]
+      : [];
+
   return [
     "## Suzi — active work panel",
     `The user has the **${spec.uiLabel}** tab open in the right work panel.`,
     "",
     `**Primary tool:** \`${spec.primaryTool}\``,
     spec.purpose,
+    ...punchMustUseTool,
     "",
     "**Commands:**",
     spec.commands,

@@ -14,7 +14,9 @@ import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stre
 
 const MAX_TOOL_ITERATIONS = 20;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+/** Fallback when agent has no modelName; align with GROQ_CHAT_MODEL in dev. */
+const DEFAULT_MODEL =
+  process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile";
 
 /** Strip grounding suffix before matching punch_list tool text. */
 function stripToolGroundingSuffix(s: string): string {

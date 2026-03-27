@@ -1,10 +1,11 @@
 # Local development stack
 # Two-step local data platform (CRM Postgres on droplet):
 #   1) Start SSH tunnel — scripts/crm-db-tunnel.ps1 or scripts/crm-db-tunnel.sh
-#      (forwards 0.0.0.0:5433 -> droplet:5432 so Docker can reach it via host.docker.internal).
+#      MUST forward 0.0.0.0:5433 → droplet:5432 (default). If the tunnel binds 127.0.0.1 only,
+#      the web container cannot reach Postgres via host.docker.internal (ECONNREFUSED).
 #      Over Tailscale: set CRM_SSH_HOST to the CC droplet 100.x or MagicDNS (see PROJECT-MEMORY).
-#      On the server, run tools/expose-crm-db-tailscale.sh so :5432 listens on the tailnet IP too.
 #   2) docker compose -f docker-compose.dev.yml up
+#   3) Verify: docker compose ... exec web npm run check-crm-db
 ## Hot reload works via volume mount of web/ directory.
 # Runs on http://localhost:3001
 
@@ -25,6 +26,8 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       - AGENT_ROOT=/agents
+      # Try OpenAI GPT-OSS on Groq for better tool calling (dev only; production leaves GROQ_CHAT_MODEL unset)
+      - GROQ_CHAT_MODEL=openai/gpt-oss-120b
       # Always reach Postgres on the host (SSH tunnel to droplet, or local Postgres). Overrides CRM_DB_HOST=127.0.0.1 in .env.local — that value only works for `npm run dev` on the host, not inside this container.
       - CRM_DB_HOST=host.docker.internal
       # Default tunnel (crm-db-tunnel.ps1 / .sh) uses local CRM_TUNNEL_LOCAL_PORT or 5433. Overrides web/.env.local CRM_DB_PORT=5432 (production).

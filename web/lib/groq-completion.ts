@@ -4,7 +4,8 @@
  */
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const DEFAULT_MODEL = "llama-3.3-70b-versatile";
+const DEFAULT_MODEL =
+  process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile";
 
 export async function groqCompletion(
   system: string,

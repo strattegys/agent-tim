@@ -192,7 +192,10 @@ ${messages.slice(-100).join("\n")}`;
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: agentConfig.modelName || "llama-3.3-70b-versatile",
+          model:
+            agentConfig.modelName ||
+            process.env.GROQ_CHAT_MODEL?.trim() ||
+            "llama-3.3-70b-versatile",
           max_tokens: 1024,
           temperature: 0.3,
           messages: [{ role: "user", content: consolidationPrompt }],

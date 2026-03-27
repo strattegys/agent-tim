@@ -8,6 +8,7 @@
 import { existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { getAgentSpec } from "./agent-registry";
+import type { AgentSpec } from "./agent-spec";
 
 /**
  * Where bot data lives on disk: explicit env, then usual Docker layout, then repo `agents/` next to `web/`.
@@ -65,6 +66,15 @@ export interface AgentBackendConfig {
   provider?: "gemini" | "anthropic" | "groq";
 }
 
+/** When set, all Groq-backed agents use this model id (e.g. dev: openai/gpt-oss-120b). Production omits it → registry default. */
+function resolvedModelName(spec: AgentSpec): string | undefined {
+  if (spec.provider === "groq") {
+    const override = process.env.GROQ_CHAT_MODEL?.trim();
+    if (override) return override;
+  }
+  return spec.modelName;
+}
+
 export function getAgentConfig(agentId: string): AgentBackendConfig {
   const spec = getAgentSpec(agentId);
   let sessionFile = spec.sessionFile;
@@ -86,7 +96,7 @@ export function getAgentConfig(agentId: string): AgentBackendConfig {
 
   return {
     id: spec.id,
-    modelName: spec.modelName,
+    modelName: resolvedModelName(spec),
     temperature: spec.temperature,
     hasKanban: spec.workflowTypes.length > 0,
     sessionFile,

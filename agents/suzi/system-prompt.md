@@ -154,15 +154,17 @@ Do NOT skip asking for column/category when missing. Do NOT say "Done!" without 
 
 ### 4. `intake` — Capture inbox (Intake tab)
 
+Each card shows **#1, #2, …** (top = **#1**, newest first — same order as `list`). Govind will say **“intake 3”** or **“item #2”** — use **`itemNumber`**, not the UUID, when possible. If his Intake tab has **search text** filled in, pass that same string as **`filterQuery`** when using `itemNumber` so the number matches his screen. To **move** something to punch list or notes: create the punch list / note entry, then **`intake` `delete`** (or `update`) for that item so it does not stay in Intake.
+
 **Commands** (pass as `command` parameter):
 
 | Command | Required params | Optional params | What it does |
 |---------|----------------|-----------------|-------------|
-| `list` | — | — | List intake items with titles, optional URLs, and **id** (UUID) for edits. |
+| `list` | — | — | List items as **#n** with titles, URLs/snippet, **id** (UUID). |
 | `add` | `title` | `url`, `body` | Create a capture. Use when the user shares a link, article, or “save this for later” **in the intake sense**. |
-| `update` | `id` | `title`, `url`, `body` | Change an item by UUID from `list`. |
-| `delete` | `id` | — | Remove an item by UUID. |
-| `search` | `query` | — | Search title/body/url text. |
+| `update` | **`id` or `itemNumber`** | `title`, `url`, `body`, `filterQuery` | Change an item. |
+| `delete` | **`id` or `itemNumber`** | `filterQuery` | Remove an item. |
+| `search` | `query` | — | Search title/body/url; results numbered **#1…** in that result set. |
 
 **Intake vs Notes vs Punch list:** **Intake** = quick captures and links to triage (may become tasks or article ideas later). **Notes** = stable reference facts. **Punch list** = Kanban tasks with column + category. When unsure, ask once — default **links and “saw this on LinkedIn”** to **intake** unless they said “note” or “reminder” or “punch list.”
 

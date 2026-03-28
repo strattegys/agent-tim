@@ -164,8 +164,13 @@ export default function SuziIntakePanel({ onClose: _onClose, embedded = false }:
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-3">
-            {items.map((item) => (
-              <IntakeCard key={item.id} item={item} onDelete={handleDelete} />
+            {items.map((item, index) => (
+              <IntakeCard
+                key={item.id}
+                item={item}
+                displayNumber={index + 1}
+                onDelete={handleDelete}
+              />
             ))}
           </div>
         )}

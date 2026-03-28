@@ -28,6 +28,8 @@ const SOURCE_COLOR: Record<string, string> = {
 
 interface IntakeCardProps {
   item: IntakeCardItem;
+  /** 1-based position in the current Intake list (matches Suzi `itemNumber` when list/filter matches). */
+  displayNumber?: number;
   onDelete?: (id: string) => void;
 }
 
@@ -53,7 +55,7 @@ function IntakeUpdatedLabel({ updatedAt }: { updatedAt: string }) {
   );
 }
 
-export default function IntakeCard({ item, onDelete }: IntakeCardProps) {
+export default function IntakeCard({ item, displayNumber, onDelete }: IntakeCardProps) {
   const src = item.source || "ui";
   const label = SOURCE_LABEL[src] || src;
   const color = SOURCE_COLOR[src] || "#8b9199";
@@ -61,9 +63,19 @@ export default function IntakeCard({ item, onDelete }: IntakeCardProps) {
   return (
     <div className="h-60 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3 flex flex-col transition-colors group overflow-hidden">
       <div className="flex items-start justify-between gap-1.5 shrink-0">
-        <h3 className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug flex-1 min-w-0">
-          {item.title}
-        </h3>
+        <div className="flex items-start gap-2 min-w-0 flex-1">
+          {displayNumber != null && (
+            <span
+              className="shrink-0 text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--accent-green)]"
+              title={`Intake #${displayNumber} — e.g. ask Suzi to delete intake item ${displayNumber} or move it to punch list`}
+            >
+              #{displayNumber}
+            </span>
+          )}
+          <h3 className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug flex-1 min-w-0">
+            {item.title}
+          </h3>
+        </div>
         {onDelete && (
           <button
             type="button"

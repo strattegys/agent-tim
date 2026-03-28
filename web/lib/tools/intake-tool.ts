@@ -1,6 +1,44 @@
 import { listIntake, addIntake, updateIntake, deleteIntake } from "../intake";
 import type { ToolModule } from "./types";
 
+function parseItemNumber(v: unknown): number | null {
+  if (typeof v === "number" && Number.isInteger(v) && v >= 1) return v;
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (/^\d+$/.test(t)) {
+      const n = parseInt(t, 10);
+      if (n >= 1) return n;
+    }
+  }
+  return null;
+}
+
+/** Resolve update/delete target: UUID, or itemNumber against full list or optional filter (Intake search box). */
+async function resolveIntakeTarget(
+  agentId: string,
+  args: { id?: unknown; itemNumber?: unknown; filterQuery?: unknown }
+): Promise<{ id: string } | { error: string }> {
+  const rawId = typeof args.id === "string" ? args.id.trim() : "";
+  if (rawId) return { id: rawId };
+
+  const n = parseItemNumber(args.itemNumber);
+  if (n == null) {
+    return {
+      error:
+        "Provide either id (UUID from list) or itemNumber (1 = top card in Intake, same as # on the card).",
+    };
+  }
+  const fq = typeof args.filterQuery === "string" ? args.filterQuery.trim() : "";
+  const items = await listIntake(agentId, fq ? { search: fq } : {});
+  if (n > items.length) {
+    const ctx = fq ? `with Intake search “${fq}”` : "in the full list";
+    return {
+      error: `No intake #${n} ${ctx} (only ${items.length} item(s)). Use intake list or match the user’s Intake search via filterQuery.`,
+    };
+  }
+  return { id: items[n - 1]!.id };
+}
+
 const tool: ToolModule = {
   metadata: {
     id: "intake",
@@ -15,7 +53,7 @@ const tool: ToolModule = {
   declaration: {
     name: "intake",
     description:
-      "The **only** tool for items in Suzi's **Intake** work tab — a capture inbox (URLs, pasted text, things to process later). When the user says **add an intake item**, **save this to intake**, **intake:**, **put this link in intake**, or similar, you must call this tool with `command: add` (title required; url/body when known). For reference facts use **notes**. For tasks with columns use **punch_list**. For dates use **reminders**. Never claim you saved an intake item without calling this tool. Commands: list, add, update (id), delete (id), search.",
+      "The **only** tool for items in Suzi's **Intake** work tab — a capture inbox (URLs, pasted text, things to process later). Cards show **#1, #2, …** (newest first). For **update**/**delete**, use **itemNumber** matching that #, or **id** (UUID). If Govind has typed text in the Intake **search** box, pass the same string as **filterQuery** so itemNumber matches what he sees. When **moving** an item to punch list or notes: **intake delete** (or update) after you create the punch_list/notes entry. Commands: list, add, update, delete, search.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -37,7 +75,17 @@ const tool: ToolModule = {
         },
         id: {
           type: "string",
-          description: "Intake item UUID for update/delete (from list output)",
+          description: "Intake item UUID for update/delete (alternative to itemNumber)",
+        },
+        itemNumber: {
+          type: "number",
+          description:
+            "1-based index as shown on Intake cards (#1 = first/top). Use for update/delete when the user says “intake 2” or “item #3”.",
+        },
+        filterQuery: {
+          type: "string",
+          description:
+            "Optional: same text as the Intake tab search box — scopes itemNumber to that filtered list.",
         },
         query: {
           type: "string",
@@ -56,8 +104,8 @@ const tool: ToolModule = {
       if (items.length === 0) return "No intake items.";
       return items
         .map(
-          (it) =>
-            `• ${it.title}${it.url ? ` — ${it.url}` : ""}${it.body ? `\n  ${it.body.slice(0, 120)}${it.body.length > 120 ? "…" : ""}` : ""}\n  id: ${it.id}  source: ${it.source}`
+          (it, i) =>
+            `#${i + 1} ${it.title}${it.url ? ` — ${it.url}` : ""}${it.body ? `\n  ${it.body.slice(0, 120)}${it.body.length > 120 ? "…" : ""}` : ""}\n  id: ${it.id}  source: ${it.source}`
         )
         .join("\n\n");
     }
@@ -74,18 +122,20 @@ const tool: ToolModule = {
     }
 
     if (cmd === "update") {
-      if (!args.id?.trim()) return "Error: id is required for update";
-      await updateIntake(args.id.trim(), {
-        title: args.title !== undefined ? args.title.trim() : undefined,
-        url: args.url !== undefined ? (args.url.trim() || null) : undefined,
-        body: args.body !== undefined ? (args.body.trim() || null) : undefined,
+      const resolved = await resolveIntakeTarget(agentId, args);
+      if ("error" in resolved) return `Error: ${resolved.error}`;
+      await updateIntake(resolved.id, {
+        title: args.title !== undefined ? String(args.title).trim() : undefined,
+        url: args.url !== undefined ? (String(args.url).trim() || null) : undefined,
+        body: args.body !== undefined ? (args.body != null ? String(args.body).trim() : null) : undefined,
       });
       return "Intake item updated.";
     }
 
     if (cmd === "delete") {
-      if (!args.id?.trim()) return "Error: id is required for delete";
-      await deleteIntake(args.id.trim());
+      const resolved = await resolveIntakeTarget(agentId, args);
+      if ("error" in resolved) return `Error: ${resolved.error}`;
+      await deleteIntake(resolved.id);
       return "Intake item deleted.";
     }
 
@@ -96,8 +146,8 @@ const tool: ToolModule = {
       if (items.length === 0) return "No intake items match that query.";
       return items
         .map(
-          (it) =>
-            `• ${it.title}${it.url ? ` — ${it.url}` : ""}\n  id: ${it.id}`
+          (it, i) =>
+            `#${i + 1} ${it.title}${it.url ? ` — ${it.url}` : ""}\n  id: ${it.id}`
         )
         .join("\n\n");
     }

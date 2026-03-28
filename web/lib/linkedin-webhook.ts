@@ -1,7 +1,7 @@
 /**
  * Handles inbound LinkedIn messages and connection events from Unipile webhooks.
- * Ported from slack/src/linkedin-inbound.ts — replaces Slack alerts with
- * web notifications and Tim autonomous chat messages.
+ * Inbound messages: CRM note + packaged warm-outreach resolve when applicable, else general inbox
+ * queue (`recordGeneralLinkedInInbound`). No LLM triage — work is picked up from the queue / workflows.
  */
 import { execFileSync } from "child_process";
 import { join } from "path";
@@ -18,7 +18,6 @@ import {
   fetchLinkedInProfile,
   enrichContactFromLinkedIn,
 } from "./linkedin-crm";
-import { triageLinkedInMessage } from "./linkedin-triage";
 import { writeNotification } from "./notifications";
 import {
   applyWarmOutreachInboundViaResolve,
@@ -206,7 +205,7 @@ export async function handleUnipileWebhook(
         if (gen.ok) {
           writeNotification(
             `LinkedIn: ${senderName} (inbox — resolve failed)`,
-            "Warm-outreach match found but auto-advance failed; triage from Tim’s LinkedIn inbox.",
+            "Warm-outreach match found but auto-advance failed — item is in Tim’s LinkedIn general inbox queue.",
             "linkedin_inbound"
           );
         } else if (gen.reason) {
@@ -235,56 +234,6 @@ export async function handleUnipileWebhook(
     }
   } catch (e) {
     console.error("[linkedin-webhook] Warm-outreach / inbox routing error:", e);
-  }
-
-  // Triage via Tim's AI
-  console.log(`[linkedin-webhook] Running triage for ${senderName}...`);
-  const triage = await triageLinkedInMessage(
-    senderName,
-    messageText,
-    contactId,
-    linkedinUrl
-  );
-
-  // Deliver notification — workflow members just get CRM note (Kanban shows it),
-  // non-workflow members get Tim messaging Govind
-  const hasWorkflow = triage.workflowInfo && triage.workflowInfo !== "None";
-
-  // Always write web notification
-  writeNotification(
-    `LinkedIn: ${senderName}`,
-    [
-      messageText.slice(0, 150),
-      triage.personSummary ? `(${triage.personSummary})` : "",
-    ]
-      .filter(Boolean)
-      .join(" "),
-    "linkedin_inbound"
-  );
-
-  if (!hasWorkflow) {
-    // Non-workflow: Tim proactively messages Govind
-    try {
-      const { agentAutonomousChat } = await import("./agent-llm");
-      const prompt = [
-        `[LINKEDIN INBOUND — Notify Govind]`,
-        ``,
-        `You just received a LinkedIn message from ${senderName}.`,
-        ``,
-        `**Message:** "${messageText.slice(0, 500)}"`,
-        triage.personSummary ? `**Who they are:** ${triage.personSummary}` : "",
-        triage.suggestedReply ? `**Suggested reply:** ${triage.suggestedReply}` : "",
-        ``,
-        `Tell Govind about this message in a concise, helpful way. Include who they are and what they said. If you have a suggested reply, present it for approval.`,
-        `Do NOT send any messages without explicit approval.`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-
-      await agentAutonomousChat("tim", prompt);
-    } catch (err) {
-      console.error("[linkedin-webhook] Tim autonomous notification failed:", err);
-    }
   }
 
   console.log(`[linkedin-webhook] Processed inbound from ${senderName} → contact ${contactId}`);

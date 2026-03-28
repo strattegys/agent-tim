@@ -13,10 +13,19 @@ export interface UsageSummaryRow {
   estimatedUsd: number;
 }
 
+/** All-time span of rows in `_usage_event` (not limited by the selected Days preset). */
+export interface UsageWarehouseCoverage {
+  totalRows: number;
+  oldestOccurredAt: string | null;
+  newestOccurredAt: string | null;
+}
+
 export interface CostSummaryResponse {
   from: string;
   to: string;
   workspaceSchema: string;
+  /** Full-table min/max so you can see if only ~1 day exists (then 1d vs 30d look identical). */
+  coverage: UsageWarehouseCoverage;
   metered: {
     totals: {
       events: number;

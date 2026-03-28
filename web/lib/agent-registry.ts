@@ -120,9 +120,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       {
         id: "linkedin-sync",
         name: "LinkedIn Message Sync",
-        schedule: "*/15 * * * *",
+        schedule: "*/30 * * * *",
         description:
-          "Extracts new LinkedIn messages, creates CRM notes, sends alerts",
+          "Python extractor — backup/drift catch-up vs webhooks; primary inbound is Unipile → queue",
         handler: "linkedin-extractor",
         logFile: "/root/.nanobot/linkedin_alerts.log",
       },
@@ -145,9 +145,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       {
         id: "linkedin-connections",
         name: "LinkedIn Connections Check",
-        schedule: "*/10 * * * *",
+        schedule: "*/30 * * * *",
         description:
-          "Polls for new LinkedIn connections, enriches CRM contacts",
+          "Polls new connections, CRM note + bell (no LLM); general inbox when not on package path",
         handler: "linkedin-connections",
       },
       {
@@ -165,32 +165,21 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       schedule: "*/30 * * * *",
       checks: [
         {
-          name: "LinkedIn Alerts",
+          name: "Scout delegations",
           description:
-            "Flags inbound messages with no user response in last 2 hours",
-          priority: "high",
-        },
-        {
-          name: "Memory Reminders",
-          description:
-            "Scans memory for follow-ups, todos, and deadlines due today",
+            "Bell when Scout research tasks complete for Tim (no LLM in heartbeat)",
           priority: "medium",
-        },
-        {
-          name: "Scheduled Messages",
-          description:
-            "Detects failed or overdue scheduled LinkedIn messages",
-          priority: "high",
-        },
-        {
-          name: "Workflow Health",
-          description: "Checks for empty or inactive workflows in CRM",
-          priority: "low",
         },
         {
           name: "Warm outreach backlog",
           description:
             "Nags when many find-contact (LinkedIn) tasks pile up for an active warm-outreach package",
+          priority: "high",
+        },
+        {
+          name: "Warm outreach daily pace",
+          description:
+            "Nags on paced warm-outreach packages when daily discovery targets slip",
           priority: "high",
         },
       ],
@@ -236,7 +225,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
         {
           name: "Reminders",
           description:
-            "Checks memory for reminders with today's date or keywords",
+            "Loads due reminders from the CRM database and delivers them in chat",
           priority: "high",
         },
       ],

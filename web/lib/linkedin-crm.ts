@@ -6,7 +6,6 @@ import https from "https";
 import fs from "fs";
 import { execFileSync } from "child_process";
 import { join } from "path";
-import { triageNewConnection } from "./linkedin-triage";
 import { writeNotification } from "./notifications";
 import { normalizeUnipileDsn } from "./unipile-profile";
 import { recordUsageEvent } from "./usage-events";
@@ -359,8 +358,8 @@ async function fetchRecentConnections(
 }
 
 /**
- * Poll for new LinkedIn connections. Called by cron every 10 minutes.
- * Enriches contacts, updates CRM stages, and sends web notifications.
+ * Poll for new LinkedIn connections. Called by cron (30-minute schedule in registry).
+ * Updates CRM from Unipile relation payload; no LLM triage.
  */
 export async function checkNewConnections(): Promise<number> {
   const processed = loadProcessed();
@@ -407,15 +406,7 @@ export async function checkNewConnections(): Promise<number> {
       updatePersonStage(contactId, "ACCEPTED");
     }
 
-    // Triage — Tim suggests an opening message
-    const triage = await triageNewConnection(
-      fullName,
-      conn.headline || "",
-      contactId,
-      linkedinUrl
-    );
-
-    // Write CRM note
+    // Write CRM note (no AI — opening copy lives in your queue / workflows if needed)
     if (contactId) {
       writeNote(
         `LinkedIn Connection Accepted — ${fullName}`,
@@ -426,9 +417,6 @@ export async function checkNewConnections(): Promise<number> {
           `**Headline:** ${conn.headline || "N/A"}`,
           `**Date:** ${new Date(conn.created_at).toISOString()}`,
           linkedinUrl ? `**LinkedIn Profile:** ${linkedinUrl}` : "",
-          triage.suggestedReply
-            ? `\n**Suggested Opening:** ${triage.suggestedReply}`
-            : "",
         ]
           .filter(Boolean)
           .join("\n"),
@@ -437,17 +425,10 @@ export async function checkNewConnections(): Promise<number> {
       );
     }
 
-    // Web notification
     writeNotification(
       `New LinkedIn Connection: ${fullName}`,
-      [
-        triage.personSummary || conn.headline || fullName,
-        triage.suggestedReply
-          ? `Suggested: ${triage.suggestedReply}`
-          : "",
-      ]
-        .filter(Boolean)
-        .join(" — ")
+      conn.headline ? `${fullName} — ${conn.headline}` : fullName,
+      "linkedin_inbound"
     );
 
     posted++;

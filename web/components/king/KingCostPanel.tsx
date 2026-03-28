@@ -1,47 +1,109 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import type { CostSummaryResponse } from "@/lib/usage-event-summary-types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type {
+  CostSummaryResponse,
+  UsageWarehouseCoverage,
+} from "@/lib/usage-event-summary-types";
 
 /** Work tabs inside King’s work panel — extend when adding surfaces (e.g. invoices). */
 export type KingWorkTab = "cost-usage";
 
+function isAbortError(e: unknown): boolean {
+  return (
+    (e instanceof DOMException && e.name === "AbortError") ||
+    (e instanceof Error && e.name === "AbortError")
+  );
+}
+
+/** Hours between warehouse min and max occurredAt (null if unknown). */
+function warehouseSpanHours(coverage: {
+  oldestOccurredAt: string | null;
+  newestOccurredAt: string | null;
+}): number | null {
+  const { oldestOccurredAt: a, newestOccurredAt: b } = coverage;
+  if (!a || !b) return null;
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  return ms / 3_600_000;
+}
+
+function KingWarehouseCoverage({ coverage }: { coverage: UsageWarehouseCoverage }) {
+  const spanH = warehouseSpanHours(coverage);
+  const thinHistory = spanH != null && spanH <= 48;
+  return (
+    <div className="text-[10px] text-[var(--text-secondary)] mb-3 space-y-1 border border-[var(--border-color)] rounded px-2 py-1.5 bg-[var(--bg-primary)]">
+      <p className="font-mono break-all">
+        Warehouse (all stored rows): {coverage.totalRows.toLocaleString()} events; oldest{" "}
+        {coverage.oldestOccurredAt?.slice(0, 19) ?? "—"}Z → newest{" "}
+        {coverage.newestOccurredAt?.slice(0, 19) ?? "—"}Z UTC
+      </p>
+      {thinHistory && spanH != null && (
+        <p className="text-[var(--text-tertiary)]">
+          Stored history spans only about {spanH.toFixed(1)} hours — wider &quot;Days&quot; presets
+          can match each other because everything already falls in-range.
+        </p>
+      )}
+      <p className="text-[var(--text-tertiary)]">
+        Tim metered LLM usage is mostly automation (LinkedIn inbound triage, webhooks, cron), not
+        how often you chat with Tim in the UI.
+      </p>
+    </div>
+  );
+}
+
 export default function KingCostPanel() {
   const [workTab, setWorkTab] = useState<KingWorkTab>("cost-usage");
   const [days, setDays] = useState(30);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [data, setData] = useState<CostSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const to = new Date();
-    const from = new Date(to);
-    from.setUTCDate(from.getUTCDate() - days);
-    try {
-      const res = await fetch(
-        `/api/costs/summary?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`,
-        { credentials: "include" }
-      );
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error((j as { error?: string }).error || res.statusText);
-      }
-      setData((await res.json()) as CostSummaryResponse);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load");
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [days]);
+  const fetchGenRef = useRef(0);
+
+  const requestRefresh = useCallback(() => {
+    setReloadNonce((n) => n + 1);
+  }, []);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    const loadId = ++fetchGenRef.current;
+    const ac = new AbortController();
+
+    setLoading(true);
+    setError(null);
+
+    const url = `/api/costs/summary?days=${days}`;
+
+    void (async () => {
+      try {
+        const res = await fetch(url, {
+          credentials: "include",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        if (loadId !== fetchGenRef.current) return;
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error((j as { error?: string }).error || res.statusText);
+        }
+        const json = (await res.json()) as CostSummaryResponse;
+        if (loadId !== fetchGenRef.current) return;
+        setData(json);
+      } catch (e) {
+        if (ac.signal.aborted || isAbortError(e)) return;
+        if (loadId !== fetchGenRef.current) return;
+        setError(e instanceof Error ? e.message : "Failed to load");
+        setData(null);
+      } finally {
+        if (loadId === fetchGenRef.current) setLoading(false);
+      }
+    })();
+
+    return () => ac.abort();
+  }, [days, reloadNonce]);
 
   const runAnthropicSync = async () => {
     setSyncing(true);
@@ -63,7 +125,7 @@ export default function KingCostPanel() {
         return;
       }
       setSyncMsg(`Synced ${j.rows ?? 0} cost row(s). Refreshing…`);
-      await load();
+      requestRefresh();
     } catch (e) {
       setSyncMsg(e instanceof Error ? e.message : "Sync failed");
     } finally {
@@ -99,16 +161,25 @@ export default function KingCostPanel() {
                 onChange={(e) => setDays(Number(e.target.value))}
                 className="bg-[var(--bg-primary)] border border-[var(--border-color)] rounded px-1 py-0.5 text-[var(--text-primary)]"
               >
-                {[7, 14, 30, 90].map((d) => (
+                {(
+                  [
+                    [1, "1 day"],
+                    [3, "3 days"],
+                    [7, "7 days"],
+                    [14, "14 days"],
+                    [30, "30 days"],
+                    [90, "90 days"],
+                  ] as const
+                ).map(([d, label]) => (
                   <option key={d} value={d}>
-                    {d}
+                    {label}
                   </option>
                 ))}
               </select>
             </label>
             <button
               type="button"
-              onClick={() => void load()}
+              onClick={() => requestRefresh()}
               disabled={loading}
               className="text-[10px] px-2 py-1 rounded border border-[var(--border-color)] hover:bg-[var(--bg-primary)] disabled:opacity-50"
             >
@@ -135,6 +206,11 @@ export default function KingCostPanel() {
         )}
         {data && !loading && (
           <>
+            <p className="text-[10px] text-[var(--text-tertiary)] mb-3 font-mono break-all">
+              Range (UTC): {data.from.slice(0, 19)}Z → {data.to.slice(0, 19)}Z — same window
+              for stats and table.
+            </p>
+            {data.coverage ? <KingWarehouseCoverage coverage={data.coverage} /> : null}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
               <Stat label="Events" value={String(data.metered.totals.events)} />
               <Stat
@@ -164,8 +240,12 @@ export default function KingCostPanel() {
               {data.configured.notes}
             </p>
             <h3 className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] mb-1">
-              By dimension
+              By dimension (In+Out+TTS first, then events)
             </h3>
+            <p className="text-[9px] text-[var(--text-tertiary)] mb-1">
+              Integration rows can have many Ev with 0 In/Out; LLM usage sorts to the top when tokens
+              exist in range.
+            </p>
             <div className="overflow-x-auto">
               <table className="w-full text-[10px] border-collapse">
                 <thead>
@@ -181,9 +261,15 @@ export default function KingCostPanel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.metered.byDimension.map((r, i) => (
+                  {data.metered.byDimension.map((r) => (
                     <tr
-                      key={`${r.application}-${r.surface}-${r.provider}-${r.agentId}-${i}`}
+                      key={[
+                        r.application,
+                        r.surface,
+                        r.provider,
+                        r.model ?? "",
+                        r.agentId ?? "",
+                      ].join("|")}
                       className="border-b border-[var(--border-color)]/60"
                     >
                       <td className="py-1 pr-2 font-mono">{r.application}</td>

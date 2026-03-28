@@ -4,9 +4,17 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import { query, CRM_WORKSPACE_SCHEMA } from "./db";
-import type { CostSummaryResponse, UsageSummaryRow } from "./usage-event-summary-types";
+import type {
+  CostSummaryResponse,
+  UsageSummaryRow,
+  UsageWarehouseCoverage,
+} from "./usage-event-summary-types";
 
-export type { CostSummaryResponse, UsageSummaryRow } from "./usage-event-summary-types";
+export type {
+  CostSummaryResponse,
+  UsageSummaryRow,
+  UsageWarehouseCoverage,
+} from "./usage-event-summary-types";
 
 const APP_COMMAND_CENTRAL = "command-central";
 
@@ -156,6 +164,93 @@ function unipileMonthlyUsd(): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** pg often returns COUNT/SUM as string (int8); tolerate number/bigint. */
+function parseSqlAggInt(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.trunc(v);
+  if (typeof v === "bigint") return Number(v);
+  if (typeof v === "string") {
+    const t = v.trim();
+    if (!t) return 0;
+    const n = Number(t);
+    return Number.isFinite(n) ? Math.trunc(n) : 0;
+  }
+  return 0;
+}
+
+function parseSqlAggUsd(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = parseFloat(v.trim());
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+}
+
+function occurredAtToIso(v: unknown): string | null {
+  if (v == null) return null;
+  const d = v instanceof Date ? v : new Date(String(v));
+  const t = d.getTime();
+  return Number.isNaN(t) ? null : d.toISOString();
+}
+
+/** Min/max/count across all `_usage_event` rows (warehouse span). */
+async function loadUsageWarehouseCoverage(): Promise<UsageWarehouseCoverage> {
+  if (USE_PG) {
+    const rows = await query<{
+      c: unknown;
+      min_a: unknown;
+      max_a: unknown;
+    }>(
+      `SELECT COUNT(*)::text AS c,
+              MIN("occurredAt") AS min_a,
+              MAX("occurredAt") AS max_a
+       FROM "_usage_event"`
+    );
+    const r = rows[0];
+    if (!r) {
+      return { totalRows: 0, oldestOccurredAt: null, newestOccurredAt: null };
+    }
+    return {
+      totalRows: parseSqlAggInt(r.c),
+      oldestOccurredAt: occurredAtToIso(r.min_a),
+      newestOccurredAt: occurredAtToIso(r.max_a),
+    };
+  }
+
+  const all = parseDevRows();
+  if (all.length === 0) {
+    return { totalRows: 0, oldestOccurredAt: null, newestOccurredAt: null };
+  }
+  let oldest = all[0]!.occurredAt;
+  let newest = all[0]!.occurredAt;
+  for (const row of all) {
+    if (row.occurredAt < oldest) oldest = row.occurredAt;
+    if (row.occurredAt > newest) newest = row.occurredAt;
+  }
+  return {
+    totalRows: all.length,
+    oldestOccurredAt: occurredAtToIso(oldest),
+    newestOccurredAt: occurredAtToIso(newest),
+  };
+}
+
+/**
+ * Token-heavy rows first (LLM/TTS), then event count.
+ * Sorting by events alone kept integration pings (many Ev, 0 In/Out) above LLM rows, so changing
+ * the day window looked like In/Out “didn’t filter” while only noisy Ev counts moved.
+ */
+function sortUsageRowsByImpact(rows: UsageSummaryRow[]): UsageSummaryRow[] {
+  return [...rows].sort((a, b) => {
+    const volA = a.inputTokens + a.outputTokens + a.ttsCharacters;
+    const volB = b.inputTokens + b.outputTokens + b.ttsCharacters;
+    if (volB !== volA) return volB - volA;
+    if (b.events !== a.events) return b.events - a.events;
+    const ka = `${a.application}\0${a.surface}\0${a.provider}\0${a.agentId ?? ""}\0${a.model ?? ""}`;
+    const kb = `${b.application}\0${b.surface}\0${b.provider}\0${b.agentId ?? ""}\0${b.model ?? ""}`;
+    return ka.localeCompare(kb);
+  });
+}
+
 export async function buildUsageSummary(
   fromIso: string,
   toIso: string
@@ -175,11 +270,11 @@ export async function buildUsageSummary(
       provider: string;
       model: string | null;
       agentId: string | null;
-      events: string;
-      inputTokens: string;
-      outputTokens: string;
-      ttsCharacters: string;
-      estimatedUsd: string | null;
+      events: unknown;
+      inputTokens: unknown;
+      outputTokens: unknown;
+      ttsCharacters: unknown;
+      estimatedUsd: unknown;
     }>(
       `SELECT "application", "surface", "provider", "model", "agentId",
         COUNT(*)::text AS "events",
@@ -199,11 +294,11 @@ export async function buildUsageSummary(
       provider: r.provider,
       model: r.model,
       agentId: r.agentId,
-      events: parseInt(r.events, 10) || 0,
-      inputTokens: parseInt(r.inputTokens, 10) || 0,
-      outputTokens: parseInt(r.outputTokens, 10) || 0,
-      ttsCharacters: parseInt(r.ttsCharacters, 10) || 0,
-      estimatedUsd: parseFloat(r.estimatedUsd || "0") || 0,
+      events: parseSqlAggInt(r.events),
+      inputTokens: parseSqlAggInt(r.inputTokens),
+      outputTokens: parseSqlAggInt(r.outputTokens),
+      ttsCharacters: parseSqlAggInt(r.ttsCharacters),
+      estimatedUsd: parseSqlAggUsd(r.estimatedUsd),
     }));
   } else {
     const all = parseDevRows();
@@ -241,10 +336,10 @@ export async function buildUsageSummary(
       cur.estimatedUsd += r.estimatedUsd ?? 0;
       map.set(key, cur);
     }
-    byDimension = Array.from(map.values()).sort((a, b) =>
-      `${a.application}:${a.surface}`.localeCompare(`${b.application}:${b.surface}`)
-    );
+    byDimension = Array.from(map.values());
   }
+
+  byDimension = sortUsageRowsByImpact(byDimension);
 
   const totals = byDimension.reduce(
     (acc, r) => ({
@@ -263,10 +358,13 @@ export async function buildUsageSummary(
     }
   );
 
+  const coverage = await loadUsageWarehouseCoverage();
+
   return {
     from: from.toISOString(),
     to: to.toISOString(),
     workspaceSchema: CRM_WORKSPACE_SCHEMA,
+    coverage,
     metered: { totals, byDimension },
     configured: {
       unipileMonthlyUsd: unipileMonthlyUsd(),
@@ -284,6 +382,9 @@ export async function formatUsageSummaryText(
   const s = await buildUsageSummary(fromIso, toIso);
   const lines: string[] = [
     `Usage summary (${s.from.slice(0, 10)} → ${s.to.slice(0, 10)} UTC)`,
+    `Warehouse: ${s.coverage.totalRows} row(s); span ${
+      s.coverage.oldestOccurredAt?.slice(0, 19) ?? "—"
+    }Z → ${s.coverage.newestOccurredAt?.slice(0, 19) ?? "—"}Z (all-time min/max)`,
     `Total events: ${s.metered.totals.events}`,
     `LLM input tokens: ${s.metered.totals.inputTokens}`,
     `LLM output tokens: ${s.metered.totals.outputTokens}`,

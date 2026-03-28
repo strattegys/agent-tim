@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { addIntake, extractFirstUrl, intakeExistsWithMessageId } from "@/lib/intake";
+import {
+  addIntake,
+  extractFirstUrl,
+  extractFirstUrlFromHtml,
+  htmlToPlainText,
+  intakeExistsWithMessageId,
+} from "@/lib/intake";
 
 const SECRET = process.env.INTAKE_INBOUND_WEBHOOK_SECRET?.trim() || "";
 
@@ -49,6 +55,7 @@ type ParsedInbound = {
   from: string;
   subject: string;
   textBody: string;
+  htmlBody: string;
   messageId: string | null;
 };
 
@@ -62,13 +69,14 @@ function parsePostmarkJson(body: Record<string, unknown>): ParsedInbound | null 
       : typeof body.TextBody === "string"
         ? body.TextBody
         : "") || "";
+  const htmlBody = typeof body.HtmlBody === "string" ? body.HtmlBody : "";
   const messageId =
     typeof body.MessageID === "string"
       ? body.MessageID
       : typeof body.MessageId === "string"
         ? body.MessageId
         : null;
-  return { from, subject, textBody, messageId };
+  return { from, subject, textBody, htmlBody, messageId };
 }
 
 async function parseRequest(req: Request): Promise<ParsedInbound | null> {
@@ -87,8 +95,9 @@ async function parseRequest(req: Request): Promise<ParsedInbound | null> {
         form.get("text") ||
         ""
     );
+    const htmlBody = String(form.get("HtmlBody") || form.get("body-html") || "");
     const messageId = String(form.get("Message-ID") || form.get("MessageID") || "") || null;
-    return { from, subject, textBody, messageId };
+    return { from, subject, textBody, htmlBody, messageId };
   }
 
   if (ct.includes("application/json") || ct.includes("+json")) {
@@ -141,8 +150,13 @@ export async function POST(req: Request, ctx: RouteCtx) {
   }
 
   const title = parsed.subject.trim().slice(0, 500) || "Email capture";
-  const bodyText = parsed.textBody.trim().slice(0, 20000) || null;
-  const urlFromBody = bodyText ? extractFirstUrl(bodyText) : null;
+  const plainFromHtml = htmlToPlainText(parsed.htmlBody);
+  const mergedPlain = parsed.textBody.trim() || plainFromHtml.trim();
+  const bodyText = mergedPlain ? mergedPlain.slice(0, 20000) : null;
+  const urlFromBody =
+    extractFirstUrl(parsed.textBody) ||
+    extractFirstUrlFromHtml(parsed.htmlBody) ||
+    (mergedPlain ? extractFirstUrl(mergedPlain) : null);
 
   await addIntake("suzi", {
     title,

@@ -138,8 +138,45 @@ function rowToIntake(row: Record<string, unknown>): IntakeItem {
   };
 }
 
+function stripTrailingUrlPunct(url: string): string {
+  return url.replace(/[),.;]+$/g, "");
+}
+
 /** Extract first http(s) URL from text (email bodies, share text). */
 export function extractFirstUrl(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s<>"{}|\\^`[\]]+/i);
-  return m ? m[0].replace(/[),.;]+$/, "") : null;
+  return m ? stripTrailingUrlPunct(m[0]) : null;
+}
+
+/**
+ * Rough plain text from HTML for intake preview when providers send empty TextBody
+ * (common for forwards / rich clients — links often live only in HtmlBody).
+ */
+export function htmlToPlainText(html: string, maxLen = 20000): string {
+  if (!html.trim()) return "";
+  let t = html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "");
+  t = t.replace(/<\/(p|div|tr|h[1-6])\s*>/gi, "\n");
+  t = t.replace(/<br\s*\/?>/gi, "\n");
+  t = t.replace(/<[^>]+>/g, " ");
+  t = t
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+  t = t.replace(/\s+\n/g, "\n").replace(/\n\s+/g, "\n").replace(/[ \t]{2,}/g, " ").trim();
+  return t.slice(0, maxLen);
+}
+
+/** First http(s) URL from HTML: prefer href=, else scan stripped text. */
+export function extractFirstUrlFromHtml(html: string): string | null {
+  if (!html.trim()) return null;
+  const href = html.match(/href\s*=\s*["'](https?:\/\/[^"'>\s]+)/i);
+  if (href) return stripTrailingUrlPunct(href[1]);
+  const plain = htmlToPlainText(html, 50000);
+  return extractFirstUrl(plain);
 }

@@ -1,0 +1,20 @@
+services:
+  tim:
+    build: .
+    container_name: nanobot-tim
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - tim-workspace:/app/workspace
+      - tim-sessions:/root/.nanobot/sessions
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  tim-workspace:
+  tim-sessions:

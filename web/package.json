@@ -14,6 +14,7 @@
     "db:reconnect": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/dev-db-reconnect.ps1",
     "check-crm-db:no-ts-fallback": "node scripts/check-crm-db.mjs --no-tailscale-fallback",
     "db:vector-memory": "node scripts/db-exec.mjs scripts/migrate-vector-memory.sql",
+    "db:punch-list-actions": "node scripts/db-exec.mjs scripts/migrate-punch-list-actions-jsonb.sql",
     "migrate:orphan-workflows": "node scripts/migrate-orphan-workflows-to-packages.mjs"
   },
   "dependencies": {

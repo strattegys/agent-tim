@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { query } from "./db";
 
 export interface PunchListNote {
@@ -7,7 +8,10 @@ export interface PunchListNote {
   createdAt: string;
 }
 
-/** Checkbox subtask on a punch list card (Inspect panel + `punch_list` action_add / action_toggle). */
+/**
+ * Checkbox subtask on a punch list card (Inspect + `punch_list` action_add / action_toggle).
+ * Persisted as a JSON array on `_punch_list.actions` (not a separate table).
+ */
 export interface PunchListAction {
   id: string;
   itemId: string;
@@ -93,7 +97,7 @@ export async function addPunchListItem(
   const rows = await query<Record<string, unknown>>(
     `INSERT INTO "_punch_list" ("agentId", title, description, rank, category)
      VALUES ($1, $2, $3, $4, $5)
-     RETURNING *, '[]'::json as notes, '[]'::json as actions`,
+     RETURNING *, '[]'::json as notes`,
     [agentId, data.title, data.description || null, data.rank ?? 4, data.category || null]
   );
   return rowToItem(rows[0]);
@@ -203,24 +207,35 @@ export async function insertPunchListItemAction(
   const trimmed = content.trim();
   if (!trimmed) throw new Error("content is required");
 
-  const ok = await query<Record<string, unknown>>(
-    `SELECT id FROM "_punch_list" WHERE id = $1 AND "agentId" = $2 AND "deletedAt" IS NULL AND "archivedAt" IS NULL`,
+  const rows = await query<Record<string, unknown>>(
+    `SELECT id, actions FROM "_punch_list" WHERE id = $1 AND "agentId" = $2 AND "deletedAt" IS NULL AND "archivedAt" IS NULL`,
     [itemId, agentId]
   );
-  if (!ok.length) throw new Error("Item not found");
+  if (!rows.length) throw new Error("Item not found");
 
-  const maxRows = await query<{ n: string | number | null }>(
-    `SELECT COALESCE(MAX("sortOrder"), -1) + 1 AS n FROM "_punch_list_action" WHERE "itemId" = $1`,
-    [itemId]
-  );
-  const sortOrder = Number(maxRows[0]?.n ?? 0);
+  const existing = parseEmbeddedActions(rows[0].actions, itemId);
+  const sortOrder = existing.reduce((m, a) => Math.max(m, a.sortOrder), -1) + 1;
+  const now = new Date().toISOString();
+  const id = randomUUID();
+  const next = [
+    ...existing,
+    { id, content: trimmed, done: false, sortOrder, createdAt: now, updatedAt: now },
+  ];
 
-  const rows = await query<Record<string, unknown>>(
-    `INSERT INTO "_punch_list_action" ("itemId", content, "sortOrder") VALUES ($1, $2, $3) RETURNING *`,
-    [itemId, trimmed, sortOrder]
+  await query(
+    `UPDATE "_punch_list" SET actions = $1::jsonb, "updatedAt" = NOW() WHERE id = $2`,
+    [JSON.stringify(next), itemId]
   );
-  await query(`UPDATE "_punch_list" SET "updatedAt" = NOW() WHERE id = $1`, [itemId]);
-  return actionToObj(rows[0]);
+
+  return {
+    id,
+    itemId,
+    content: trimmed,
+    done: false,
+    sortOrder,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 /** Toggle or edit a subtask; returns null if action not found for this agent. */
@@ -231,33 +246,52 @@ export async function patchPunchListItemAction(
 ): Promise<{ itemId: string; itemNumber: number } | null> {
   if (patch.done === undefined && patch.content === undefined) return null;
 
-  const sets: string[] = [`"updatedAt" = NOW()`];
-  const params: unknown[] = [];
-  let idx = 1;
-  if (patch.done !== undefined) {
-    sets.push(`done = $${idx++}`);
-    params.push(patch.done);
-  }
-  if (patch.content !== undefined) {
-    sets.push(`content = $${idx++}`);
-    params.push(patch.content.trim());
-  }
-  const idPh = idx++;
-  const agPh = idx++;
-  params.push(actionId, agentId);
-
   const rows = await query<Record<string, unknown>>(
-    `UPDATE "_punch_list_action" a SET ${sets.join(", ")}
+    `SELECT p.id, p."itemNumber", p.actions
      FROM "_punch_list" p
-     WHERE a.id = $${idPh} AND a."itemId" = p.id AND p."agentId" = $${agPh}
+     WHERE p."agentId" = $1
        AND p."deletedAt" IS NULL
-     RETURNING a."itemId", p."itemNumber"`,
-    params
+       AND EXISTS (
+         SELECT 1
+         FROM jsonb_array_elements(COALESCE(p.actions, '[]'::jsonb)) elem
+         WHERE elem->>'id' = $2
+       )
+     LIMIT 1`,
+    [agentId, actionId]
   );
   if (!rows.length) return null;
-  const itemId = rows[0].itemId as string;
-  await query(`UPDATE "_punch_list" SET "updatedAt" = NOW() WHERE id = $1`, [itemId]);
-  return { itemId, itemNumber: rows[0].itemNumber as number };
+
+  const itemId = rows[0].id as string;
+  const itemNumber = rows[0].itemNumber as number;
+  const list = parseEmbeddedActions(rows[0].actions, itemId);
+  const idx = list.findIndex((a) => a.id === actionId);
+  if (idx < 0) return null;
+
+  const now = new Date().toISOString();
+  const prev = list[idx];
+  const updated: PunchListAction = {
+    ...prev,
+    done: patch.done !== undefined ? patch.done : prev.done,
+    content: patch.content !== undefined ? patch.content.trim() : prev.content,
+    updatedAt: now,
+  };
+  const next = [...list.slice(0, idx), updated, ...list.slice(idx + 1)];
+
+  await query(
+    `UPDATE "_punch_list" SET actions = $1::jsonb, "updatedAt" = NOW() WHERE id = $2`,
+    [JSON.stringify(
+      next.map((a) => ({
+        id: a.id,
+        content: a.content,
+        done: a.done,
+        sortOrder: a.sortOrder,
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt,
+      }))
+    ), itemId]
+  );
+
+  return { itemId, itemNumber };
 }
 
 export async function listCategories(agentId: string): Promise<string[]> {
@@ -279,17 +313,66 @@ function noteToObj(row: Record<string, unknown>): PunchListNote {
   };
 }
 
+/** Read `actions` JSONB from a row; stable order for UI and tools. */
+function parseEmbeddedActions(raw: unknown, itemId: string): PunchListAction[] {
+  let arr: unknown[] = [];
+  if (raw == null) return [];
+  if (typeof raw === "string") {
+    try {
+      const p = JSON.parse(raw) as unknown;
+      arr = Array.isArray(p) ? p : [];
+    } catch {
+      return [];
+    }
+  } else if (Array.isArray(raw)) {
+    arr = raw;
+  } else {
+    return [];
+  }
+
+  const out: PunchListAction[] = [];
+  for (const el of arr) {
+    if (!el || typeof el !== "object") continue;
+    const o = el as Record<string, unknown>;
+    const id = String(o.id || "");
+    if (!id) continue;
+    out.push(
+      actionToObj({
+        id,
+        itemId,
+        content: String(o.content ?? ""),
+        done: Boolean(o.done),
+        sortOrder: Number(o.sortOrder ?? 0),
+        createdAt: o.createdAt,
+        updatedAt: o.updatedAt,
+      })
+    );
+  }
+  out.sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt)
+  );
+  return out;
+}
+
+function isoField(v: unknown, fallback: string): string {
+  if (typeof v === "string" && v) return v;
+  if (v instanceof Date) return v.toISOString();
+  return fallback;
+}
+
 function actionToObj(row: Record<string, unknown>): PunchListAction {
-  const ca = row.createdAt as Date | string;
-  const ua = row.updatedAt as Date | string;
+  const ca = row.createdAt as Date | string | undefined;
+  const ua = row.updatedAt as Date | string | undefined;
+  const now = new Date().toISOString();
+  const createdAt = isoField(ca, now);
   return {
     id: row.id as string,
     itemId: row.itemId as string,
     content: row.content as string,
     done: Boolean(row.done),
     sortOrder: Number(row.sortOrder ?? 0),
-    createdAt: typeof ca === "string" ? ca : ca.toISOString(),
-    updatedAt: typeof ua === "string" ? ua : ua.toISOString(),
+    createdAt,
+    updatedAt: isoField(ua, createdAt),
   };
 }
 
@@ -315,19 +398,7 @@ function rowToItem(row: Record<string, unknown>): PunchListItem {
     }
   }
 
-  let actions: PunchListAction[] = [];
-  if (row.actions) {
-    if (typeof row.actions === "string") {
-      try {
-        const parsed = JSON.parse(row.actions) as Record<string, unknown>[];
-        if (Array.isArray(parsed)) actions = parsed.map(actionToObj);
-      } catch {
-        /* ignore */
-      }
-    } else if (Array.isArray(row.actions)) {
-      actions = (row.actions as Record<string, unknown>[]).map(actionToObj);
-    }
-  }
+  const actions = parseEmbeddedActions(row.actions, row.id as string);
 
   return {
     id: row.id as string,

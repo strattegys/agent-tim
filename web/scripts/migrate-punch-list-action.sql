@@ -1,3 +1,6 @@
+-- DEPRECATED: actions are stored on `_punch_list.actions` (JSONB). See migrate-punch-list-actions-jsonb.sql.
+-- Kept for reference only — do not run on new databases.
+--
 -- Subtasks / actions on punch list items (checkboxes in Inspect; Suzi can toggle via punch_list tool).
 CREATE TABLE IF NOT EXISTS "_punch_list_action" (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

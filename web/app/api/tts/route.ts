@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { synthesizeSpeech, summarizeForVoice } from "@/lib/tts";
+import { recordUsageEvent } from "@/lib/usage-events";
 
 export async function POST(request: Request) {
   try {
-    const { text, summarize, voice } = await request.json();
+    const { text, summarize, voice, agentId } = await request.json();
     if (!text || typeof text !== "string") {
       return NextResponse.json(
         { error: "Text is required" },
@@ -33,6 +34,20 @@ export async function POST(request: Request) {
       }
     }
     console.log(`[tts] Speaking ${spokenText.split(/\s+/).length} words (summarized=${summarize})`);
+
+    const chars = [...spokenText].length;
+    recordUsageEvent({
+      surface: "tts",
+      provider: "inworld",
+      model: "inworld-tts-1.5-mini",
+      agent_id:
+        typeof agentId === "string" && agentId.trim() ? agentId.trim() : null,
+      tts_characters: chars,
+      metadata: {
+        voice: typeof voice === "string" ? voice : null,
+        summarize: !!summarize,
+      },
+    });
 
     // Inworld WAV (same pipeline as Rainbow Bot).
     const { stream, contentType } = await synthesizeSpeech(

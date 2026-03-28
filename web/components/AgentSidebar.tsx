@@ -5,6 +5,7 @@ import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
 import AgentAvatar from "./AgentAvatar";
 import NotificationBell from "./NotificationBell";
+import type { DashboardNotification } from "@/lib/dashboard-sync-types";
 
 const TEAM_CATEGORIES = AGENT_CATEGORIES.filter((c) => c !== "Toys");
 
@@ -17,6 +18,7 @@ interface AgentSidebarProps {
   testingTaskCount?: number;
   timMessagingTaskCount?: number;
   ghostContentTaskCount?: number;
+  sharedNotifications?: DashboardNotification[];
 }
 
 export default function AgentSidebar({
@@ -28,6 +30,7 @@ export default function AgentSidebar({
   testingTaskCount = 0,
   timMessagingTaskCount = 0,
   ghostContentTaskCount = 0,
+  sharedNotifications,
 }: AgentSidebarProps) {
   const appTitle = getAppBrandTitle();
   const headline = getAppHeadline();
@@ -35,7 +38,7 @@ export default function AgentSidebar({
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
       <div className="shrink-0 px-2 py-2 border-b border-[var(--border-color)] min-w-0 relative">
         <div className="absolute top-2 right-2 z-10">
-          <NotificationBell />
+          <NotificationBell sharedNotifications={sharedNotifications} />
         </div>
         <p
           className="text-[10px] font-semibold text-[var(--text-primary)] leading-snug pr-7"

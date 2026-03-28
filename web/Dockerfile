@@ -8,8 +8,14 @@ COPY web/package.json web/package-lock.json* ./
 RUN npm ci
 
 # ── Stage 2: Build ──
+# Auth.js v5 middleware (Edge) needs NEXTAUTH_SECRET / AUTH_SECRET at build time so the
+# standalone bundle can sign and verify sessions. Pass via compose build.args from web/.env.local.
 FROM node:20-alpine AS builder
 WORKDIR /app
+ARG AUTH_SECRET
+ARG NEXTAUTH_SECRET
+ENV AUTH_SECRET=$AUTH_SECRET
+ENV NEXTAUTH_SECRET=$NEXTAUTH_SECRET
 COPY --from=deps /app/node_modules ./node_modules
 COPY web/ .
 RUN npm run build

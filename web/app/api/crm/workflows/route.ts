@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import type { Board, WorkflowItemType } from "@/lib/board-types";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 interface WorkflowRow {
   [key: string]: unknown;
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
        RETURNING id`,
       [name, spec || "", type, boardId, ownerAgent || null]
     );
+    notifyDashboardSyncChange();
     return NextResponse.json({ id: rows[0].id });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to create workflow";
@@ -148,6 +150,7 @@ export async function PATCH(request: NextRequest) {
       `UPDATE "_workflow" SET ${sets.join(", ")} WHERE id = $${idx} AND "deletedAt" IS NULL`,
       params
     );
+    notifyDashboardSyncChange();
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to update workflow";

@@ -6,6 +6,10 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
 import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import {
+  logGeminiUsageFromResponse,
+  logGeminiUsageFromStreamChunk,
+} from "./llm-usage-log";
 
 const MAX_TOOL_ITERATIONS = 20;
 
@@ -84,6 +88,7 @@ export async function chat(
   const tools = buildGeminiTools(config.tools);
   const delegatedAgents = new Set<string>();
   const executedTools: Array<{ name: string; args: Record<string, string>; result: string }> = [];
+  const geminiModel = config.modelName || "gemini-2.5-flash";
 
   let iterations = 0;
 
@@ -91,7 +96,7 @@ export async function chat(
     iterations++;
 
     const response = await ai.models.generateContent({
-      model: config.modelName || "gemini-2.5-flash",
+      model: geminiModel,
       contents,
       config: {
         systemInstruction: systemPrompt,
@@ -100,6 +105,8 @@ export async function chat(
         tools,
       },
     });
+
+    logGeminiUsageFromResponse(agentId, geminiModel, response);
 
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) {
@@ -253,6 +260,7 @@ export async function autonomousChat(
   contents.push({ role: "user", parts: [{ text: triggerPrompt }] });
 
   const tools = buildGeminiTools(config.tools);
+  const geminiModelAuto = config.modelName || "gemini-2.5-flash";
 
   // Save the trigger prompt immediately if it came from another agent,
   // so it appears in the target agent's chat history even if execution fails
@@ -271,7 +279,7 @@ export async function autonomousChat(
     iterations++;
 
     const response = await ai.models.generateContent({
-      model: config.modelName || "gemini-2.5-flash",
+      model: geminiModelAuto,
       contents,
       config: {
         systemInstruction: systemPrompt,
@@ -280,6 +288,8 @@ export async function autonomousChat(
         tools,
       },
     });
+
+    logGeminiUsageFromResponse(agentId, geminiModelAuto, response);
 
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) break;
@@ -413,6 +423,7 @@ export async function chatStream(
   contents.push({ role: "user", parts: [{ text: userMessage }] });
 
   const tools = buildGeminiTools(config.tools);
+  const geminiModelStream = config.modelName || "gemini-2.5-flash";
   const geminiConfig = {
     systemInstruction: systemPrompt,
     temperature: config.temperature ?? 0.7,
@@ -429,10 +440,12 @@ export async function chatStream(
     iterations++;
 
     const response = await ai.models.generateContent({
-      model: config.modelName || "gemini-2.5-flash",
+      model: geminiModelStream,
       contents,
       config: geminiConfig,
     });
+
+    logGeminiUsageFromResponse(agentId, geminiModelStream, response);
 
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) break;
@@ -557,20 +570,24 @@ export async function chatStream(
 
   // Stream the final text response
   let fullText = "";
+  let lastStreamChunk: unknown;
 
   const stream = await ai.models.generateContentStream({
-    model: config.modelName || "gemini-2.5-flash",
+    model: geminiModelStream,
     contents,
     config: geminiConfig,
   });
 
   for await (const chunk of stream) {
+    lastStreamChunk = chunk;
     const text = chunk.text;
     if (text) {
       fullText += text;
       onChunk(text);
     }
   }
+
+  logGeminiUsageFromStreamChunk(agentId, geminiModelStream, lastStreamChunk);
 
   if (fullText) {
     addMessage(config.sessionFile, {

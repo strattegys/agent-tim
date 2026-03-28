@@ -178,8 +178,19 @@ async function main() {
   const searchPath =
     process.env.CRM_DB_SEARCH_PATH || DEFAULT_SEARCH_PATH;
 
+  const connectionTimeoutMillis = parseInt(
+    process.env.CRM_DB_CONNECTION_TIMEOUT_MS || "30000",
+    10
+  );
+  const keepAlive = process.env.CRM_DB_KEEPALIVE === "0" ? false : true;
+
   const pool = url
-    ? new Pool({ connectionString: url, max: 2 })
+    ? new Pool({
+        connectionString: url,
+        max: 2,
+        connectionTimeoutMillis,
+        keepAlive,
+      })
     : new Pool({
         host: process.env.CRM_DB_HOST || "127.0.0.1",
         port: parseInt(process.env.CRM_DB_PORT || "5432", 10),
@@ -187,6 +198,8 @@ async function main() {
         user: process.env.CRM_DB_USER || "postgres",
         password: process.env.CRM_DB_PASSWORD,
         max: 2,
+        connectionTimeoutMillis,
+        keepAlive,
       });
 
   const args = process.argv.slice(2).filter((a) => a !== "--");

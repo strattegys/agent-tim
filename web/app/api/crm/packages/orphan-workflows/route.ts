@@ -5,6 +5,7 @@ import {
   migrateOrphanWorkflowsToPackages,
   parsePackageMigrationExcludeIds,
 } from "@/lib/migrate-orphan-workflows-to-packages";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 const CLI_HINT =
   "From the web/ folder run: npm run migrate:orphan-workflows (or set ALLOW_ORPHAN_PACKAGE_MIGRATION=1 for this API).";
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
     const exclude = parsePackageMigrationExcludeIds();
 
     const result = await migrateOrphanWorkflowsToPackages(dryRun, exclude);
+    if (!dryRun) notifyDashboardSyncChange();
     return NextResponse.json({
       ok: true,
       ...result,

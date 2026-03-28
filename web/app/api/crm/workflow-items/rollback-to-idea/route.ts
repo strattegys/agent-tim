@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { workflowTypeFromSpec } from "@/lib/workflow-spec";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 /** Stages where user can reset to IDEA (not PUBLISHED — live content). */
 const ROLLBACK_FROM_STAGES = new Set([
@@ -79,6 +80,7 @@ export async function POST(req: NextRequest) {
 
     await syncHumanTaskOpenForItem(itemId);
 
+    notifyDashboardSyncChange();
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[rollback-to-idea]", e);

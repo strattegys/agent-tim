@@ -4,9 +4,14 @@ import { NextResponse } from "next/server";
 /** Paths that must never require a session (img src, webhooks, NextAuth). Matcher regex can miss edge cases. */
 function isPublicPath(pathname: string): boolean {
   if (pathname === "/login") return true;
+  if (pathname === "/backend-only") return true;
   if (pathname.startsWith("/api/auth")) return true;
   if (pathname.startsWith("/api/webhooks")) return true;
   if (pathname.startsWith("/api/agent-avatar")) return true;
+  if (pathname === "/api/health" || pathname.startsWith("/api/health/"))
+    return true;
+  /** PWA share target POST must reach the handler (session checked inside); redirect would drop body. */
+  if (pathname === "/share-intake") return true;
   if (pathname.startsWith("/_next/")) return true;
   if (pathname === "/favicon.ico" || pathname === "/sw.js") return true;
   return false;
@@ -27,7 +32,8 @@ export default auth((req) => {
     whSecret &&
     req.method === "POST" &&
     req.nextUrl.pathname === "/api/crm/human-tasks/resolve" &&
-    req.headers.get("authorization") === `Bearer ${whSecret}`
+    (req.headers.get("authorization") === `Bearer ${whSecret}` ||
+      req.headers.get("unipile-auth") === whSecret)
   ) {
     return NextResponse.next();
   }
@@ -42,13 +48,15 @@ export const config = {
   matcher: [
     /*
      * Match all paths except:
-     * - /login
+     * - /login, /backend-only
      * - /api/auth (NextAuth routes)
      * - /api/webhooks (external webhooks like Unipile)
      * - /_next (Next.js internals)
      * - /favicon.ico, /sw.js, static files
      */
     // api/agent-avatar must stay public: <img src> requests often omit auth cookies in edge cases; a redirect breaks icons.
-    "/((?!login|api/auth|api/webhooks|api/agent-avatar|_next|favicon\\.ico|sw\\.js|.*\\.).*)",
+    // Explicit "/" — some Next matcher regexes skip the bare root on certain versions.
+    "/",
+    "/((?!login|backend-only|api/auth|api/webhooks|api/agent-avatar|_next|favicon\\.ico|sw\\.js|.*\\.).*)",
   ],
 };

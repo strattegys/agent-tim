@@ -13,22 +13,63 @@ if (
   );
 }
 
+function crmPoolOptions(): {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string | undefined;
+  max: number;
+  connectionTimeoutMillis: number;
+  keepAlive: boolean;
+  idleTimeoutMillis: number;
+} {
+  const connectionTimeoutMillis = parseInt(
+    process.env.CRM_DB_CONNECTION_TIMEOUT_MS || "30000",
+    10
+  );
+  const max = parseInt(process.env.CRM_DB_POOL_MAX || "5", 10);
+  return {
+    host: process.env.CRM_DB_HOST || "127.0.0.1",
+    port: parseInt(process.env.CRM_DB_PORT || "5432", 10),
+    database: process.env.CRM_DB_NAME || "default",
+    user: process.env.CRM_DB_USER || "postgres",
+    password: process.env.CRM_DB_PASSWORD,
+    max: Number.isFinite(max) && max > 0 ? max : 5,
+    connectionTimeoutMillis:
+      Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
+        ? connectionTimeoutMillis
+        : 30000,
+    keepAlive: process.env.CRM_DB_KEEPALIVE === "0" ? false : true,
+    idleTimeoutMillis: parseInt(process.env.CRM_DB_IDLE_TIMEOUT_MS || "30000", 10) || 30000,
+  };
+}
+
 // Lazy-init pool only when we have a real DB
 let _pool: import("pg").Pool | null = null;
 function getPool(): import("pg").Pool {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { Pool } = require("pg") as typeof import("pg");
   if (!_pool) {
-    _pool = new Pool({
-      host: process.env.CRM_DB_HOST || "127.0.0.1",
-      port: parseInt(process.env.CRM_DB_PORT || "5432"),
-      database: process.env.CRM_DB_NAME || "default",
-      user: process.env.CRM_DB_USER || "postgres",
-      password: process.env.CRM_DB_PASSWORD,
-      max: 5,
-    });
+    _pool = new Pool(crmPoolOptions());
   }
   return _pool;
+}
+
+/**
+ * Close the CRM pool so the next query opens fresh connections (prod: after idle DB blips;
+ * dev: after SSH tunnel comes back). No-op when using .dev-store without CRM_DB_PASSWORD.
+ */
+export async function resetCrmPoolForReconnect(): Promise<void> {
+  if (USE_DEV_STORE) return;
+  const old = _pool;
+  _pool = null;
+  if (!old) return;
+  try {
+    await old.end();
+  } catch {
+    /* pool may already be closed */
+  }
 }
 
 /** Twenty / CRM workspace schema (Kanban, workflows, person, _workflow_item, …). */

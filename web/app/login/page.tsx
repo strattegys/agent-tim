@@ -1,8 +1,12 @@
 import { signIn, auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
+import { isBackendOnlyUiMode } from "@/lib/backend-only-ui";
 
 export default async function LoginPage() {
+  if (isBackendOnlyUiMode()) {
+    redirect("/backend-only");
+  }
   const session = await auth();
   if (session) redirect("/");
 

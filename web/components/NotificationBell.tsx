@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import type { DashboardNotification } from "@/lib/dashboard-sync-types";
 
 interface Notification {
   type: string;
@@ -10,7 +11,12 @@ interface Notification {
   read: boolean;
 }
 
-export default function NotificationBell() {
+type NotificationBellProps = {
+  /** When provided, uses parent-fed list and skips polling (parent uses /api/dashboard-sync). */
+  sharedNotifications?: DashboardNotification[];
+};
+
+export default function NotificationBell({ sharedNotifications }: NotificationBellProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [lastSeenEpoch, setLastSeenEpoch] = useState<number>(() => {
@@ -41,12 +47,28 @@ export default function NotificationBell() {
       .catch(() => {});
   }, []);
 
-  // Poll every 30s
+  const useShared = sharedNotifications !== undefined;
+
   useEffect(() => {
+    if (!useShared) return;
+    setNotifications(
+      sharedNotifications.map((n) => ({
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        timestamp: n.timestamp,
+        read: Boolean(n.read),
+      }))
+    );
+  }, [useShared, sharedNotifications]);
+
+  // Poll only when parent does not supply /api/dashboard-sync feed
+  useEffect(() => {
+    if (useShared) return;
     fetchNotifications();
     const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
-  }, [fetchNotifications]);
+  }, [useShared, fetchNotifications]);
 
   // Close on outside click
   useEffect(() => {

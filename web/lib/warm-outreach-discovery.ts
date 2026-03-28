@@ -4,10 +4,11 @@
  * one replacement when under backlog cap (does not consume daily cron quota).
  */
 
+import { randomUUID } from "crypto";
 import { query } from "./db";
 import { insertPackageBriefArtifactIfPresent } from "./package-brief-artifact";
 import { syncHumanTaskOpenForItem } from "./workflow-item-human-task";
-import { WARM_OUTREACH_PLACEHOLDER_JOB_TITLE } from "./warm-outreach-researching-guard";
+import { WARM_DISCOVERY_SOURCE_TYPE } from "./warm-discovery-item";
 
 /** Pacific wall clock for outreach cadence (cron uses same zone). */
 export const WARM_OUTREACH_PACIFIC_TZ = "America/Los_Angeles";
@@ -221,25 +222,21 @@ async function updateWorkflowDiscoveryCadence(
   );
 }
 
-/** Insert Next Contact + workflow item; PACKAGE_BRIEF when package has brief. */
+/**
+ * Insert an AWAITING_CONTACT slot **without** a CRM `person` row.
+ * `sourceType` = warm_discovery; `sourceId` is an opaque UUID until intake links a real contact.
+ */
 export async function insertWarmOutreachDiscoveryItem(
   workflowId: string,
   packageId: string | null
 ): Promise<string | null> {
-  const pRows = await query<{ id: string }>(
-    `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
-     VALUES ($1, $2, $3, NOW(), NOW())
-     RETURNING id`,
-    ["Next", "Contact", WARM_OUTREACH_PLACEHOLDER_JOB_TITLE]
-  );
-  const personId = (pRows[0] as Record<string, unknown>)?.id as string | undefined;
-  if (!personId) return null;
+  const slotId = randomUUID();
 
   const ins = await query<{ id: string }>(
     `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
-     VALUES ($1, 'AWAITING_CONTACT', 'person', $2, NOW(), NOW())
+     VALUES ($1, 'AWAITING_CONTACT', $2, $3, NOW(), NOW())
      RETURNING id`,
-    [workflowId, personId]
+    [workflowId, WARM_DISCOVERY_SOURCE_TYPE, slotId]
   );
   const itemId = ins[0]?.id ?? null;
   if (!itemId) return null;

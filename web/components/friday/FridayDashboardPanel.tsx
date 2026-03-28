@@ -8,14 +8,16 @@ import FridayPackageCard, {
 import HumanTasksPanel from "./HumanTasksPanel";
 import ToolsPanel from "./ToolsPanel";
 import { panelBus } from "@/lib/events";
+import { useDocumentVisible } from "@/lib/use-document-visible";
 
 const COLUMNS = [
-  { key: "ACTIVE", label: "Active", color: "#1D9E75" },
-  { key: "PAUSED", label: "Paused", color: "#D85A30" },
-  { key: "COMPLETED", label: "Completed", color: "#22c55e" },
+  { key: "ACTIVE", label: "Active", color: "var(--accent-green)" },
+  { key: "PAUSED", label: "Paused", color: "var(--accent-orange)" },
+  { key: "COMPLETED", label: "Completed", color: "var(--text-tertiary)" },
 ] as const;
 
-const POLL_INTERVAL = 5000;
+const POLL_MS_VISIBLE = 5000;
+const POLL_MS_HIDDEN = 30_000;
 
 type Tab = "packages" | "tasks" | "tools";
 
@@ -35,6 +37,7 @@ export default function FridayDashboardPanel({
   initialWorkTab,
   onDashboardTabChange,
 }: FridayDashboardPanelProps) {
+  const tabVisible = useDocumentVisible();
   const [tab, setTab] = useState<Tab>(() =>
     initialWorkTab === "tasks" || initialWorkTab === "tools" || initialWorkTab === "packages"
       ? initialWorkTab
@@ -109,7 +112,8 @@ export default function FridayDashboardPanel({
   useEffect(() => {
     mountedRef.current = true;
     fetchPackages();
-    const interval = setInterval(fetchPackages, POLL_INTERVAL);
+    const ms = tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN;
+    const interval = setInterval(fetchPackages, ms);
     const unsubWf = panelBus.on("workflow_manager", fetchPackages);
     const unsubPkg = panelBus.on("package_manager", fetchPackages);
     return () => {
@@ -118,7 +122,7 @@ export default function FridayDashboardPanel({
       unsubWf();
       unsubPkg();
     };
-  }, [fetchPackages]);
+  }, [fetchPackages, tabVisible]);
 
   const TABS: { key: Tab; label: string; count?: string }[] = [
     {
@@ -139,25 +143,27 @@ export default function FridayDashboardPanel({
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className="text-xs font-semibold px-2 py-1 rounded transition-colors flex items-center gap-1.5"
-            style={{
-              color: tab === t.key ? "var(--text-primary)" : "var(--text-tertiary)",
-              background: tab === t.key ? "var(--bg-tertiary)" : "transparent",
-            }}
-          >
-            {t.label}
-            {t.count && (
-              <span className="text-[10px] font-normal" style={{ color: "var(--text-tertiary)" }}>
-                {t.count}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+        {TABS.map((t) => {
+          const isActive = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors flex items-center gap-1.5 ${
+                isActive
+                  ? "font-semibold text-[var(--text-primary)]"
+                  : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+              }`}
+            >
+              {t.label}
+              {t.count ? (
+                <span className="text-[10px] font-normal text-[var(--text-tertiary)] tabular-nums">{t.count}</span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
 
       {tab === "tools" ? (
@@ -182,9 +188,12 @@ export default function FridayDashboardPanel({
                 key={col.key}
                 className="flex-1 min-w-[160px] flex flex-col border-r border-[var(--border-color)] last:border-r-0"
               >
-                <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: col.color }} />
-                  <span className="text-[10px] font-semibold text-[var(--text-primary)] uppercase tracking-wider">
+                <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5 bg-[var(--bg-primary)]/30">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0 opacity-70"
+                    style={{ backgroundColor: col.color }}
+                  />
+                  <span className="text-[10px] font-medium text-[var(--text-tertiary)] uppercase tracking-wider">
                     {col.label}
                   </span>
                   {colPkgs.length > 0 && (

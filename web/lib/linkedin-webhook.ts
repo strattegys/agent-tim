@@ -5,6 +5,11 @@
  */
 import { execFileSync } from "child_process";
 import { join } from "path";
+import { query } from "@/lib/db";
+import {
+  recordGeneralLinkedInInbound,
+  hasPackagedLinkedinOutreachPendingAcceptance,
+} from "@/lib/linkedin-general-inbox";
 import {
   findOrCreateContact,
   writeNote,
@@ -18,6 +23,7 @@ import { writeNotification } from "./notifications";
 import {
   applyWarmOutreachInboundViaResolve,
   resolveWarmOutreachItemsForInboundMessage,
+  resolvePostgresPersonIdsForLinkedInSender,
 } from "./warm-outreach-inbound-reply";
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
@@ -123,15 +129,35 @@ export async function handleUnipileWebhook(
 
   writeNote(noteTitle, noteContent, "person", contactId);
 
-  // Package / warm-outreach: if this person has an item at MESSAGED, advance to Replied → Reply Draft (same as human "Replied")
+  // Packaged warm-outreach: MESSAGED → Replied / reply draft (same as human "Replied"). Otherwise general Tim inbox (Postgres person match).
+  let packagedWarmItemIds: string[] = [];
   try {
-    const itemIds = await resolveWarmOutreachItemsForInboundMessage(contactId, senderProviderId);
-    if (itemIds.length === 0) {
+    packagedWarmItemIds = await resolveWarmOutreachItemsForInboundMessage(
+      contactId,
+      senderProviderId,
+      senderName
+    );
+    if (packagedWarmItemIds.length === 0) {
       console.log(
         `[linkedin-webhook] No warm-outreach item at MESSAGED for contact=${contactId} provider=${senderProviderId || "n/a"} (need same person.id as workflow item, or LinkedIn URL on person matching provider)`
       );
     }
-    if (itemIds.length > 0) {
+    if (packagedWarmItemIds.length > 0) {
+      try {
+        const pkgRows = await query<{ packageId: string | null }>(
+          `SELECT DISTINCT w."packageId" AS "packageId"
+           FROM "_workflow_item" wi
+           INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
+           WHERE wi."deletedAt" IS NULL AND wi.id = ANY($1::uuid[])`,
+          [packagedWarmItemIds]
+        );
+        console.log(
+          `[linkedin-webhook] Packaged warm-outreach match: items=${packagedWarmItemIds.length} packageIds=${pkgRows.map((r) => r.packageId ?? "none").join(",")}`
+        );
+      } catch (pe) {
+        console.warn("[linkedin-webhook] package context lookup:", pe);
+      }
+
       const inboundNotes = [
         "## LinkedIn inbound (Unipile webhook)",
         "",
@@ -143,13 +169,17 @@ export async function handleUnipileWebhook(
         .filter(Boolean)
         .join("\n");
       let advanced = 0;
-      for (const wid of itemIds) {
+      const resolveErrors: string[] = [];
+      for (const wid of packagedWarmItemIds) {
         const r = await applyWarmOutreachInboundViaResolve(wid, inboundNotes);
         if (r.ok) advanced++;
-        else
+        else {
+          const msg = r.error || "unknown";
+          resolveErrors.push(`${wid.slice(0, 8)}…:${msg}`);
           console.warn(
-            `[linkedin-webhook] Warm-outreach auto-replied failed item=${wid.slice(0, 8)}…: ${r.error}`
+            `[linkedin-webhook] Warm-outreach auto-replied failed item=${wid.slice(0, 8)}…: ${msg}`
           );
+        }
       }
       if (advanced > 0) {
         writeNotification(
@@ -159,10 +189,52 @@ export async function handleUnipileWebhook(
             : `${advanced} workflow items moved to Reply Draft.`,
           "linkedin_inbound"
         );
+      } else {
+        // Matched MESSAGED warm-outreach rows but resolve did not advance (e.g. APP_INTERNAL_URL, auth) — still surface in general inbox
+        console.warn(
+          `[linkedin-webhook] Packaged match but 0 resolves OK (${resolveErrors.join("; ")}) — falling back to general inbox`
+        );
+        const gen = await recordGeneralLinkedInInbound({
+          crmContactId: contactId,
+          senderProviderId,
+          senderDisplayName: senderName,
+          eventKind: "message",
+          messageText,
+          chatId,
+          timestampIso: timestamp,
+        });
+        if (gen.ok) {
+          writeNotification(
+            `LinkedIn: ${senderName} (inbox — resolve failed)`,
+            "Warm-outreach match found but auto-advance failed; triage from Tim’s LinkedIn inbox.",
+            "linkedin_inbound"
+          );
+        } else if (gen.reason) {
+          console.log(`[linkedin-webhook] General inbox fallback skipped: ${gen.reason}`);
+        }
+      }
+    } else {
+      const gen = await recordGeneralLinkedInInbound({
+        crmContactId: contactId,
+        senderProviderId,
+        senderDisplayName: senderName,
+        eventKind: "message",
+        messageText,
+        chatId,
+        timestampIso: timestamp,
+      });
+      if (gen.ok) {
+        writeNotification(
+          `LinkedIn: ${senderName} (inbox)`,
+          "No active warm-outreach thread matched — open Tim’s active queue (LinkedIn inbox).",
+          "linkedin_inbound"
+        );
+      } else if (gen.reason) {
+        console.log(`[linkedin-webhook] General inbox skipped: ${gen.reason}`);
       }
     }
   } catch (e) {
-    console.error("[linkedin-webhook] Warm-outreach inbound advance error:", e);
+    console.error("[linkedin-webhook] Warm-outreach / inbox routing error:", e);
   }
 
   // Triage via Tim's AI
@@ -281,6 +353,46 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
     `${senderName} accepted your LinkedIn invitation`,
     "linkedin_inbound"
   );
+
+  if (contactId) {
+    try {
+      const pids = await resolvePostgresPersonIdsForLinkedInSender(
+        contactId,
+        senderProviderId,
+        senderName
+      );
+      let packagedPending = false;
+      for (const pid of pids) {
+        if (await hasPackagedLinkedinOutreachPendingAcceptance(pid)) {
+          packagedPending = true;
+          console.log(
+            `[linkedin-webhook] new_relation: linkedin-outreach INITIATED exists for person ${pid.slice(0, 8)}… (package path)`
+          );
+          break;
+        }
+      }
+      if (!packagedPending && pids.length > 0) {
+        const gen = await recordGeneralLinkedInInbound({
+          crmContactId: contactId,
+          senderProviderId,
+          senderDisplayName: senderName,
+          eventKind: "connection_accepted",
+          timestampIso: timestamp,
+        });
+        if (gen.ok) {
+          writeNotification(
+            `LinkedIn: ${senderName} accepted (inbox)`,
+            "Connection not matched to an active outreach request — see Tim’s LinkedIn inbox.",
+            "linkedin_inbound"
+          );
+        } else if (gen.reason) {
+          console.log(`[linkedin-webhook] General inbox (accept) skipped: ${gen.reason}`);
+        }
+      }
+    } catch (e) {
+      console.error("[linkedin-webhook] General inbox (new_relation) error:", e);
+    }
+  }
 
   console.log(`[linkedin-webhook] Processed invitation acceptance from ${senderName}`);
 }

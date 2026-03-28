@@ -12,7 +12,8 @@ export type AgentUiRightPanel =
   | "reminders"
   | "notes"
   | "tasks"
-  | "messages";
+  | "messages"
+  | "costs";
 
 export type FridayDashboardTab = "packages" | "tasks" | "tools";
 export type PennyDashboardTab = "packages" | "pkg-templates" | "wf-templates";
@@ -108,6 +109,13 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
     return (
       "## Penny — UI (this message only)\n" +
       `Right panel tab: **${label}**. Tools: package_manager, twenty_crm, web_search, memory.`
+    );
+  }
+
+  if (rightPanel === "costs" && agentId === "king") {
+    return (
+      "## King — UI (this message only)\n" +
+      "Cost-Usage panel is open. Use **cost_summary** (command=summary) for the same data in chat when asked."
     );
   }
 

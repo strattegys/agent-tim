@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import CommandCentralClient from "./CommandCentralClient";
+import { redirectIfBackendOnlyUi } from "@/lib/main-ui-gate";
 
 /** Avoid static prerender + CSR bailout blank shell when the client reads search params. */
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ function HomeFallback() {
 }
 
 export default function HomePage() {
+  redirectIfBackendOnlyUi();
   return (
     <Suspense fallback={<HomeFallback />}>
       <CommandCentralClient />

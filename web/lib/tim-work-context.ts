@@ -45,19 +45,19 @@ export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
     lines.push(
       `UI FOCUS: The user has the **${focusLabel}** tab open (artifact stage \`${focusStage}\`). ` +
         (isMessageDraftTab
-          ? `They are working on the outbound message body shown in that pane. Put the **entire prospect-facing message** (body, links, sign-off) in **arg3** of \`workflow_items\` \`update-workflow-artifact\` only — **do not** paste that full copy into the chat thread; they read and submit from this tab. In chat, briefly confirm you updated the **${focusLabel}** tab (optional short summary is OK). arg1 = workflow item id below, arg2 = \`${focusStage}\`. **Submit** sends via Unipile after they accept the text in the panel.`
+          ? `They are working on the outbound message body shown in that pane. Put the **entire prospect-facing message** (body, links, sign-off) in **arg3** of \`workflow_items\` \`update-workflow-artifact\` only — **do not** paste that full copy into the chat thread; they read and submit from this tab. In chat, briefly confirm you updated the **${focusLabel}** tab (optional short summary is OK). arg1 = workflow item id below, arg2 = \`${focusStage}\`. **Warm outreach:** after a draft is saved, you (Tim) post the **exact** plain-text send body in chat; Govind must reply **Send It Now** in this thread, then click **Submit** — only then does Unipile send.`
           : `If they ask to change this document, use \`update-workflow-artifact\` with arg2 = \`${focusStage}\` and arg3 = full markdown. Submit still sends only when the human task is a send step and they click Submit.`)
     );
     lines.push(``);
   } else {
     lines.push(
-      `When an artifact tab is open, the UI will report which tab (e.g. Message draft). Use \`workflow_items\` \`update-workflow-artifact\` with arg1 = workflow item id, arg2 = that artifact’s stage, arg3 = full markdown. The user clicks **Submit** to approve the human task and trigger sending when applicable.`,
+      `When an artifact tab is open, the UI will report which tab (e.g. Message draft). Use \`workflow_items\` \`update-workflow-artifact\` with arg1 = workflow item id, arg2 = that artifact’s stage, arg3 = full markdown. For **warm-outreach** message/reply drafts: after each save you post the exact send text in chat; Govind replies **Send It Now** then **Submit** to trigger Unipile.`,
       ``,
     );
   }
 
   lines.push(
-    `OUTBOUND LINKEDIN: You do not send DMs from chat. After they accept the copy in the panel, **Submit** runs delivery. Never claim you already sent.`,
+    `OUTBOUND LINKEDIN (warm outreach): You do not send DMs from chat. **Submit** runs Unipile only after Govind has replied **Send It Now** following your chat post of the exact draft. Never claim you already sent before that.`,
     ``,
     `Workflow item id: ${s.itemId}`,
     `Prospect / title: ${s.itemTitle}`,

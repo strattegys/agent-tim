@@ -8,11 +8,17 @@ import {
 } from "@/lib/workflow-item-human-task";
 import { WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS } from "@/lib/warm-outreach-cadence";
 import {
-  getLatestAwaitingContactArtifactContent,
+  batchGetLatestAwaitingContactArtifactContentByItemIds,
+  batchGetLatestLinkedInArtifactUrlByItemIds,
   tryHealWarmPersonFromAwaitingArtifact,
 } from "@/lib/warm-contact-intake-apply";
+import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 import { ensureIntakeNameFromRawLines, parseWarmContactIntake } from "@/lib/warm-contact-intake-parse";
 import { getWarmOutreachDailyProgressForTim } from "@/lib/warm-outreach-daily-progress";
+import {
+  parsePersonLinkedInFields,
+  sqlPersonLinkedinUrlCoalesce,
+} from "@/lib/linkedin-person-identity";
 
 /**
  * GET /api/crm/human-tasks?packageStage=ACTIVE&ownerAgent=tim&messagingOnly=true
@@ -24,6 +30,10 @@ import { getWarmOutreachDailyProgressForTim } from "@/lib/warm-outreach-daily-pr
  * - messagingOnly — only messaging-related item stages
  * - sourceType — filter workflow items by source (e.g. `content` for Ghost’s content queue)
  * - excludePackageStages — comma-separated package stages to omit (e.g. `DRAFT,PENDING_APPROVAL` so planner draft/testing rows don’t appear in agent queues)
+ * - includeInactivePackages — with ownerAgent=tim: include workflows on non-ACTIVE packages (default excludes them so planner work stays in package planner).
+ * - summary=1 — with ownerAgent=tim only: returns { count, pendingFollowUpCount, warmOutreachDaily } without per-row CRM/artifact work (fast polling).
+ * - ownerAgent=tim (default): only packaged workflows whose _package.stage is ACTIVE (non-packaged workflows still show). Pass includeInactivePackages=1 to see planner/inactive packages.
+ * - limit / offset — with ownerAgent=tim on full GET (not summary): paginate (default limit 80, max 150). Response includes hasMore and nextOffset when applicable.
  */
 const MESSAGING_ITEM_STAGES = new Set([
   "INITIATED",
@@ -32,6 +42,7 @@ const MESSAGING_ITEM_STAGES = new Set([
   "MESSAGED",
   "REPLY_DRAFT",
   "REPLY_SENT",
+  "LINKEDIN_INBOUND",
 ]);
 
 function isMissingPackageNumberColumn(error: unknown): boolean {
@@ -50,12 +61,329 @@ function errCode(error: unknown): string | undefined {
   return undefined;
 }
 
+/** LinkedIn URL, Unipile member id, primary email — tolerates missing optional columns. */
+async function fetchPersonIdentityExtras(personId: string): Promise<{
+  linkedinLinkPrimaryLinkUrl: string | null;
+  linkedinProviderId: string | null;
+  emailsPrimaryEmail: string | null;
+}> {
+  const none = {
+    linkedinLinkPrimaryLinkUrl: null as string | null,
+    linkedinProviderId: null as string | null,
+    emailsPrimaryEmail: null as string | null,
+  };
+  try {
+    const rows = await query<{
+      linkedinLinkPrimaryLinkUrl: string | null;
+      linkedinProviderId: string | null;
+      emailsPrimaryEmail: string | null;
+    }>(
+      `SELECT ${sqlPersonLinkedinUrlCoalesce("p")} AS "linkedinLinkPrimaryLinkUrl",
+              p."linkedinProviderId", p."emailsPrimaryEmail"
+       FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+      [personId]
+    );
+    const r = rows[0];
+    if (!r) return none;
+    return {
+      linkedinLinkPrimaryLinkUrl: r.linkedinLinkPrimaryLinkUrl?.trim() || null,
+      linkedinProviderId: r.linkedinProviderId?.trim() || null,
+      emailsPrimaryEmail: r.emailsPrimaryEmail?.trim() || null,
+    };
+  } catch (e) {
+    if (linkedinUrlJsonExtractUnsupported(e)) {
+      try {
+        const rows = await query<{
+          linkedinLinkPrimaryLinkUrl: string | null;
+          linkedinProviderId: string | null;
+          emailsPrimaryEmail: string | null;
+        }>(
+          `SELECT NULLIF(TRIM(p."linkedinLinkPrimaryLinkUrl"), '') AS "linkedinLinkPrimaryLinkUrl",
+                  p."linkedinProviderId", p."emailsPrimaryEmail"
+           FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+          [personId]
+        );
+        const r = rows[0];
+        if (!r) return none;
+        return {
+          linkedinLinkPrimaryLinkUrl: r.linkedinLinkPrimaryLinkUrl?.trim() || null,
+          linkedinProviderId: r.linkedinProviderId?.trim() || null,
+          emailsPrimaryEmail: r.emailsPrimaryEmail?.trim() || null,
+        };
+      } catch (eFlat) {
+        if (!isMissingColumn(eFlat, "linkedinProviderId")) throw eFlat;
+        return await fetchPersonIdentityExtrasNoProvider(personId);
+      }
+    }
+    if (!isMissingColumn(e, "linkedinProviderId")) throw e;
+    return await fetchPersonIdentityExtrasNoProvider(personId);
+  }
+}
+
+async function fetchPersonIdentityExtrasNoProvider(personId: string): Promise<{
+  linkedinLinkPrimaryLinkUrl: string | null;
+  linkedinProviderId: string | null;
+  emailsPrimaryEmail: string | null;
+}> {
+  const none = {
+    linkedinLinkPrimaryLinkUrl: null as string | null,
+    linkedinProviderId: null as string | null,
+    emailsPrimaryEmail: null as string | null,
+  };
+  try {
+    const rows = await query<{
+      linkedinLinkPrimaryLinkUrl: string | null;
+      emailsPrimaryEmail: string | null;
+    }>(
+      `SELECT ${sqlPersonLinkedinUrlCoalesce("p")} AS "linkedinLinkPrimaryLinkUrl",
+              p."emailsPrimaryEmail"
+       FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+      [personId]
+    );
+    const r = rows[0];
+    if (!r) return none;
+    return {
+      linkedinLinkPrimaryLinkUrl: r.linkedinLinkPrimaryLinkUrl?.trim() || null,
+      linkedinProviderId: null,
+      emailsPrimaryEmail: r.emailsPrimaryEmail?.trim() || null,
+    };
+  } catch (e2) {
+    if (linkedinUrlJsonExtractUnsupported(e2)) {
+      try {
+        const rows = await query<{
+          linkedinLinkPrimaryLinkUrl: string | null;
+          emailsPrimaryEmail: string | null;
+        }>(
+          `SELECT NULLIF(TRIM(p."linkedinLinkPrimaryLinkUrl"), '') AS "linkedinLinkPrimaryLinkUrl",
+                  p."emailsPrimaryEmail"
+           FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+          [personId]
+        );
+        const r = rows[0];
+        if (!r) return none;
+        return {
+          linkedinLinkPrimaryLinkUrl: r.linkedinLinkPrimaryLinkUrl?.trim() || null,
+          linkedinProviderId: null,
+          emailsPrimaryEmail: r.emailsPrimaryEmail?.trim() || null,
+        };
+      } catch (e3) {
+        if (!isMissingColumn(e3, "emailsPrimaryEmail")) throw e3;
+        const rows = await query<{ linkedinLinkPrimaryLinkUrl: string | null }>(
+          `SELECT NULLIF(TRIM(p."linkedinLinkPrimaryLinkUrl"), '') AS "linkedinLinkPrimaryLinkUrl"
+           FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+          [personId]
+        );
+        return {
+          linkedinLinkPrimaryLinkUrl: rows[0]?.linkedinLinkPrimaryLinkUrl?.trim() || null,
+          linkedinProviderId: null,
+          emailsPrimaryEmail: null,
+        };
+      }
+    }
+    if (!isMissingColumn(e2, "emailsPrimaryEmail")) throw e2;
+    try {
+      const rows = await query<{ linkedinLinkPrimaryLinkUrl: string | null }>(
+        `SELECT ${sqlPersonLinkedinUrlCoalesce("p")} AS "linkedinLinkPrimaryLinkUrl"
+         FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+        [personId]
+      );
+      return {
+        linkedinLinkPrimaryLinkUrl: rows[0]?.linkedinLinkPrimaryLinkUrl?.trim() || null,
+        linkedinProviderId: null,
+        emailsPrimaryEmail: null,
+      };
+    } catch (e4) {
+      if (!linkedinUrlJsonExtractUnsupported(e4)) throw e4;
+      const rows = await query<{ linkedinLinkPrimaryLinkUrl: string | null }>(
+        `SELECT NULLIF(TRIM(p."linkedinLinkPrimaryLinkUrl"), '') AS "linkedinLinkPrimaryLinkUrl"
+         FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+        [personId]
+      );
+      return {
+        linkedinLinkPrimaryLinkUrl: rows[0]?.linkedinLinkPrimaryLinkUrl?.trim() || null,
+        linkedinProviderId: null,
+        emailsPrimaryEmail: null,
+      };
+    }
+  }
+}
+
 /** Postgres 42703 or English message */
 function isMissingColumn(error: unknown, name: string): boolean {
   const msg = errMsg(error);
   const re = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
   if (errCode(error) === "42703" && re.test(msg)) return true;
   return re.test(msg) && (/column/i.test(msg) || /field/i.test(msg)) && /does not exist/i.test(msg);
+}
+
+/** `linkedinUrl` missing, or column is not jsonb (e.g. plain text) so `->>` extract fails. */
+function linkedinUrlJsonExtractUnsupported(error: unknown): boolean {
+  if (isMissingColumn(error, "linkedinUrl")) return true;
+  const m = errMsg(error);
+  return /operator does not exist/i.test(m) && (/->>|#>>/i.test(m) || /jsonb/i.test(m));
+}
+
+type PersonQueueBasic = {
+  firstName: string | null;
+  lastName: string | null;
+  jobTitle: string | null;
+  companyName: string | null;
+};
+
+async function batchFetchPersonsWithCompany(personIds: string[]): Promise<Map<string, PersonQueueBasic>> {
+  const map = new Map<string, PersonQueueBasic>();
+  const uniq = [...new Set(personIds.filter(Boolean))];
+  if (uniq.length === 0) return map;
+  try {
+    const rows = await query<
+      PersonQueueBasic & {
+        id: string;
+      }
+    >(
+      `SELECT p.id,
+              p."nameFirstName" AS "firstName",
+              p."nameLastName" AS "lastName",
+              p."jobTitle" AS "jobTitle",
+              NULLIF(TRIM(COALESCE(c.name, '')), '') AS "companyName"
+       FROM person p
+       LEFT JOIN company c ON c.id = p."companyId" AND c."deletedAt" IS NULL
+       WHERE p.id = ANY($1::uuid[]) AND p."deletedAt" IS NULL`,
+      [uniq]
+    );
+    for (const r of rows) {
+      map.set(r.id, {
+        firstName: r.firstName,
+        lastName: r.lastName,
+        jobTitle: r.jobTitle,
+        companyName: r.companyName,
+      });
+    }
+  } catch (joinErr) {
+    if (isMissingColumn(joinErr, "companyId") || isMissingColumn(joinErr, "company")) {
+      const rows = await query<PersonQueueBasic & { id: string }>(
+        `SELECT id,
+                "nameFirstName" AS "firstName",
+                "nameLastName" AS "lastName",
+                "jobTitle",
+                NULL::text AS "companyName"
+         FROM person WHERE id = ANY($1::uuid[]) AND "deletedAt" IS NULL`,
+        [uniq]
+      );
+      for (const r of rows) {
+        map.set(r.id, {
+          firstName: r.firstName,
+          lastName: r.lastName,
+          jobTitle: r.jobTitle,
+          companyName: r.companyName,
+        });
+      }
+    } else {
+      throw joinErr;
+    }
+  }
+  return map;
+}
+
+async function batchFetchPersonIdentityExtrasMap(
+  personIds: string[]
+): Promise<
+  Map<
+    string,
+    {
+      linkedinLinkPrimaryLinkUrl: string | null;
+      linkedinProviderId: string | null;
+      emailsPrimaryEmail: string | null;
+    }
+  >
+> {
+  const map = new Map<
+    string,
+    {
+      linkedinLinkPrimaryLinkUrl: string | null;
+      linkedinProviderId: string | null;
+      emailsPrimaryEmail: string | null;
+    }
+  >();
+  const uniq = [...new Set(personIds.filter(Boolean))];
+  if (uniq.length === 0) return map;
+  try {
+    const rows = await query<{
+      id: string;
+      linkedinLinkPrimaryLinkUrl: string | null;
+      linkedinProviderId: string | null;
+      emailsPrimaryEmail: string | null;
+    }>(
+      `SELECT p.id,
+              ${sqlPersonLinkedinUrlCoalesce("p")} AS "linkedinLinkPrimaryLinkUrl",
+              p."linkedinProviderId", p."emailsPrimaryEmail"
+       FROM person p WHERE p.id = ANY($1::uuid[]) AND p."deletedAt" IS NULL`,
+      [uniq]
+    );
+    for (const r of rows) {
+      map.set(r.id, {
+        linkedinLinkPrimaryLinkUrl: r.linkedinLinkPrimaryLinkUrl?.trim() || null,
+        linkedinProviderId: r.linkedinProviderId?.trim() || null,
+        emailsPrimaryEmail: r.emailsPrimaryEmail?.trim() || null,
+      });
+    }
+  } catch (e) {
+    if (linkedinUrlJsonExtractUnsupported(e)) {
+      try {
+        const rows = await query<{
+          id: string;
+          linkedinLinkPrimaryLinkUrl: string | null;
+          linkedinProviderId: string | null;
+          emailsPrimaryEmail: string | null;
+        }>(
+          `SELECT p.id,
+                  NULLIF(TRIM(p."linkedinLinkPrimaryLinkUrl"), '') AS "linkedinLinkPrimaryLinkUrl",
+                  p."linkedinProviderId", p."emailsPrimaryEmail"
+           FROM person p WHERE p.id = ANY($1::uuid[]) AND p."deletedAt" IS NULL`,
+          [uniq]
+        );
+        for (const r of rows) {
+          map.set(r.id, {
+            linkedinLinkPrimaryLinkUrl: r.linkedinLinkPrimaryLinkUrl?.trim() || null,
+            linkedinProviderId: r.linkedinProviderId?.trim() || null,
+            emailsPrimaryEmail: r.emailsPrimaryEmail?.trim() || null,
+          });
+        }
+      } catch (eFlat) {
+        if (!isMissingColumn(eFlat, "linkedinProviderId")) throw eFlat;
+        for (const id of uniq) {
+          const one = await fetchPersonIdentityExtrasNoProvider(id);
+          map.set(id, { ...one, linkedinProviderId: one.linkedinProviderId ?? null });
+        }
+      }
+    } else if (isMissingColumn(e, "linkedinProviderId")) {
+      for (const id of uniq) {
+        const one = await fetchPersonIdentityExtrasNoProvider(id);
+        map.set(id, one);
+      }
+    } else {
+      for (const id of uniq) {
+        map.set(id, await fetchPersonIdentityExtras(id));
+      }
+    }
+  }
+  return map;
+}
+
+async function batchFetchContentItems(
+  contentIds: string[]
+): Promise<Map<string, { title: string; contentType: string }>> {
+  const map = new Map<string, { title: string; contentType: string }>();
+  const uniq = [...new Set(contentIds.filter(Boolean))];
+  if (uniq.length === 0) return map;
+  const rows = await query<{ id: string; title: string; contentType: string }>(
+    `SELECT id, title, "contentType" FROM "_content_item"
+     WHERE id = ANY($1::uuid[]) AND "deletedAt" IS NULL`,
+    [uniq]
+  );
+  for (const r of rows) {
+    map.set(r.id, { title: r.title || "Untitled", contentType: r.contentType || "content" });
+  }
+  return map;
 }
 
 type QueueRow = {
@@ -105,13 +433,33 @@ function warmMessagedWaitingHumanCopy(dueDate: string | null): string {
   return `Waiting — next **message draft** is scheduled for **${dateStr}** (${inWords}). Nothing to submit now. If they reply first, click **Replied**. You can start the follow-up early with **Start follow-up early**.`;
 }
 
+const DEFAULT_TIM_TASK_LIMIT = 80;
+const MAX_TIM_TASK_LIMIT = 150;
+
+function parseTimPagination(
+  ownerAgentFilter: string | null,
+  summaryOnly: boolean,
+  searchParams: URLSearchParams
+): { limit: number; offset: number } | null {
+  if (ownerAgentFilter !== "tim" || summaryOnly) return null;
+  const limitRaw = searchParams.get("limit");
+  const offsetRaw = searchParams.get("offset");
+  const limit = Math.min(
+    MAX_TIM_TASK_LIMIT,
+    Math.max(1, parseInt(limitRaw || String(DEFAULT_TIM_TASK_LIMIT), 10) || DEFAULT_TIM_TASK_LIMIT)
+  );
+  const offset = Math.max(0, parseInt(offsetRaw || "0", 10) || 0);
+  return { limit, offset };
+}
+
 async function fetchHumanTaskRows(
   joinPackage: string,
   conditions: string[],
   params: unknown[],
   useHumanTaskOpenCol: boolean,
   useWorkflowItemTypeCol: boolean,
-  ownerAgentLower: string | null
+  ownerAgentLower: string | null,
+  pagination: { limit: number; offset: number } | null
 ): Promise<QueueRow[]> {
   const itemTypeSql = useWorkflowItemTypeCol
     ? 'w."itemType"'
@@ -127,12 +475,26 @@ async function fetchHumanTaskRows(
           AND COALESCE(w.spec::text, '') LIKE '%"workflowType"%'
           AND COALESCE(w.spec::text, '') LIKE '%warm-outreach%'
         )
+        OR UPPER(TRIM(wi.stage::text)) IN (
+          'REPLY_DRAFT',
+          'REPLY_SENT',
+          'LINKEDIN_INBOUND',
+          'MESSAGE_DRAFT',
+          'AWAITING_CONTACT',
+          'INITIATED'
+        )
       ) AND `;
     } else {
       humanOpenSql = 'wi."humanTaskOpen" = true AND ';
     }
   }
   const whereBody = conditions.join(" AND ");
+  const queryParams = [...params];
+  let limitSql = "";
+  if (pagination) {
+    queryParams.push(pagination.limit, pagination.offset);
+    limitSql = ` LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}`;
+  }
   return query<QueueRow>(
     `SELECT wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi."dueDate", wi."createdAt",
             w.name AS "workflowName", w."ownerAgent", w."packageId", w.spec, ${itemTypeSql},
@@ -142,8 +504,8 @@ async function fetchHumanTaskRows(
      LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
      ${joinPackage}
      WHERE ${humanOpenSql}${whereBody}
-     ORDER BY wi."dueDate" ASC NULLS FIRST, wi."createdAt" ASC`,
-    params
+     ORDER BY wi."dueDate" ASC NULLS FIRST, wi."createdAt" ASC${limitSql}`,
+    queryParams
   );
 }
 
@@ -172,6 +534,14 @@ export async function GET(req: NextRequest) {
   const messagingOnly =
     req.nextUrl.searchParams.get("messagingOnly") === "true" ||
     req.nextUrl.searchParams.get("messagingOnly") === "1";
+  const summaryOnly =
+    req.nextUrl.searchParams.get("summary") === "1" ||
+    req.nextUrl.searchParams.get("summary") === "true";
+  const includeInactivePackages =
+    req.nextUrl.searchParams.get("includeInactivePackages") === "1" ||
+    req.nextUrl.searchParams.get("includeInactivePackages") === "true";
+  const timOpsQueueOnly = ownerAgentFilter === "tim" && !includeInactivePackages;
+  const timPagination = parseTimPagination(ownerAgentFilter, summaryOnly, req.nextUrl.searchParams);
   try {
     const conditions: string[] = ['wi."deletedAt" IS NULL', 'w."deletedAt" IS NULL'];
     const params: unknown[] = [];
@@ -204,10 +574,20 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const joinPackage =
-      packageStageFilter || excludePackageStages.length > 0
-        ? 'LEFT JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL'
-        : "";
+    const needsPackageJoin =
+      Boolean(packageStageFilter) ||
+      excludePackageStages.length > 0 ||
+      timOpsQueueOnly;
+
+    const joinPackage = needsPackageJoin
+      ? 'LEFT JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL'
+      : "";
+
+    if (timOpsQueueOnly && !packageStageFilter) {
+      conditions.push(
+        `(w."packageId" IS NULL OR UPPER(TRIM(COALESCE(p.stage::text, ''))) = 'ACTIVE')`
+      );
+    }
 
     let useHumanTaskOpenCol = true;
     let useWorkflowItemTypeCol = true;
@@ -222,7 +602,8 @@ export async function GET(req: NextRequest) {
           params,
           useHumanTaskOpenCol,
           useWorkflowItemTypeCol,
-          ownerAgentFilter
+          ownerAgentFilter,
+          timPagination
         );
         break;
       } catch (e) {
@@ -277,6 +658,89 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    if (summaryOnly && ownerAgentFilter === "tim") {
+      let activeCount = 0;
+      let pendingFollowUpCount = 0;
+      for (const item of rows) {
+        const stageKey = item.stage?.trim().toUpperCase() || "";
+        if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKey)) continue;
+        const workflowTypeId =
+          resolveWorkflowRegistryForQueue(item.spec, {
+            packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
+            ownerAgent: item.ownerAgent,
+            boardStages: item.board_stages,
+          }) || "";
+        const waitingFollowUp = workflowTypeId === "warm-outreach" && stageKey === "MESSAGED";
+        if (waitingFollowUp) pendingFollowUpCount += 1;
+        else activeCount += 1;
+      }
+      const warmOutreachDaily = await getWarmOutreachDailyProgressForTim();
+      return NextResponse.json({
+        summary: true,
+        count: activeCount,
+        pendingFollowUpCount,
+        warmOutreachDaily,
+      });
+    }
+
+    const personSourceIds = [
+      ...new Set(
+        rows
+          .filter((r) => r.sourceType === "person" && r.sourceId)
+          .map((r) => r.sourceId as string)
+      ),
+    ];
+    const itemIdsAll = rows.map((r) => r.id);
+    const contentSourceIds = [
+      ...new Set(
+        rows
+          .filter((r) => r.sourceType === "content" && r.sourceId)
+          .map((r) => r.sourceId as string)
+      ),
+    ];
+
+    const [personRowsMap, identityMap, awaitingByItem, linkedinArtByItem, contentById] =
+      await Promise.all([
+        batchFetchPersonsWithCompany(personSourceIds),
+        batchFetchPersonIdentityExtrasMap(personSourceIds),
+        batchGetLatestAwaitingContactArtifactContentByItemIds(itemIdsAll),
+        batchGetLatestLinkedInArtifactUrlByItemIds(itemIdsAll),
+        batchFetchContentItems(contentSourceIds),
+      ]);
+
+    const personIdsToRefetch = new Set<string>();
+    for (const item of rows) {
+      const stageKeyPre = item.stage?.trim().toUpperCase() || "";
+      if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyPre)) continue;
+      if (item.sourceType !== "person" || !item.sourceId) continue;
+      const workflowTypeIdPre =
+        resolveWorkflowRegistryForQueue(item.spec, {
+          packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
+          ownerAgent: item.ownerAgent,
+          boardStages: item.board_stages,
+        }) || "";
+      const pPre = personRowsMap.get(item.sourceId);
+      if (!pPre) continue;
+      const fnPre = (pPre.firstName || "").trim();
+      const lnPre = (pPre.lastName || "").trim();
+      if (
+        itemLooksLikeWarmOutreach(workflowTypeIdPre, item.spec, item.workflowName) &&
+        fnPre === "Next" &&
+        lnPre === "Contact"
+      ) {
+        const healLogs: string[] = [];
+        const healed = await tryHealWarmPersonFromAwaitingArtifact(item.id, item.sourceId, healLogs);
+        if (healed) personIdsToRefetch.add(item.sourceId);
+        if (healLogs.length) console.info("[human-tasks] warm heal:", healLogs.join(" "));
+      }
+    }
+    if (personIdsToRefetch.size > 0) {
+      const refPers = await batchFetchPersonsWithCompany([...personIdsToRefetch]);
+      for (const [k, v] of refPers) personRowsMap.set(k, v);
+      const refId = await batchFetchPersonIdentityExtrasMap([...personIdsToRefetch]);
+      for (const [k, v] of refId) identityMap.set(k, v);
+    }
+
     const tasks: Array<{
       itemId: string;
       itemTitle: string;
@@ -306,6 +770,11 @@ export async function GET(req: NextRequest) {
       contactTitle?: string | null;
       /** Linked person still Next/Contact — CRM intake not applied; use sync-warm-person. */
       contactDbSyncPending?: boolean;
+      /** Person row: public LinkedIn profile URL (normalized) */
+      contactLinkedinPublicUrl?: string | null;
+      /** Person row: Unipile / LinkedIn API member id (ACoA…) when stored */
+      contactLinkedinMemberId?: string | null;
+      contactPrimaryEmail?: string | null;
     }> = [];
 
     for (const item of rows) {
@@ -344,85 +813,18 @@ export async function GET(req: NextRequest) {
       let contactCompany: string | null = null;
       let contactTitle: string | null = null;
       let contactDbSyncPending = false;
+      let contactLinkedinPublicUrl: string | null = null;
+      let contactLinkedinMemberId: string | null = null;
+      let contactPrimaryEmail: string | null = null;
 
       if (item.sourceType === "person") {
         try {
-          type PersonQueueRow = {
-            firstName: string | null;
-            lastName: string | null;
-            jobTitle: string | null;
-            companyName: string | null;
-          };
-          let persons: PersonQueueRow[];
-          try {
-            persons = await query<PersonQueueRow>(
-              `SELECT p."nameFirstName" AS "firstName",
-                      p."nameLastName" AS "lastName",
-                      p."jobTitle" AS "jobTitle",
-                      NULLIF(TRIM(COALESCE(c.name, '')), '') AS "companyName"
-               FROM person p
-               LEFT JOIN company c ON c.id = p."companyId" AND c."deletedAt" IS NULL
-               WHERE p.id = $1 AND p."deletedAt" IS NULL`,
-              [item.sourceId]
-            );
-          } catch (joinErr) {
-            if (isMissingColumn(joinErr, "companyId") || isMissingColumn(joinErr, "company")) {
-              persons = await query<PersonQueueRow>(
-                `SELECT "nameFirstName" AS "firstName", "nameLastName" AS "lastName", "jobTitle",
-                        NULL::text AS "companyName"
-                 FROM person WHERE id = $1 AND "deletedAt" IS NULL`,
-                [item.sourceId]
-              );
-            } else {
-              throw joinErr;
-            }
-          }
-          if (persons.length > 0) {
-            let p = persons[0];
-            let fn = (p.firstName || "").trim();
-            let ln = (p.lastName || "").trim();
-
-            if (
-              itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) &&
-              fn === "Next" &&
-              ln === "Contact" &&
-              item.sourceId
-            ) {
-              const healLogs: string[] = [];
-              const healed = await tryHealWarmPersonFromAwaitingArtifact(item.id, item.sourceId, healLogs);
-              if (healed) {
-                try {
-                  persons = await query<PersonQueueRow>(
-                    `SELECT p."nameFirstName" AS "firstName",
-                            p."nameLastName" AS "lastName",
-                            p."jobTitle" AS "jobTitle",
-                            NULLIF(TRIM(COALESCE(c.name, '')), '') AS "companyName"
-                     FROM person p
-                     LEFT JOIN company c ON c.id = p."companyId" AND c."deletedAt" IS NULL
-                     WHERE p.id = $1 AND p."deletedAt" IS NULL`,
-                    [item.sourceId]
-                  );
-                } catch (reErr) {
-                  if (isMissingColumn(reErr, "companyId") || isMissingColumn(reErr, "company")) {
-                    persons = await query<PersonQueueRow>(
-                      `SELECT "nameFirstName" AS "firstName", "nameLastName" AS "lastName", "jobTitle",
-                              NULL::text AS "companyName"
-                       FROM person WHERE id = $1 AND "deletedAt" IS NULL`,
-                      [item.sourceId]
-                    );
-                  } else {
-                    throw reErr;
-                  }
-                }
-                if (persons.length > 0) p = persons[0];
-              }
-              if (healLogs.length) {
-                console.info("[human-tasks] warm-outreach placeholder heal:", healLogs.join(" "));
-              }
-            }
-
-            fn = (p.firstName || "").trim();
-            ln = (p.lastName || "").trim();
+          const p =
+            item.sourceId != null ? personRowsMap.get(item.sourceId) ?? null : null;
+          if (p) {
+            const warmContactArtifactRaw: string | null = awaitingByItem.get(item.id) ?? null;
+            const fn = (p.firstName || "").trim();
+            const ln = (p.lastName || "").trim();
             const fullName = [fn, ln].filter(Boolean).join(" ") || "";
             const job = (p.jobTitle || "").trim() || null;
             const co = p.companyName?.trim() || null;
@@ -460,14 +862,13 @@ export async function GET(req: NextRequest) {
               contactTitle = job;
             }
 
-            /* CRM row still “Next / Contact” but intake artifact has text — show parsed name/company/title in Tim header even if DB update failed. */
             if (
               itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) &&
               !contactSlotOpen &&
               fn === "Next" &&
               ln === "Contact"
             ) {
-              const raw = await getLatestAwaitingContactArtifactContent(item.id);
+              const raw = warmContactArtifactRaw;
               if (raw) {
                 const parsed = ensureIntakeNameFromRawLines(raw, parseWarmContactIntake(raw));
                 const displayName = [parsed.firstName, parsed.lastName].filter(Boolean).join(" ").trim();
@@ -487,20 +888,111 @@ export async function GET(req: NextRequest) {
               itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) &&
               fn === "Next" &&
               ln === "Contact";
+
+            if (item.sourceId) {
+              try {
+                const idf = identityMap.get(item.sourceId);
+                if (idf) {
+                  const parsedLi = parsePersonLinkedInFields(
+                    idf.linkedinLinkPrimaryLinkUrl,
+                    idf.linkedinProviderId
+                  );
+                  contactLinkedinPublicUrl = parsedLi.publicProfileUrl;
+                  contactLinkedinMemberId = parsedLi.providerMemberId;
+                  contactPrimaryEmail = idf.emailsPrimaryEmail?.trim() || null;
+                }
+              } catch (idErr) {
+                console.warn(
+                  "[human-tasks] person identity extras:",
+                  errCode(idErr),
+                  errMsg(idErr).slice(0, 120)
+                );
+              }
+            }
+
+            const timLinkedInArtifactFallback =
+              itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) ||
+              workflowTypeId === "linkedin-outreach";
+
+            if (
+              timLinkedInArtifactFallback &&
+              item.sourceId &&
+              !contactLinkedinPublicUrl &&
+              !contactLinkedinMemberId
+            ) {
+              const raw = warmContactArtifactRaw;
+              if (raw) {
+                const intakeParsed = parseWarmContactIntake(raw);
+                const li = parsePersonLinkedInFields(intakeParsed.linkedinUrl, null);
+                if (li.publicProfileUrl) contactLinkedinPublicUrl = li.publicProfileUrl;
+                if (li.providerMemberId) contactLinkedinMemberId = li.providerMemberId;
+              }
+            }
+
+            if (
+              timLinkedInArtifactFallback &&
+              item.sourceId &&
+              !contactLinkedinPublicUrl &&
+              !contactLinkedinMemberId
+            ) {
+              const urlFromArtifact = linkedinArtByItem.get(item.id) ?? null;
+              if (urlFromArtifact) {
+                const li = parsePersonLinkedInFields(urlFromArtifact, null);
+                if (li.publicProfileUrl) contactLinkedinPublicUrl = li.publicProfileUrl;
+                if (li.providerMemberId) contactLinkedinMemberId = li.providerMemberId;
+              }
+            }
+          } else {
+            title = "Contact";
           }
         } catch (pe) {
           console.warn("[human-tasks] person lookup:", errCode(pe), errMsg(pe).slice(0, 120));
           title = "Contact";
         }
+      } else if (item.sourceType === WARM_DISCOVERY_SOURCE_TYPE) {
+        const warmLike = itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName);
+        if (warmLike && stageKey === "AWAITING_CONTACT") {
+          contactSlotOpen = true;
+          title = "Next contact — add who to reach";
+          subtitle = "Use Tim’s work queue: name, LinkedIn URL, notes";
+          const raw = awaitingByItem.get(item.id) ?? null;
+          if (raw) {
+            const parsed = ensureIntakeNameFromRawLines(raw, parseWarmContactIntake(raw));
+            const displayName = [parsed.firstName, parsed.lastName].filter(Boolean).join(" ").trim();
+            if (displayName) {
+              contactName = displayName;
+              title = displayName;
+            }
+            if (parsed.companyName?.trim()) contactCompany = parsed.companyName.trim();
+            if (parsed.jobTitle?.trim()) {
+              contactTitle = parsed.jobTitle.trim();
+              subtitle = parsed.jobTitle.trim();
+            }
+            const li = parsePersonLinkedInFields(parsed.linkedinUrl, null);
+            if (li.publicProfileUrl) contactLinkedinPublicUrl = li.publicProfileUrl;
+            if (li.providerMemberId) contactLinkedinMemberId = li.providerMemberId;
+          }
+          if (!contactLinkedinPublicUrl && !contactLinkedinMemberId) {
+            const urlFromArtifact = linkedinArtByItem.get(item.id) ?? null;
+            if (urlFromArtifact) {
+              const li = parsePersonLinkedInFields(urlFromArtifact, null);
+              if (li.publicProfileUrl) contactLinkedinPublicUrl = li.publicProfileUrl;
+              if (li.providerMemberId) contactLinkedinMemberId = li.providerMemberId;
+            }
+          }
+        } else if (warmLike) {
+          title = "Warm outreach slot";
+          subtitle = stageKey ? stageKey.replace(/_/g, " ").toLowerCase() : "";
+        } else {
+          title = "Discovery slot";
+          subtitle = item.sourceId ? String(item.sourceId).slice(0, 8) + "…" : "";
+        }
       } else if (item.sourceType === "content") {
         try {
-          const contents = await query<{ title: string; contentType: string }>(
-            `SELECT title, "contentType" FROM "_content_item" WHERE id = $1 AND "deletedAt" IS NULL`,
-            [item.sourceId]
-          );
-          if (contents.length > 0) {
-            title = contents[0].title || "Untitled";
-            subtitle = contents[0].contentType || "content";
+          const row = item.sourceId ? contentById.get(item.sourceId) : undefined;
+          if (row) {
+            title = row.title || "Untitled";
+            subtitle = row.contentType || "content";
           }
         } catch (ce) {
           console.warn("[human-tasks] _content_item lookup:", errCode(ce), errMsg(ce).slice(0, 120));
@@ -537,13 +1029,16 @@ export async function GET(req: NextRequest) {
         itemType: item.sourceType,
         createdAt: item.createdAt,
         waitingFollowUp,
-        ...(item.sourceType === "person"
+        ...(item.sourceType === "person" || item.sourceType === WARM_DISCOVERY_SOURCE_TYPE
           ? {
               contactSlotOpen,
               contactName,
               contactCompany,
               contactTitle,
               contactDbSyncPending,
+              contactLinkedinPublicUrl,
+              contactLinkedinMemberId,
+              contactPrimaryEmail,
             }
           : {}),
       });
@@ -556,7 +1051,15 @@ export async function GET(req: NextRequest) {
 
     if (ownerAgentFilter === "tim") {
       const warmOutreachDaily = await getWarmOutreachDailyProgressForTim();
-      return NextResponse.json({ tasks, count, warmOutreachDaily });
+      const sqlHasMore = timPagination != null && rows.length === timPagination.limit;
+      const nextOffset = sqlHasMore ? timPagination.offset + timPagination.limit : null;
+      return NextResponse.json({
+        tasks,
+        count,
+        warmOutreachDaily,
+        hasMore: sqlHasMore,
+        nextOffset,
+      });
     }
 
     return NextResponse.json({ tasks, count });

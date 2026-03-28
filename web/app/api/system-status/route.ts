@@ -4,7 +4,19 @@ import { getAllAgentSpecs } from "@/lib/agent-registry";
 import { CRM_WORKSPACE_SCHEMA } from "@/lib/db";
 import { normalizeUnipileDsn } from "@/lib/unipile-profile";
 
+export const runtime = "nodejs";
+
 const PROBE_MS = 4000;
+
+/** Postgres probe can be slower than HTTP (SSH tunnel to 127.0.0.1:5433, Tailscale, etc.). */
+function crmPostgresProbeTimeoutMs(): number {
+  const raw = process.env.CRM_DB_PROBE_TIMEOUT_MS;
+  if (raw != null && raw.trim() !== "") {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1000) return Math.min(n, 120_000);
+  }
+  return 12_000;
+}
 
 type ProbeStatus = "ok" | "down" | "skipped";
 
@@ -123,13 +135,18 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
     };
   }
 
+  const dbHost = process.env.CRM_DB_HOST || "127.0.0.1";
+  const dbPort = parseInt(process.env.CRM_DB_PORT || "5432", 10);
+  const target = `${dbHost}:${dbPort}`;
+
+  const pgProbeMs = crmPostgresProbeTimeoutMs();
   const client = new Client({
-    host: process.env.CRM_DB_HOST || "127.0.0.1",
-    port: parseInt(process.env.CRM_DB_PORT || "5432", 10),
+    host: dbHost,
+    port: dbPort,
     database: process.env.CRM_DB_NAME || "default",
     user: process.env.CRM_DB_USER || "postgres",
     password,
-    connectionTimeoutMillis: PROBE_MS,
+    connectionTimeoutMillis: pgProbeMs,
   });
 
   const t0 = Date.now();
@@ -170,15 +187,25 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
       /* ignore */
     }
     const msg = e instanceof Error ? e.message : String(e);
-    let detail = msg.slice(0, 88);
-    if (/ECONNREFUSED/i.test(msg)) {
+    let detail = `${msg.slice(0, 72)} · ${target}`.slice(0, 96);
+    if (/timeout expired/i.test(msg)) {
+      detail =
+        `Postgres connect timed out (${pgProbeMs}ms) · ${target}. Tunnel down, slow SSH, or wrong host/port — or set CRM_DB_PROBE_TIMEOUT_MS=20000 in web/.env.local.`.slice(
+          0,
+          220
+        );
+    } else if (/ECONNREFUSED/i.test(msg)) {
       const portHint =
         process.env.CRM_DB_PORT && process.env.CRM_DB_PORT !== "5432"
           ? `port ${process.env.CRM_DB_PORT}`
           : "5432";
-      detail = `${detail.slice(0, 72)} → start Postgres/SSH tunnel; local dev: CRM_DB_HOST=127.0.0.1 + scripts/crm-db-tunnel (.ps1/.sh) (${portHint})`.slice(
+      const dockerTunnel =
+        dbHost === "host.docker.internal" || dbHost.endsWith(".docker.internal")
+          ? " From Docker, tunnel must bind 0.0.0.0 (default in crm-db-tunnel.ps1/.sh), not 127.0.0.1 only."
+          : "";
+      detail = `${detail.slice(0, 88)} → start SSH tunnel to droplet :5432 (${portHint}).${dockerTunnel}`.slice(
         0,
-        160
+        220
       );
     }
     return {

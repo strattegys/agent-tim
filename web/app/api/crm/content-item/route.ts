@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 /**
  * PATCH { id, title } — update `_content_item.title` (e.g. working title shown in Ghost’s queue).
@@ -25,6 +26,7 @@ export async function PATCH(req: NextRequest) {
     if (rows.length === 0) {
       return NextResponse.json({ error: "Content item not found" }, { status: 404 });
     }
+    notifyDashboardSyncChange();
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("[content-item] PATCH:", e);

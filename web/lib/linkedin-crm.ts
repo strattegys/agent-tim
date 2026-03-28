@@ -9,6 +9,7 @@ import { join } from "path";
 import { triageNewConnection } from "./linkedin-triage";
 import { writeNotification } from "./notifications";
 import { normalizeUnipileDsn } from "./unipile-profile";
+import { recordUsageEvent } from "./usage-events";
 
 const UNIPILE_API_KEY = process.env.UNIPILE_API_KEY || "";
 const UNIPILE_ACCOUNT_ID = process.env.UNIPILE_ACCOUNT_ID || "";
@@ -333,6 +334,13 @@ async function fetchRecentConnections(
         res.on("data", (chunk) => (data += chunk));
         res.on("end", () => {
           try {
+            if (res.statusCode === 200) {
+              recordUsageEvent({
+                surface: "unipile_proxy",
+                provider: "unipile",
+                metadata: { path: "users/relations", limit },
+              });
+            }
             const parsed = JSON.parse(data);
             resolve(parsed.items || []);
           } catch {

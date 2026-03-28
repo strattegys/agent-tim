@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { AgentConfig } from "@/lib/agent-frontend";
+import type { DashboardNotification } from "@/lib/dashboard-sync-types";
 
 const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "workflow", "schedule"];
 
@@ -42,6 +43,8 @@ interface StatusRailProps {
   testingTaskCount: number;
   timMessagingTaskCount?: number;
   ghostContentTaskCount?: number;
+  /** When provided, rail uses parent-fed alerts and skips /api/notifications polling. */
+  sharedNotifications?: DashboardNotification[];
 }
 
 function formatAlertTime(ts: string) {
@@ -73,10 +76,13 @@ export default function StatusRail({
   testingTaskCount,
   timMessagingTaskCount = 0,
   ghostContentTaskCount = 0,
+  sharedNotifications,
 }: StatusRailProps) {
   const [services, setServices] = useState<ServiceRow[] | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
   const [systemNotices, setSystemNotices] = useState<SystemNotice[]>([]);
+  const [reconnectBusy, setReconnectBusy] = useState(false);
+  const [reconnectNote, setReconnectNote] = useState<string | null>(null);
 
   const teamAgents = agents.filter((a) => a.category !== "Toys");
 
@@ -106,16 +112,46 @@ export default function StatusRail({
       .catch(() => {});
   }, []);
 
+  const useSharedAlerts = sharedNotifications !== undefined;
+
   useEffect(() => {
+    if (useSharedAlerts) {
+      const list = (sharedNotifications || []) as NotificationRow[];
+      const filtered = list.filter((n) => ALERT_TYPES.includes(n.type)).slice(0, 12);
+      setAlerts(filtered);
+      return;
+    }
     fetchNotifications();
     const i = setInterval(fetchNotifications, 30000);
     return () => clearInterval(i);
-  }, [fetchNotifications]);
+  }, [useSharedAlerts, sharedNotifications, fetchNotifications]);
 
   useEffect(() => {
     fetchStatus();
-    const i = setInterval(fetchStatus, 60000);
+    // Service probes are slow; 90s is enough when chat/tasks refresh via dashboard-sync.
+    const i = setInterval(fetchStatus, 90000);
     return () => clearInterval(i);
+  }, [fetchStatus]);
+
+  const onReconnectDataPlatform = useCallback(async () => {
+    setReconnectBusy(true);
+    setReconnectNote(null);
+    try {
+      const r = await fetch("/api/crm/reconnect-db", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = (await r.json()) as { message?: string; error?: string };
+      const text = data.message || data.error || (r.ok ? "Done." : "Request failed.");
+      setReconnectNote(text);
+      fetchStatus();
+    } catch {
+      setReconnectNote("Request failed — try again.");
+      fetchStatus();
+    } finally {
+      setReconnectBusy(false);
+    }
   }, [fetchStatus]);
 
   return (
@@ -157,6 +193,23 @@ export default function StatusRail({
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            disabled={reconnectBusy}
+            onClick={onReconnectDataPlatform}
+            className="mt-2 w-full rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+            title="Clears stale CRM connection pool and probes Postgres. Local dev: if the SSH tunnel died, also run npm run db:reconnect on your PC (this button cannot start the tunnel)."
+          >
+            {reconnectBusy ? "Checking…" : "Refresh Data platform"}
+          </button>
+          {reconnectNote ? (
+            <p
+              className="mt-1.5 text-[9px] leading-snug text-[var(--text-tertiary)] break-words line-clamp-6"
+              title={reconnectNote}
+            >
+              {reconnectNote}
+            </p>
+          ) : null}
         </section>
 
         <section>

@@ -6,8 +6,21 @@ import ReminderCard, { type Reminder } from "./ReminderCard";
 import SuziPunchListPanel from "./SuziPunchListPanel";
 import SuziNotesPanel from "./SuziNotesPanel";
 import SuziIntakePanel from "./SuziIntakePanel";
+import SuziWorkSubTabHeader from "./SuziWorkSubTabHeader";
+import IntakeAddModal from "./IntakeAddModal";
+import PunchListInspectSheet from "./PunchListInspectSheet";
 import { panelBus } from "@/lib/events";
-import type { SuziWorkSubTab } from "@/lib/suzi-work-panel";
+import type { PunchListItem } from "@/lib/punch-list";
+import { punchListColumnLabel } from "@/lib/punch-list-columns";
+import {
+  reminderToFocusedContext,
+  type SuziFocusedIntake,
+  type SuziFocusedPunchList,
+  type SuziFocusedReminder,
+  type SuziFocusedNote,
+  type SuziWorkSubTab,
+  SUZI_WORK_PANEL_FALLBACK_BTN_CLASS,
+} from "@/lib/suzi-work-panel";
 
 type SubTab = SuziWorkSubTab;
 
@@ -67,15 +80,32 @@ interface SuziRemindersPanelProps {
   onClose: () => void;
   /** Notifies parent whenever the work sub-tab changes (including initial mount). */
   onSubTabChange?: (tab: SubTab) => void;
+  /** Highlighted Intake card for Suzi chat context (lifted to Command Central). */
+  focusedIntake?: SuziFocusedIntake | null;
+  onFocusedIntakeChange?: (item: SuziFocusedIntake | null) => void;
+  focusedPunchList?: SuziFocusedPunchList | null;
+  onFocusedPunchListChange?: (item: SuziFocusedPunchList | null) => void;
+  focusedReminder?: SuziFocusedReminder | null;
+  onFocusedReminderChange?: (item: SuziFocusedReminder | null) => void;
+  focusedNote?: SuziFocusedNote | null;
+  onFocusedNoteChange?: (item: SuziFocusedNote | null) => void;
 }
 
 export default function SuziRemindersPanel({
   onClose,
   onSubTabChange,
+  focusedIntake,
+  onFocusedIntakeChange,
+  focusedPunchList,
+  onFocusedPunchListChange,
+  focusedReminder,
+  onFocusedReminderChange,
+  focusedNote,
+  onFocusedNoteChange,
 }: SuziRemindersPanelProps) {
   const searchParams = useSearchParams();
 
-  const [subTab, setSubTab] = useState<SubTab>("punchlist");
+  const [subTab, setSubTab] = useState<SubTab>("intake");
 
   const suziSubParam = searchParams.get("suziSub");
   useEffect(() => {
@@ -106,6 +136,13 @@ export default function SuziRemindersPanel({
   useEffect(() => {
     onSubTabChange?.(subTab);
   }, [subTab, onSubTabChange]);
+
+  useEffect(() => {
+    if (subTab !== "punchlist") setPunchInspectItem(null);
+  }, [subTab]);
+
+  const [intakeAddOpen, setIntakeAddOpen] = useState(false);
+  const [punchInspectItem, setPunchInspectItem] = useState<PunchListItem | null>(null);
 
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -164,10 +201,22 @@ export default function SuziRemindersPanel({
     });
   };
 
+  const toggleSuziFocusReminder = useCallback(
+    (r: Reminder) => {
+      if (!onFocusedReminderChange) return;
+      if (focusedReminder?.id === r.id) onFocusedReminderChange(null);
+      else onFocusedReminderChange(reminderToFocusedContext(r));
+    },
+    [focusedReminder?.id, onFocusedReminderChange]
+  );
+
   const handleDelete = async (id: string) => {
     if (confirmDelete !== id) {
       setConfirmDelete(id);
       return;
+    }
+    if (onFocusedReminderChange && focusedReminder?.id === id) {
+      onFocusedReminderChange(null);
     }
     // Optimistic remove
     setReminders((prev) => prev.filter((r) => r.id !== id));
@@ -220,43 +269,36 @@ export default function SuziRemindersPanel({
     }
   }
 
-  // Helper to render the 3-tab header
+  const subTabHeaderFallback =
+    subTab === "intake" ? (
+      <button
+        type="button"
+        onClick={() => setIntakeAddOpen(true)}
+        title="Add a capture to Intake"
+        className={SUZI_WORK_PANEL_FALLBACK_BTN_CLASS}
+      >
+        Add Intake
+      </button>
+    ) : undefined;
+
   const renderSubTabHeader = () => (
-    <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-1 flex-wrap">
-      {(["punchlist", "reminders", "notes", "intake"] as SubTab[]).map((tab) => {
-        const label =
-          tab === "punchlist"
-            ? "Punch List"
-            : tab === "notes"
-              ? "Notes"
-              : tab === "intake"
-                ? "Intake"
-                : "Reminders";
-        const isActive = subTab === tab;
-        return (
-          <span key={tab} className="contents">
-            <button
-              type="button"
-              onClick={() => setSubTab(tab)}
-              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
-                isActive
-                  ? "font-semibold text-[var(--text-primary)]"
-                  : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              {label}
-            </button>
-          </span>
-        );
-      })}
-    </div>
+    <SuziWorkSubTabHeader
+      subTab={subTab}
+      onSubTabChange={setSubTab}
+      fallbackAction={subTabHeaderFallback}
+    />
   );
 
   if (subTab === "notes") {
     return (
       <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
         {renderSubTabHeader()}
-        <SuziNotesPanel onClose={onClose} embedded />
+        <SuziNotesPanel
+          onClose={onClose}
+          embedded
+          focusedNoteId={focusedNote?.id ?? null}
+          onFocusedNoteChange={onFocusedNoteChange}
+        />
       </div>
     );
   }
@@ -265,16 +307,41 @@ export default function SuziRemindersPanel({
     return (
       <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
         {renderSubTabHeader()}
-        <SuziIntakePanel onClose={onClose} embedded />
+        <IntakeAddModal open={intakeAddOpen} onClose={() => setIntakeAddOpen(false)} />
+        <SuziIntakePanel
+          onClose={onClose}
+          embedded
+          focusedIntakeId={focusedIntake?.id ?? null}
+          onFocusedIntakeChange={onFocusedIntakeChange}
+        />
       </div>
     );
   }
 
   if (subTab === "punchlist") {
     return (
-      <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)] min-w-0">
         {renderSubTabHeader()}
-        <SuziPunchListPanel onClose={onClose} embedded />
+        {/* Inspect is sized to ~⅔ of this pane only (below sub-tab header), not the tab row */}
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden min-w-0">
+          <SuziPunchListPanel
+            onClose={onClose}
+            embedded
+            focusedPunchListId={focusedPunchList?.id ?? null}
+            onFocusedPunchListChange={onFocusedPunchListChange}
+            inspectItem={punchInspectItem}
+            onInspectItemChange={setPunchInspectItem}
+          />
+          {punchInspectItem && (
+            <PunchListInspectSheet
+              item={punchInspectItem}
+              columnLabel={punchListColumnLabel(punchInspectItem.rank)}
+              onClose={() => setPunchInspectItem(null)}
+              isFocusedForSuzi={focusedPunchList?.id === punchInspectItem.id}
+              onClearSuziFocus={() => onFocusedPunchListChange?.(null)}
+            />
+          )}
+        </div>
       </div>
     );
   }
@@ -368,6 +435,12 @@ export default function SuziRemindersPanel({
                 reminder={r}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
+                isFocused={focusedReminder?.id === r.id}
+                onToggleSuziFocus={
+                  onFocusedReminderChange
+                    ? () => toggleSuziFocusReminder(r)
+                    : undefined
+                }
               />
               {confirmDelete === r.id && (
                 <div className="absolute inset-0 bg-[var(--bg-primary)]/90 rounded-lg flex items-center justify-center gap-2">

@@ -91,7 +91,7 @@ export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
             #{pkg.packageNumber}
           </span>
         )}
-        <span className="text-xs font-semibold text-[var(--text-primary)] truncate flex-1">{pkg.name}</span>
+        <span className="text-xs font-medium text-[var(--text-chat-body)] truncate flex-1">{pkg.name}</span>
       </div>
       <div className="flex items-center gap-1.5 flex-wrap text-[9px] text-[var(--text-tertiary)]">
         <span className="px-1.5 py-0.5 rounded bg-[var(--bg-primary)] font-medium">{pkg.templateId}</span>
@@ -154,7 +154,7 @@ export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
                   />
                 </span>
                 <div className="flex flex-col min-w-0 flex-1">
-                  <span className="text-[11px] font-semibold text-[var(--text-primary)] leading-tight truncate">
+                  <span className="text-[11px] font-medium text-[var(--text-chat-body)] leading-tight truncate">
                     {typeLabel}
                   </span>
                   <span className="text-[9px] text-[var(--text-tertiary)] capitalize truncate">
@@ -172,16 +172,14 @@ export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
                     <div key={s.key} className="flex items-center gap-0.5">
                       <span
                         title={`${s.label}: ${n} item(s)${expanded ? " · human step" : ""}`}
-                        className="text-[9px] px-1.5 py-0.5 rounded-md font-medium border inline-flex items-center gap-0.5 max-w-[9.5rem]"
+                        className="text-[9px] px-1.5 py-0.5 rounded-md font-medium border border-[var(--border-color)] inline-flex items-center gap-0.5 max-w-[9.5rem] bg-[var(--bg-primary)]"
                         style={{
-                          backgroundColor: n > 0 ? `${s.color}22` : "var(--bg-primary)",
-                          borderColor: n > 0 ? `${s.color}40` : "var(--border-color)",
-                          color: n > 0 ? "var(--text-primary)" : "var(--text-tertiary)",
+                          color: n > 0 ? "var(--text-secondary)" : "var(--text-tertiary)",
                         }}
                       >
-                        {expanded && <HumanStepIcon />}
+                        {expanded && <HumanStepIcon className="text-[var(--text-tertiary)]" />}
                         <span className="truncate">{s.label}</span>
-                        <span className="tabular-nums font-bold text-[11px] shrink-0">{n}</span>
+                        <span className="tabular-nums font-medium text-[10px] shrink-0">{n}</span>
                       </span>
                       {i < wf.stages.length - 1 && (
                         <svg

@@ -96,7 +96,7 @@ export async function addIntake(
       agentId,
       data.title,
       data.url ?? null,
-      data.body ?? null,
+      normalizeIntakeBody(data.body),
       data.source,
       metaJson,
     ]
@@ -122,7 +122,7 @@ export async function updateIntake(
   }
   if (data.body !== undefined) {
     sets.push(`body = $${i++}`);
-    params.push(data.body);
+    params.push(normalizeIntakeBody(data.body));
   }
 
   params.push(id);
@@ -167,12 +167,153 @@ function rowToIntake(row: Record<string, unknown>): IntakeItem {
     agentId: row.agentId as string,
     title: row.title as string,
     url: (row.url as string) || null,
-    body: (row.body as string) || null,
+    body: normalizeIntakeBody(row.body as string | null),
     source: row.source as IntakeSource,
     meta,
     createdAt: (row.createdAt as Date)?.toISOString?.() || (row.createdAt as string),
     updatedAt: (row.updatedAt as Date)?.toISOString?.() || (row.updatedAt as string),
   };
+}
+
+/** Strip leading `>` quote markers (nested replies / forwards). */
+function stripLeadingGtDepth(s: string): string {
+  let t = s;
+  while (/^\s*>/.test(t)) t = t.replace(/^\s*>\s?/, "");
+  return t.trimStart();
+}
+
+/** True when this line is only decoration around “Forwarded message” (Gmail, etc.). */
+function isForwardedMessageBanner(trimmed: string): boolean {
+  if (!/\bforwarded message\b/i.test(trimmed)) return false;
+  const withoutPhrase = trimmed.replace(/\bforwarded message\b/gi, "").replace(/\s/g, "");
+  return withoutPhrase.length > 0 && /^[-–—_*=#.]+$/i.test(withoutPhrase);
+}
+
+function isOriginalMessageBanner(trimmed: string): boolean {
+  if (!/\boriginal message\b/i.test(trimmed)) return false;
+  const w = trimmed.replace(/\boriginal message\b/gi, "").replace(/\s/g, "");
+  return w.length === 0 || /^[-–—_*=#.]+$/i.test(w);
+}
+
+function isBeginForwardedBanner(trimmed: string): boolean {
+  return /^begin forwarded message:?\s*$/i.test(trimmed);
+}
+
+function isOutlookSeparator(trimmed: string): boolean {
+  return /^_{8,}$/.test(trimmed) || /^[-–—]{8,}$/.test(trimmed);
+}
+
+/** Known mail headers in forward preambles (avoid matching “Note: …” in body). */
+function looksLikeForwardHeaderLine(trimmed: string): boolean {
+  return (
+    /^(?:From|To|Subject|Date|Sent|Cc|Bcc|Reply-To|Reply\s+To|Message-ID|Content-Type|MIME-Version)\s*:\s*.+/i.test(
+      trimmed
+    ) || /^X-[A-Za-z0-9-]+\s*:\s*.+/i.test(trimmed)
+  );
+}
+
+/**
+ * Remove one leading forward block from plain text (line-based; handles quoted `>` lines and
+ * clients that omit a blank line before the body).
+ */
+function stripOneForwardBlockFromStart(text: string): string {
+  const lines = text.split("\n");
+  let i = 0;
+  while (i < lines.length && lines[i].trim() === "") i++;
+  if (i >= lines.length) return text;
+
+  const rawFirst = lines[i]!;
+  const firstDequoted = stripLeadingGtDepth(rawFirst).trim();
+
+  let afterBanner = i + 1;
+
+  if (isOutlookSeparator(firstDequoted)) {
+    let j = i + 1;
+    while (j < lines.length && lines[j]!.trim() === "") j++;
+    if (j >= lines.length) return text;
+    const candidate = stripLeadingGtDepth(lines[j]!).trim();
+    if (!/^From:\s*/i.test(candidate)) return text;
+    afterBanner = j;
+  } else if (
+    isForwardedMessageBanner(firstDequoted) ||
+    isOriginalMessageBanner(firstDequoted) ||
+    isBeginForwardedBanner(firstDequoted)
+  ) {
+    afterBanner = i + 1;
+  } else {
+    return text;
+  }
+
+  i = afterBanner;
+  while (i < lines.length && lines[i]!.trim() === "") i++;
+
+  let headerCount = 0;
+  while (i < lines.length) {
+    const raw = lines[i]!;
+    const t = stripLeadingGtDepth(raw).trim();
+    if (t === "") {
+      if (headerCount > 0) {
+        i++;
+        while (i < lines.length && lines[i]!.trim() === "") i++;
+        break;
+      }
+      i++;
+      continue;
+    }
+    if (looksLikeForwardHeaderLine(t)) {
+      headerCount++;
+      i++;
+      while (i < lines.length && /^[ \t]+\S/.test(lines[i]!) && !looksLikeForwardHeaderLine(stripLeadingGtDepth(lines[i]!).trim())) {
+        i++;
+      }
+      continue;
+    }
+    if (headerCount > 0) break;
+    break;
+  }
+
+  return lines.slice(i).join("\n");
+}
+
+/**
+ * HTML→text often glues "Forwarded message … From: … Subject: …" onto one line. Split on
+ * header boundaries so the line-based stripper can run.
+ */
+function demergeForwardedHeadersOnFirstLine(text: string): string {
+  const lines = text.split("\n");
+  if (lines.length === 0) return text;
+  const first = lines[0]!;
+  if (!/\bforwarded message\b/i.test(first) || !/\b(?:From|Subject|Date|Sent|To)\s*:/i.test(first)) {
+    return text;
+  }
+  const chunks = first.split(/\s+(?=(?:From|To|Subject|Date|Sent|Cc|Bcc|Reply-To|Reply\s+To)\s*:)/i);
+  if (chunks.length < 2) return text;
+  return [...chunks, ...lines.slice(1)].join("\n");
+}
+
+/**
+ * Remove leading "Forwarded message" / "Original Message" blocks (Gmail, Outlook, Apple Mail).
+ * Idempotent; safe on non-email text. Keeps the actual user content after the header run.
+ */
+export function stripIntakeForwardedNoise(text: string): string {
+  let t = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  if (!t.trim()) return t.trim();
+
+  for (let guard = 0; guard < 12; guard++) {
+    t = t.trimStart();
+    t = demergeForwardedHeadersOnFirstLine(t);
+    const next = stripOneForwardBlockFromStart(t);
+    if (next === t) break;
+    t = next;
+  }
+
+  return t.trim();
+}
+
+function normalizeIntakeBody(raw: string | null | undefined): string | null {
+  if (raw == null || typeof raw !== "string") return null;
+  const cleaned = stripIntakeForwardedNoise(raw).trim();
+  return cleaned.length > 0 ? cleaned : null;
 }
 
 function stripTrailingUrlPunct(url: string): string {

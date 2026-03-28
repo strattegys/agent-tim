@@ -2,9 +2,14 @@
  * Persisted queue flag on _workflow_item: true when the item’s stage requires a human
  * (from the workflow board’s stages[].requiresHuman). Tim’s work queue selects
  * humanTaskOpen = true + ownerAgent instead of re-deriving type from spec alone.
+ *
+ * When the DB board row is missing, empty, or omits requiresHuman for a stage, we also
+ * consult WORKFLOW_TYPES so Reply Draft / LinkedIn inbox rows don’t stay humanTaskOpen=false.
  */
 
 import { query } from "@/lib/db";
+import { resolveWorkflowRegistryForQueue } from "@/lib/workflow-spec";
+import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 
 export function humanTaskOpenFromBoardStages(boardStages: unknown, itemStage: string): boolean {
   const sk = (itemStage || "").trim().toUpperCase();
@@ -58,16 +63,6 @@ export function boardHumanMetaForStage(
   return null;
 }
 
-function workflowTypeFromSpec(spec: unknown): string {
-  if (spec == null) return "";
-  try {
-    const o = typeof spec === "string" ? JSON.parse(spec) : spec;
-    return String((o as { workflowType?: string }).workflowType || "").trim();
-  } catch {
-    return "";
-  }
-}
-
 export async function syncHumanTaskOpenForItem(itemId: string): Promise<void> {
   const wi = await query<{ stage: string; workflowId: string }>(
     `SELECT stage, "workflowId" FROM "_workflow_item" WHERE id = $1 AND "deletedAt" IS NULL`,
@@ -75,8 +70,13 @@ export async function syncHumanTaskOpenForItem(itemId: string): Promise<void> {
   );
   if (wi.length === 0) return;
 
-  const wf = await query<{ boardId: string | null; spec: unknown }>(
-    `SELECT "boardId", spec FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
+  const wf = await query<{
+    boardId: string | null;
+    spec: unknown;
+    packageId: string | null;
+    ownerAgent: string | null;
+  }>(
+    `SELECT "boardId", spec, "packageId", "ownerAgent" FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
     [wi[0].workflowId]
   );
   const boardId = wf[0]?.boardId ?? null;
@@ -88,12 +88,36 @@ export async function syncHumanTaskOpenForItem(itemId: string): Promise<void> {
     );
     stages = b[0]?.stages ?? null;
   }
-  let open = humanTaskOpenFromBoardStages(stages, wi[0].stage);
+
+  let packageSpec: unknown;
+  if (wf[0]?.packageId) {
+    const pr = await query<{ spec: unknown }>(
+      `SELECT spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+      [wf[0].packageId]
+    );
+    packageSpec = pr[0]?.spec;
+  }
+
+  const typeId =
+    resolveWorkflowRegistryForQueue(wf[0]?.spec, {
+      packageSpec,
+      ownerAgent: wf[0]?.ownerAgent,
+      boardStages: stages,
+    }) ?? "";
+
+  const fromDb = humanTaskOpenFromBoardStages(stages, wi[0].stage);
+  const tmplStages =
+    typeId && WORKFLOW_TYPES[typeId] ? WORKFLOW_TYPES[typeId].defaultBoard.stages : null;
+  const fromTemplate = tmplStages
+    ? humanTaskOpenFromBoardStages(tmplStages, wi[0].stage)
+    : false;
+
+  let open = fromDb || fromTemplate;
   const stageU = (wi[0].stage || "").trim().toUpperCase();
-  const wfType = workflowTypeFromSpec(wf[0]?.spec);
-  if (wfType === "warm-outreach" && stageU === "MESSAGED") {
+  if (typeId === "warm-outreach" && stageU === "MESSAGED") {
     open = false;
   }
+
   await query(
     `UPDATE "_workflow_item" SET "humanTaskOpen" = $1, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
     [open, itemId]

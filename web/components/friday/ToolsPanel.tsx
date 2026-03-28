@@ -13,10 +13,10 @@ interface ToolInfo {
   assignedTo: string[];
 }
 
-const CATEGORY_COLORS: Record<string, { bg: string; text: string; label: string }> = {
-  external: { bg: "#1D9E7520", text: "#1D9E75", label: "External" },
-  internal: { bg: "#2563EB20", text: "#2563EB", label: "Internal" },
-  meta: { bg: "#9B59B620", text: "#9B59B6", label: "Meta" },
+const CATEGORY_LABELS: Record<string, string> = {
+  external: "External",
+  internal: "Internal",
+  meta: "Meta",
 };
 
 const CATEGORY_ICONS: Record<string, string> = {
@@ -73,7 +73,7 @@ export default function ToolsPanel() {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Filter bar */}
-      <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5 overflow-x-auto">
+      <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center gap-2 overflow-x-auto">
         {[
           { key: "all", label: "All" },
           { key: "external", label: "External" },
@@ -82,31 +82,28 @@ export default function ToolsPanel() {
         ].map((f) => (
           <button
             key={f.key}
+            type="button"
             onClick={() => setFilter(f.key)}
-            className="shrink-0 px-2 py-0.5 rounded text-[10px] font-medium transition-colors"
-            style={{
-              background:
-                filter === f.key
-                  ? "var(--accent-color)"
-                  : "var(--bg-tertiary)",
-              color:
-                filter === f.key ? "#fff" : "var(--text-secondary)",
-            }}
+            className={`shrink-0 text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+              filter === f.key
+                ? "font-semibold text-[var(--text-primary)]"
+                : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+            }`}
           >
             {f.label}
           </button>
         ))}
-        <span className="w-px h-4 bg-[var(--border-color)] mx-1" />
+        <span className="w-px h-4 bg-[var(--border-color)] mx-0.5 shrink-0" aria-hidden />
         {allAgents.map((a) => (
           <button
             key={a}
+            type="button"
             onClick={() => setFilter(a)}
-            className="shrink-0 px-2 py-0.5 rounded text-[10px] font-medium capitalize transition-colors"
-            style={{
-              background:
-                filter === a ? "var(--accent-color)" : "var(--bg-tertiary)",
-              color: filter === a ? "#fff" : "var(--text-secondary)",
-            }}
+            className={`shrink-0 text-xs px-2 py-1 rounded cursor-pointer capitalize transition-colors ${
+              filter === a
+                ? "font-semibold text-[var(--text-primary)]"
+                : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+            }`}
           >
             {a}
           </button>
@@ -123,32 +120,26 @@ export default function ToolsPanel() {
           </div>
         ) : (
           filtered.map((t) => {
-            const cat = CATEGORY_COLORS[t.category];
+            const catLabel = CATEGORY_LABELS[t.category] || t.category;
             const expanded = expandedTool === t.id;
 
             return (
               <div
                 key={t.id}
-                className="rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden cursor-pointer transition-colors hover:border-[var(--text-tertiary)]"
+                className="rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] overflow-hidden cursor-pointer transition-colors hover:border-[var(--text-tertiary)]/30"
                 onClick={() => setExpandedTool(expanded ? null : t.id)}
               >
                 {/* Card header */}
                 <div className="px-3 py-2 flex items-center gap-2">
-                  <span className="text-sm">{CATEGORY_ICONS[t.category]}</span>
-                  <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                  <span className="text-sm opacity-80">{CATEGORY_ICONS[t.category]}</span>
+                  <span className="text-xs font-medium text-[var(--text-chat-body)] truncate">
                     {t.displayName}
                   </span>
-                  <span
-                    className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider"
-                    style={{ background: cat.bg, color: cat.text }}
-                  >
-                    {cat.label}
+                  <span className="ml-auto shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wider border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)]">
+                    {catLabel}
                   </span>
                   {t.requiresApproval && (
-                    <span
-                      className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider"
-                      style={{ background: "#D85A3020", color: "#D85A30" }}
-                    >
+                    <span className="shrink-0 px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wider border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)]">
                       Approval
                     </span>
                   )}
@@ -163,7 +154,7 @@ export default function ToolsPanel() {
                     {t.assignedTo.map((a) => (
                       <span
                         key={a}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium capitalize"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] font-medium capitalize"
                       >
                         <span
                           className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -184,7 +175,7 @@ export default function ToolsPanel() {
                         <span className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
                           Connects to
                         </span>
-                        <p className="text-[11px] text-[var(--text-primary)] mt-0.5">
+                        <p className="text-[11px] text-[var(--text-chat-body)] mt-0.5">
                           {t.externalSystem}
                         </p>
                       </div>
@@ -199,7 +190,7 @@ export default function ToolsPanel() {
                         {t.operations.map((op) => (
                           <span
                             key={op}
-                            className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-mono"
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-tertiary)] font-mono"
                           >
                             {op}
                           </span>
@@ -216,7 +207,7 @@ export default function ToolsPanel() {
                         {t.assignedTo.map((a) => (
                           <span
                             key={a}
-                            className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium capitalize"
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] font-medium capitalize"
                           >
                             {a}
                           </span>

@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import PunchListCard, { type PunchListItem } from "./PunchListCard";
+import PunchListInspectSheet from "./PunchListInspectSheet";
 import { panelBus } from "@/lib/events";
-import { PUNCH_LIST_COLUMNS } from "@/lib/punch-list-columns";
+import { PUNCH_LIST_COLUMNS, punchListColumnLabel } from "@/lib/punch-list-columns";
+import { punchListItemToFocusedContext, type SuziFocusedPunchList } from "@/lib/suzi-work-panel";
 
 const STATUS_FILTERS = ["All", "Open", "Done"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -17,11 +19,23 @@ const FILTER_TO_STATUS: Record<string, "open" | "done" | undefined> = {
 interface SuziPunchListPanelProps {
   onClose: () => void;
   embedded?: boolean;
+  focusedPunchListId?: string | null;
+  onFocusedPunchListChange?: (item: SuziFocusedPunchList | null) => void;
+  /**
+   * When set (embedded punch list under Suzi work tabs), parent renders Inspect over the
+   * full tab body including sub-tab row; panel stays controlled for open/sync.
+   */
+  inspectItem?: PunchListItem | null;
+  onInspectItemChange?: (item: PunchListItem | null) => void;
 }
 
 export default function SuziPunchListPanel({
   onClose,
   embedded = false,
+  focusedPunchListId = null,
+  onFocusedPunchListChange,
+  inspectItem: inspectItemProp,
+  onInspectItemChange,
 }: SuziPunchListPanelProps) {
   const [items, setItems] = useState<PunchListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,6 +56,11 @@ export default function SuziPunchListPanel({
   const [dropTargetRank, setDropTargetRank] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const dragRef = useRef<{ itemId: string; sourceRank: number } | null>(null);
+
+  const [inspectItemLocal, setInspectItemLocal] = useState<PunchListItem | null>(null);
+  const inspectLifted = typeof onInspectItemChange === "function";
+  const inspectItem = inspectLifted ? (inspectItemProp ?? null) : inspectItemLocal;
+  const setInspectItem = inspectLifted ? onInspectItemChange! : setInspectItemLocal;
 
   // Persist filter state
   useEffect(() => {
@@ -89,6 +108,36 @@ export default function SuziPunchListPanel({
     });
     return unsub;
   }, [fetchItems, fetchCategories]);
+
+  useEffect(() => {
+    if (!inspectItem) return;
+    const next = items.find((i) => i.id === inspectItem.id) ?? null;
+    if (next !== inspectItem) setInspectItem(next);
+  }, [items, inspectItem, setInspectItem]);
+
+  const openInspect = useCallback(
+    (item: PunchListItem) => {
+      setInspectItem(item);
+      onFocusedPunchListChange?.(
+        punchListItemToFocusedContext(item, punchListColumnLabel(item.rank))
+      );
+    },
+    [onFocusedPunchListChange]
+  );
+
+  const toggleSuziFocus = useCallback(
+    (item: PunchListItem) => {
+      if (!onFocusedPunchListChange) return;
+      if (focusedPunchListId === item.id) {
+        onFocusedPunchListChange(null);
+      } else {
+        onFocusedPunchListChange(
+          punchListItemToFocusedContext(item, punchListColumnLabel(item.rank))
+        );
+      }
+    },
+    [focusedPunchListId, onFocusedPunchListChange]
+  );
 
   // Group items by rank for Kanban columns
   const rankGroups = new Map<number, PunchListItem[]>();
@@ -235,15 +284,6 @@ export default function SuziPunchListPanel({
         </div>
       )}
 
-      {/* Item count when embedded */}
-      {embedded && (
-        <div className="shrink-0 px-3 py-1.5 border-b border-[var(--border-color)] flex items-center">
-          <span className="text-xs text-[var(--text-tertiary)]">
-            {loading ? "Loading..." : `${items.length} items`}
-          </span>
-        </div>
-      )}
-
       {/* Search */}
       <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)]">
         <input
@@ -312,8 +352,10 @@ export default function SuziPunchListPanel({
         </div>
       )}
 
-      {/* Kanban board — horizontal columns by rank */}
-      <div className="flex-1 overflow-hidden">
+      {/* Kanban board — horizontal columns by rank (relative only when Inspect mounts here) */}
+      <div
+        className={`flex-1 overflow-hidden min-h-0 ${!inspectLifted ? "relative" : ""}`}
+      >
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <p className="text-sm text-[var(--text-tertiary)]">
@@ -369,6 +411,13 @@ export default function SuziPunchListPanel({
                         >
                           <PunchListCard
                             item={item}
+                            isFocused={focusedPunchListId === item.id}
+                            onToggleSuziFocus={
+                              onFocusedPunchListChange
+                                ? () => toggleSuziFocus(item)
+                                : undefined
+                            }
+                            onInspect={() => openInspect(item)}
                             dragHandle={
                               <div
                                 draggable
@@ -406,6 +455,15 @@ export default function SuziPunchListPanel({
               );
             })}
           </div>
+        )}
+        {!inspectLifted && inspectItem && (
+          <PunchListInspectSheet
+            item={inspectItem}
+            columnLabel={punchListColumnLabel(inspectItem.rank)}
+            onClose={() => setInspectItem(null)}
+            isFocusedForSuzi={focusedPunchListId === inspectItem.id}
+            onClearSuziFocus={() => onFocusedPunchListChange?.(null)}
+          />
         )}
       </div>
     </div>

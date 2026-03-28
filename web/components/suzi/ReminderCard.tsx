@@ -36,12 +36,17 @@ interface ReminderCardProps {
   reminder: Reminder;
   onToggle: (id: string, isActive: boolean) => void;
   onDelete: (id: string) => void;
+  /** Green border — selected row for Suzi chat context. */
+  isFocused?: boolean;
+  onToggleSuziFocus?: () => void;
 }
 
 export default function ReminderCard({
   reminder,
   onToggle,
   onDelete,
+  isFocused = false,
+  onToggleSuziFocus,
 }: ReminderCardProps) {
   const icon = CATEGORY_ICONS[reminder.category] || "\uD83D\uDD14";
   const catColor = CATEGORY_COLORS[reminder.category] || "#888";
@@ -72,13 +77,25 @@ export default function ReminderCard({
   const isOverdue =
     reminder.nextDueAt && new Date(reminder.nextDueAt) < new Date();
 
+  const selectable = Boolean(onToggleSuziFocus);
+
   return (
     <div
-      className={`rounded-lg border p-3 transition-colors ${
-        reminder.isActive
-          ? "border-[var(--border-color)] bg-[var(--bg-secondary)]"
-          : "border-[var(--border-color)] bg-[var(--bg-primary)] opacity-50"
-      }`}
+      className={`rounded-lg border p-3 transition-[box-shadow,border-color,colors] ${
+        isFocused
+          ? "border-2 border-[var(--accent-green)] shadow-[0_0_0_1px_var(--accent-green)] bg-[var(--bg-secondary)]"
+          : reminder.isActive
+            ? "border border-[var(--border-color)] bg-[var(--bg-secondary)]"
+            : "border border-[var(--border-color)] bg-[var(--bg-primary)] opacity-50"
+      } ${selectable ? "cursor-pointer" : ""}`}
+      onClick={selectable ? () => onToggleSuziFocus?.() : undefined}
+      title={
+        selectable
+          ? isFocused
+            ? "Focused for Suzi — tap to clear"
+            : "Tap to focus for Suzi chat"
+          : undefined
+      }
     >
       <div className="flex items-start gap-2">
         {/* Icon */}
@@ -166,7 +183,11 @@ export default function ReminderCard({
             )}
           </button>
           <button
-            onClick={() => onDelete(reminder.id)}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(reminder.id);
+            }}
             className="p-1 rounded cursor-pointer hover:bg-red-500/10 text-[var(--text-tertiary)] hover:text-red-400"
             title="Delete"
           >

@@ -7,8 +7,25 @@ import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
 import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import { logCommandCentralLlmUsage } from "./llm-usage-log";
 
 const MAX_TOOL_ITERATIONS = 20;
+
+function logAnthropicMessageUsage(
+  agentId: string,
+  model: string,
+  response: { usage?: { input_tokens?: number; output_tokens?: number } | null }
+): void {
+  const u = response.usage;
+  if (!u) return;
+  logCommandCentralLlmUsage({
+    provider: "anthropic",
+    model,
+    agentId,
+    inputTokens: u.input_tokens ?? null,
+    outputTokens: u.output_tokens ?? null,
+  });
+}
 
 function getClient(): Anthropic {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
@@ -82,13 +99,16 @@ export async function chatStreamAnthropic(
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
 
+    const anthropicModel = config.modelName || "claude-haiku-4-5-20251001";
     const response = await client.messages.create({
-      model: config.modelName || "claude-haiku-4-5-20251001",
+      model: anthropicModel,
       max_tokens: 4096,
       system: systemPrompt,
       messages,
       tools: tools.length > 0 ? tools : undefined,
     });
+
+    logAnthropicMessageUsage(agentId, anthropicModel, response);
 
     console.log(`[anthropic] stop_reason=${response.stop_reason}, blocks=${response.content.length}, types=${response.content.map(b => b.type).join(",")}, tools_passed=${tools.length}`);
 
@@ -185,8 +205,9 @@ export async function chatStreamAnthropic(
   // If we got here without returning, do a final streaming call
   let fullText = "";
 
+  const streamModel = config.modelName || "claude-haiku-4-5-20251001";
   const stream = client.messages.stream({
-    model: config.modelName || "claude-haiku-4-5-20251001",
+    model: streamModel,
     max_tokens: 4096,
     system: systemPrompt,
     messages,
@@ -201,6 +222,13 @@ export async function chatStreamAnthropic(
       fullText += event.delta.text;
       onChunk(event.delta.text);
     }
+  }
+
+  try {
+    const finalMsg = await stream.finalMessage();
+    logAnthropicMessageUsage(agentId, streamModel, finalMsg);
+  } catch {
+    /* stream may not expose finalMessage in all SDK versions */
   }
 
   if (fullText) {
@@ -266,13 +294,16 @@ export async function autonomousChatAnthropic(
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
 
+    const autoModel = config.modelName || "claude-haiku-4-5-20251001";
     const response = await client.messages.create({
-      model: config.modelName || "claude-haiku-4-5-20251001",
+      model: autoModel,
       max_tokens: 4096,
       system: systemPrompt,
       messages,
       tools: tools.length > 0 ? tools : undefined,
     });
+
+    logAnthropicMessageUsage(agentId, autoModel, response);
 
     const toolUseBlocks = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"

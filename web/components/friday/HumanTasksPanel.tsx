@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { panelBus } from "@/lib/events";
+import { useDocumentVisible } from "@/lib/use-document-visible";
 import { getAgentSpec } from "@/lib/agent-registry";
 import AgentAvatar from "../AgentAvatar";
 import ArtifactViewer from "../shared/ArtifactViewer";
@@ -20,6 +21,7 @@ const STAGE_ACTION_LABELS: Record<string, string> = {
   MESSAGE_DRAFT: "Review Message Draft",
   MESSAGED: "Review Outreach Message",
   REPLY_DRAFT: "Review Reply Draft",
+  LINKEDIN_INBOUND: "Triage LinkedIn inbound",
 };
 
 /** Stages where the task is an input form (no artifact to view, just submit) */
@@ -77,9 +79,11 @@ interface HumanTasksPanelProps {
   compact?: boolean;
 }
 
-const POLL_INTERVAL = 5000;
+const POLL_MS_VISIBLE = 5000;
+const POLL_MS_HIDDEN = 30_000;
 
 export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, compact }: HumanTasksPanelProps) {
+  const tabVisible = useDocumentVisible();
   const [tasks, setTasks] = useState<HumanTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState<string | null>(null);
@@ -114,7 +118,8 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
   useEffect(() => {
     mountedRef.current = true;
     fetchTasks();
-    const interval = setInterval(fetchTasks, POLL_INTERVAL);
+    const ms = tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN;
+    const interval = setInterval(fetchTasks, ms);
     const unsub1 = panelBus.on("workflow_items", fetchTasks);
     const unsub2 = panelBus.on("workflow_manager", fetchTasks);
     const unsub3 = panelBus.on("package_manager", fetchTasks);
@@ -125,7 +130,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
       unsub2();
       unsub3();
     };
-  }, [fetchTasks]);
+  }, [fetchTasks, tabVisible]);
 
   const handleResolve = useCallback(
     async (
@@ -165,6 +170,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
           if (data.logs?.length) pushLogsToPackage(data.logs, resolvedPackageId);
           setTasks((prev) => prev.filter((t) => t.itemId !== itemId));
           setIdeaInput("");
+          panelBus.emit("dashboard_sync");
           setTimeout(fetchTasks, 500);
         } else {
           const failLines = [
@@ -256,7 +262,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                 {/* Task header */}
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                    <span className="text-xs font-medium text-[var(--text-chat-body)] truncate">
                       {task.packageNumber != null && !Number.isNaN(task.packageNumber)
                         ? `#${task.packageNumber} `
                         : ""}
@@ -361,7 +367,7 @@ export default function HumanTasksPanel({ onSwitchToAgent, packageStageFilter, c
                         type="button"
                         onClick={() => handleResolve(task.itemId, "reject")}
                         disabled={resolving === task.itemId}
-                        className="text-[10px] px-2.5 py-1 rounded-md border border-red-500/20 bg-red-500/5 text-red-400/90 hover:bg-red-500/10 transition-colors disabled:opacity-50 font-medium"
+                        className="text-[10px] px-2.5 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-colors disabled:opacity-50 font-medium"
                       >
                         Reject
                       </button>

@@ -3,13 +3,22 @@
 import { useState, useEffect, useCallback } from "react";
 import NoteCard, { type Note } from "./NoteCard";
 import { panelBus } from "@/lib/events";
+import { noteToFocusedContext, type SuziFocusedNote } from "@/lib/suzi-work-panel";
 
 interface SuziNotesPanelProps {
   onClose: () => void;
   embedded?: boolean;
+  /** Lifted selection — green border + Suzi chat context. */
+  focusedNoteId?: string | null;
+  onFocusedNoteChange?: (item: SuziFocusedNote | null) => void;
 }
 
-export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesPanelProps) {
+export default function SuziNotesPanel({
+  onClose,
+  embedded = false,
+  focusedNoteId = null,
+  onFocusedNoteChange,
+}: SuziNotesPanelProps) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [tags, setTags] = useState<string[]>([]);
@@ -72,7 +81,19 @@ export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesP
     return unsub;
   }, [fetchNotes, fetchTags]);
 
+  const toggleSuziFocus = useCallback(
+    (note: Note) => {
+      if (!onFocusedNoteChange) return;
+      if (focusedNoteId === note.id) onFocusedNoteChange(null);
+      else onFocusedNoteChange(noteToFocusedContext(note));
+    },
+    [focusedNoteId, onFocusedNoteChange]
+  );
+
   const handleDelete = useCallback(async (id: string) => {
+    if (onFocusedNoteChange && focusedNoteId === id) {
+      onFocusedNoteChange(null);
+    }
     // Optimistic removal
     setNotes((prev) => prev.filter((n) => n.id !== id));
     try {
@@ -89,7 +110,7 @@ export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesP
     } catch {
       fetchNotes();
     }
-  }, [fetchNotes, fetchTags]);
+  }, [fetchNotes, fetchTags, focusedNoteId, onFocusedNoteChange]);
 
   const pinnedCount = notes.filter((n) => n.pinned).length;
 
@@ -171,7 +192,17 @@ export default function SuziNotesPanel({ onClose, embedded = false }: SuziNotesP
             </div>
           </div>
         ) : (
-          notes.map((note) => <NoteCard key={note.id} note={note} onDelete={handleDelete} />)
+          notes.map((note) => (
+            <NoteCard
+              key={note.id}
+              note={note}
+              onDelete={handleDelete}
+              isFocused={focusedNoteId === note.id}
+              onToggleSuziFocus={
+                onFocusedNoteChange ? () => toggleSuziFocus(note) : undefined
+              }
+            />
+          ))
         )}
       </div>
     </div>

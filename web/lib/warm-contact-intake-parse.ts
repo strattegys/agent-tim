@@ -35,7 +35,7 @@ export function extractLinkedInUrlFromText(text: string): string | null {
  * Falls back to first substantive line as full name if no Name label.
  */
 export function parseWarmContactIntake(raw: string): ParsedWarmContactIntake {
-  const linkedinUrl = extractLinkedInUrlFromText(raw);
+  let linkedinUrl = extractLinkedInUrlFromText(raw);
 
   let nameFromLabel: string | null = null;
   let jobTitle: string | null = null;
@@ -70,6 +70,18 @@ export function parseWarmContactIntake(raw: string): ParsedWarmContactIntake {
       key === "position"
     ) {
       jobTitle = val;
+    } else if (
+      key === "linkedin" ||
+      key === "linked in" ||
+      key === "linkedin url" ||
+      key === "linkedin profile" ||
+      key === "li url" ||
+      key === "profile url" ||
+      key === "profile"
+    ) {
+      const fromLabel =
+        extractLinkedInUrlFromText(val) || (/^https?:\/\//i.test(val) ? val.split(/\s/)[0] : null);
+      if (fromLabel) linkedinUrl = fromLabel;
     }
   }
 

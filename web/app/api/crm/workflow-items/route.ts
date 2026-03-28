@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import type { WorkflowItemType } from "@/lib/board-types";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
+import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 interface PersonRow {
   [key: string]: unknown;
@@ -81,8 +83,11 @@ export async function GET(request: NextRequest) {
         sourceId: r.sourceId,
         position: r.position || 0,
         humanTaskOpen: Boolean((r as { humanTaskOpen?: boolean }).humanTaskOpen),
-        title: [r.firstName, r.lastName].filter(Boolean).join(" ") || "Unknown",
-        subtitle: r.jobTitle || "",
+        title:
+          r.sourceType === WARM_DISCOVERY_SOURCE_TYPE
+            ? "Next contact"
+            : [r.firstName, r.lastName].filter(Boolean).join(" ") || "Unknown",
+        subtitle: r.sourceType === WARM_DISCOVERY_SOURCE_TYPE ? "" : r.jobTitle || "",
         extra: r.companyName || "",
         linkedinUrl: r.linkedinUrl || "",
         email: r.email || "",
@@ -178,6 +183,7 @@ export async function POST(request: NextRequest) {
     );
     const newId = rows[0].id;
     await syncHumanTaskOpenForItem(newId);
+    notifyDashboardSyncChange();
     return NextResponse.json({ id: newId });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to create workflow item";
@@ -217,6 +223,7 @@ export async function PATCH(request: NextRequest) {
     if (stage !== undefined) {
       await syncHumanTaskOpenForItem(String(id));
     }
+    notifyDashboardSyncChange();
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to update workflow item";
@@ -234,6 +241,7 @@ export async function DELETE(request: NextRequest) {
       `UPDATE "_workflow_item" SET "deletedAt" = NOW(), "humanTaskOpen" = false WHERE id = $1 AND "deletedAt" IS NULL`,
       [id]
     );
+    notifyDashboardSyncChange();
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to delete workflow item";

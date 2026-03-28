@@ -5,6 +5,7 @@ import {
   extractFirstUrlFromHtml,
   htmlToPlainText,
   intakeExistsWithMessageId,
+  stripIntakeForwardedNoise,
 } from "@/lib/intake";
 
 const SECRET = process.env.INTAKE_INBOUND_WEBHOOK_SECRET?.trim() || "";
@@ -153,11 +154,13 @@ export async function POST(req: Request, ctx: RouteCtx) {
   const title = parsed.subject.trim().slice(0, 500) || "Email capture";
   const plainFromHtml = htmlToPlainText(parsed.htmlBody);
   const mergedPlain = parsed.textBody.trim() || plainFromHtml.trim();
+  const withoutForwardNoise = stripIntakeForwardedNoise(mergedPlain).trim();
   const urlFromBody =
+    extractFirstUrl(withoutForwardNoise) ||
     extractFirstUrl(parsed.textBody) ||
     extractFirstUrlFromHtml(parsed.htmlBody) ||
     (mergedPlain ? extractFirstUrl(mergedPlain) : null);
-  const bodyText = mergedPlain ? mergedPlain.slice(0, 20000) : null;
+  const bodyText = withoutForwardNoise ? withoutForwardNoise.slice(0, 20000) : null;
 
   await addIntake("suzi", {
     title,

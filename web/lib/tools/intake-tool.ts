@@ -46,20 +46,20 @@ const tool: ToolModule = {
     category: "internal",
     description:
       "Suzi Intake tab — capture inbox for links, snippets, and things to triage (UI, Share, email, or chat). Not notes, not punch list, not reminders.",
-    operations: ["list", "add", "update", "delete", "search"],
+    operations: ["list", "add", "update", "delete", "archive", "search"],
     requiresApproval: false,
   },
 
   declaration: {
     name: "intake",
     description:
-      "The **only** tool for items in Suzi's **Intake** work tab — a capture inbox (URLs, pasted text, things to process later). Cards show **#1, #2, …** (newest first). For **update**/**delete**, use **itemNumber** matching that #, or **id** (UUID). If Govind has typed text in the Intake **search** box, pass the same string as **filterQuery** so itemNumber matches what he sees. When **moving** an item to punch list or notes: **intake delete** (or update) after you create the punch_list/notes entry. Commands: list, add, update, delete, search.",
+      "The **only** tool for Suzi's **Intake** tab — capture inbox (URLs, snippets, triage). Cards **#1, #2…** FIFO (**#1** = oldest). **update**/**delete**/**archive**: **id** (from focused context) or **itemNumber** + optional **filterQuery** if search is active. **delete**/**archive** remove from active queue (soft-archived). **Promote to punch list:** when context has **Focused Intake** and user says add to punch list / make this a task — call **punch_list add** first (short summarized **title**, put original intake **title**+**body**+**url** in **description**, **rank** now, infer **category**), then **intake archive** with this item’s **id**. Commands: list, add, update, delete, archive, search.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
-          description: "list, add, update, delete, or search",
+          description: "list, add, update, delete, archive, or search",
         },
         title: {
           type: "string",
@@ -75,12 +75,12 @@ const tool: ToolModule = {
         },
         id: {
           type: "string",
-          description: "Intake item UUID for update/delete (alternative to itemNumber)",
+          description: "Intake item UUID for update/delete/archive (alternative to itemNumber)",
         },
         itemNumber: {
           type: "number",
           description:
-            "1-based FIFO index as on Intake cards (#1 = oldest / next to work). Use for update/delete when the user says “intake 2” or “item #3”.",
+            "1-based FIFO index as on Intake cards (#1 = oldest / next to work). Use for update/delete/archive when the user says “intake 2” or “item #3”.",
         },
         filterQuery: {
           type: "string",
@@ -132,11 +132,11 @@ const tool: ToolModule = {
       return "Intake item updated.";
     }
 
-    if (cmd === "delete") {
+    if (cmd === "delete" || cmd === "archive") {
       const resolved = await resolveIntakeTarget(agentId, args);
       if ("error" in resolved) return `Error: ${resolved.error}`;
       await deleteIntake(resolved.id);
-      return "Intake item deleted.";
+      return "Intake item archived (removed from queue).";
     }
 
     if (cmd === "search") {
@@ -152,7 +152,7 @@ const tool: ToolModule = {
         .join("\n\n");
     }
 
-    return "Unknown intake command. Use: list, add, update, delete, search";
+    return "Unknown intake command. Use: list, add, update, delete, archive, search";
   },
 };
 

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { schedule, type ScheduledTask } from "node-cron";
 import { execFile } from "child_process";
 import { appendFileSync } from "fs";
@@ -9,7 +11,7 @@ import type { RoutineSpec, HeartbeatSpec } from "./agent-spec";
  * In-App Cron Scheduler
  *
  * Data-driven from the Agent Registry. Jobs are registered on server startup
- * via instrumentation.ts. Live status is exposed via /api/cron-status.
+ * via GET /api/health (client CronWarmup), /api/chat/stream, and optionally other API routes. Live status: /api/cron-status.
  */
 
 const TOOL_SCRIPTS_PATH =
@@ -29,7 +31,7 @@ export interface CronJobConfig {
   lastResult?: string; // "success" or error message
 }
 
-// Use globalThis to share state between instrumentation hook and API routes
+// Use globalThis to share state between cron bootstrap and API routes
 // (Turbopack creates separate module instances for each context)
 const globalForCron = globalThis as typeof globalThis & {
   __cronJobRegistry?: Map<string, CronJobConfig>;
@@ -238,7 +240,7 @@ function createHeartbeatHandler(
   }
 }
 
-/** Initialize all cron jobs. Called once from instrumentation.ts on server start. */
+/** Initialize all cron jobs. Idempotent; called from server layout and chat stream API (not instrumentation — Edge-safe). */
 export function initCronJobs(): void {
   if (initialized) return;
   initialized = true;
@@ -303,6 +305,28 @@ export function initCronJobs(): void {
     async () => {
       const { syncUpcomingHolidays } = await import("./holidays");
       await syncUpcomingHolidays();
+    }
+  );
+
+  const hasAnthropicAdmin = !!process.env.ANTHROPIC_ADMIN_API_KEY?.trim();
+  registerJob(
+    {
+      id: "anthropic-cost-sync",
+      name: "Anthropic admin cost sync",
+      schedule: "0 6 * * 0",
+      description:
+        "Pull Anthropic organization cost_report into _usage_event (weekly, UTC)",
+      agentId: "king",
+      enabled: hasAnthropicAdmin,
+    },
+    async () => {
+      const { syncAnthropicCostReportToUsageEvents } = await import(
+        "./anthropic-admin-sync"
+      );
+      const r = await syncAnthropicCostReportToUsageEvents({ days: 10 });
+      if (!r.ok) {
+        console.warn("[cron] anthropic-cost-sync:", r.detail);
+      }
     }
   );
 

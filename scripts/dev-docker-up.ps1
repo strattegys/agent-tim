@@ -24,7 +24,7 @@ if (-not $already) {
   }
   $sshArgs = @()
   if ($identity) { $sshArgs += "-i", $identity }
-  $sshArgs += "-N", "-o", "ServerAliveInterval=60", "-L", "0.0.0.0:${localPort}:localhost:5432", "root@${remoteHost}"
+  $sshArgs += "-N", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", "TCPKeepAlive=yes", "-L", "0.0.0.0:${localPort}:localhost:5432", "root@${remoteHost}"
   Write-Host "Starting CRM tunnel: 0.0.0.0:${localPort} -> ${remoteHost}:5432 (localhost:5432 on server)"
   Start-Process -FilePath $ssh -ArgumentList $sshArgs -WindowStyle Hidden
   Start-Sleep -Seconds 2

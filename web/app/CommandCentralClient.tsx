@@ -12,6 +12,7 @@ import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
 import TimAgentPanel from "@/components/tim/TimAgentPanel";
 import GhostAgentPanel from "@/components/ghost/GhostAgentPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
+import KingCostPanel from "@/components/king/KingCostPanel";
 import StatusRail from "@/components/StatusRail";
 
 import AgentAvatar from "@/components/AgentAvatar";
@@ -30,6 +31,10 @@ import {
 } from "@/lib/ghost-work-context";
 import {
   formatSuziWorkPanelContext,
+  type SuziFocusedIntake,
+  type SuziFocusedPunchList,
+  type SuziFocusedReminder,
+  type SuziFocusedNote,
   type SuziWorkSubTab,
 } from "@/lib/suzi-work-panel";
 import {
@@ -37,12 +42,29 @@ import {
   type FridayDashboardTab,
   type PennyDashboardTab,
 } from "@/lib/agent-ui-context";
+import type { DashboardNotification, DashboardSyncResponse } from "@/lib/dashboard-sync-types";
 import Link from "next/link";
 
+const SUZI_INTAKE_FOCUS_STORAGE = "suzi_intake_focus_v1";
+const SUZI_PUNCH_FOCUS_STORAGE = "suzi_punch_focus_v1";
+const SUZI_REMINDER_FOCUS_STORAGE = "suzi_reminder_focus_v1";
+const SUZI_NOTE_FOCUS_STORAGE = "suzi_note_focus_v1";
+
+/** Other agents’ sidebar line — lower priority than the active streamed thread. */
+const CROSS_AGENT_CHAT_MS_VISIBLE = 90_000;
+const CROSS_AGENT_CHAT_MS_HIDDEN = 300_000;
 
 const AGENTS: AgentConfig[] = getFrontendAgents();
 
-type RightPanel = "info" | "kanban" | "dashboard" | "reminders" | "notes" | "tasks" | "messages";
+type RightPanel =
+  | "info"
+  | "kanban"
+  | "dashboard"
+  | "reminders"
+  | "notes"
+  | "tasks"
+  | "messages"
+  | "costs";
 
 const VALID_RIGHT_PANELS: RightPanel[] = [
   "info",
@@ -52,6 +74,7 @@ const VALID_RIGHT_PANELS: RightPanel[] = [
   "notes",
   "tasks",
   "messages",
+  "costs",
 ];
 
 export default function CommandCentralClient() {
@@ -66,6 +89,7 @@ export default function CommandCentralClient() {
     if (agentId === "suzi") return "reminders";
     if (agentId === "tim") return "messages";
     if (agentId === "ghost") return "messages";
+    if (agentId === "king") return "costs";
     if (agentHasKanban(agentId)) return "kanban";
     return "info";
   }
@@ -123,6 +147,14 @@ export default function CommandCentralClient() {
   }, [activeAgent, rightPanel]);
 
   useEffect(() => {
+    if (rightPanel === "costs" && activeAgent !== "king") {
+      setRightPanel(defaultPanelFor(activeAgent));
+    }
+    // defaultPanelFor is stable logic for agent id → panel; listing it causes redundant runs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgent, rightPanel]);
+
+  useEffect(() => {
     setRightPanel((prev) =>
       activeAgent === "friday" && prev === "tasks" ? "dashboard" : prev
     );
@@ -135,17 +167,105 @@ export default function CommandCentralClient() {
       setRightPanel((p) => (p === "info" || p === "kanban" ? "messages" : p));
     });
   }, []);
-  const [mobileShowChat, setMobileShowChat] = useState(false);
-  const [sidebarView, setSidebarView] = useState<"agents" | "toys">("agents");
+
+  const [dashboardTabVisible, setDashboardTabVisible] = useState(() =>
+    typeof document !== "undefined" ? document.visibilityState === "visible" : true
+  );
+  useEffect(() => {
+    const onVis = () => setDashboardTabVisible(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   const [pendingTaskCount, setPendingTaskCount] = useState(0);
   const [testingTaskCount, setTestingTaskCount] = useState(0);
   const [timMessagingTaskCount, setTimMessagingTaskCount] = useState(0);
   const [timPendingQueueCount, setTimPendingQueueCount] = useState(0);
-  const [timWorkSelection, setTimWorkSelection] = useState<TimWorkQueueSelection | null>(null);
   const [ghostContentTaskCount, setGhostContentTaskCount] = useState(0);
+  const [dashboardNotifications, setDashboardNotifications] = useState<DashboardNotification[]>([]);
+
+  const applyDashboardSync = useCallback((data: DashboardSyncResponse) => {
+    if (!data?.badges) return;
+    const b = data.badges;
+    setPendingTaskCount(b.pendingTaskCount);
+    setTestingTaskCount(b.testingTaskCount);
+    setTimMessagingTaskCount(b.timMessagingTaskCount);
+    setTimPendingQueueCount(b.timPendingQueueCount);
+    setGhostContentTaskCount(b.ghostContentTaskCount);
+    setDashboardNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+  }, []);
+
+  const refreshDashboardSync = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dashboard-sync", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as DashboardSyncResponse;
+      applyDashboardSync(data);
+    } catch {
+      /* ignore */
+    }
+  }, [applyDashboardSync]);
+
+  useEffect(() => {
+    return panelBus.on("dashboard_sync", () => {
+      void refreshDashboardSync();
+    });
+  }, [refreshDashboardSync]);
+
+  /** Live badge + notification updates via SSE while the tab is visible. */
+  useEffect(() => {
+    if (typeof window === "undefined" || !dashboardTabVisible) return;
+
+    let es: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+    let backoffMs = 1500;
+
+    const connect = () => {
+      if (cancelled) return;
+      es = new EventSource("/api/dashboard-stream");
+      es.onopen = () => {
+        backoffMs = 1500;
+      };
+      es.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data) as DashboardSyncResponse;
+          applyDashboardSync(data);
+        } catch {
+          /* ignore malformed */
+        }
+      };
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        if (cancelled) return;
+        if (retryTimer) clearTimeout(retryTimer);
+        retryTimer = setTimeout(() => {
+          retryTimer = undefined;
+          backoffMs = Math.min(Math.round(backoffMs * 1.6), 30_000);
+          connect();
+        }, backoffMs);
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      es?.close();
+    };
+  }, [dashboardTabVisible, applyDashboardSync]);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [sidebarView, setSidebarView] = useState<"agents" | "toys">("agents");
+
+  const [timWorkSelection, setTimWorkSelection] = useState<TimWorkQueueSelection | null>(null);
   const [ghostWorkSelection, setGhostWorkSelection] = useState<GhostWorkQueueSelection | null>(null);
-  const [suziWorkSubTab, setSuziWorkSubTab] = useState<SuziWorkSubTab>("punchlist");
+  const [suziWorkSubTab, setSuziWorkSubTab] = useState<SuziWorkSubTab>("intake");
+  const [suziFocusedIntake, setSuziFocusedIntake] = useState<SuziFocusedIntake | null>(null);
+  const [suziFocusedPunchList, setSuziFocusedPunchList] = useState<SuziFocusedPunchList | null>(null);
+  const [suziFocusedReminder, setSuziFocusedReminder] = useState<SuziFocusedReminder | null>(null);
+  const [suziFocusedNote, setSuziFocusedNote] = useState<SuziFocusedNote | null>(null);
   const [fridayDashboardTab, setFridayDashboardTab] =
     useState<FridayDashboardTab>("packages");
   const [pennyDashboardTab, setPennyDashboardTab] =
@@ -164,6 +284,195 @@ export default function CommandCentralClient() {
     return {};
   });
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SUZI_INTAKE_FOCUS_STORAGE);
+      if (!raw) return;
+      const p = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof p.id !== "string" || typeof p.title !== "string") return;
+      setSuziFocusedIntake({
+        id: p.id,
+        title: p.title,
+        url: typeof p.url === "string" ? p.url : null,
+        body: typeof p.body === "string" ? p.body : null,
+        source: typeof p.source === "string" ? p.source : "ui",
+        displayNumber: typeof p.displayNumber === "number" ? p.displayNumber : undefined,
+        filterQuery: typeof p.filterQuery === "string" && p.filterQuery.trim() ? p.filterQuery.trim() : undefined,
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (suziFocusedIntake?.id) {
+        localStorage.setItem(SUZI_INTAKE_FOCUS_STORAGE, JSON.stringify(suziFocusedIntake));
+      } else {
+        localStorage.removeItem(SUZI_INTAKE_FOCUS_STORAGE);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [suziFocusedIntake]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SUZI_PUNCH_FOCUS_STORAGE);
+      if (!raw) return;
+      const p = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof p.id !== "string" || typeof p.itemNumber !== "number" || typeof p.title !== "string") return;
+      setSuziFocusedPunchList({
+        id: p.id,
+        itemNumber: p.itemNumber,
+        title: p.title,
+        description: typeof p.description === "string" ? p.description : null,
+        category: typeof p.category === "string" ? p.category : null,
+        rank: typeof p.rank === "number" ? p.rank : 1,
+        columnLabel: typeof p.columnLabel === "string" ? p.columnLabel : "Now",
+        status: p.status === "done" ? "done" : "open",
+        notes: Array.isArray(p.notes)
+          ? (p.notes as unknown[])
+              .filter(
+                (n): n is { id: string; content: string; createdAt: string } =>
+                  typeof n === "object" &&
+                  n !== null &&
+                  typeof (n as { id?: string }).id === "string" &&
+                  typeof (n as { content?: string }).content === "string" &&
+                  typeof (n as { createdAt?: string }).createdAt === "string"
+              )
+              .map((n) => ({ id: n.id, content: n.content, createdAt: n.createdAt }))
+          : [],
+        actions: Array.isArray(p.actions)
+          ? (p.actions as unknown[])
+              .filter(
+                (a): a is { id: string; content: string; done: boolean } =>
+                  typeof a === "object" &&
+                  a !== null &&
+                  typeof (a as { id?: string }).id === "string" &&
+                  typeof (a as { content?: string }).content === "string" &&
+                  typeof (a as { done?: boolean }).done === "boolean"
+              )
+              .map((a) => ({ id: a.id, content: a.content, done: a.done }))
+          : [],
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (suziFocusedPunchList?.id) {
+        localStorage.setItem(SUZI_PUNCH_FOCUS_STORAGE, JSON.stringify(suziFocusedPunchList));
+      } else {
+        localStorage.removeItem(SUZI_PUNCH_FOCUS_STORAGE);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [suziFocusedPunchList]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SUZI_REMINDER_FOCUS_STORAGE);
+      if (!raw) return;
+      const p = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof p.id !== "string" || typeof p.title !== "string") return;
+      setSuziFocusedReminder({
+        id: p.id,
+        title: p.title,
+        description: typeof p.description === "string" ? p.description : null,
+        category: typeof p.category === "string" ? p.category : "one-time",
+        nextDueAt: typeof p.nextDueAt === "string" ? p.nextDueAt : null,
+        recurrence: typeof p.recurrence === "string" ? p.recurrence : null,
+        isActive: typeof p.isActive === "boolean" ? p.isActive : true,
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (suziFocusedReminder?.id) {
+        localStorage.setItem(
+          SUZI_REMINDER_FOCUS_STORAGE,
+          JSON.stringify(suziFocusedReminder)
+        );
+      } else {
+        localStorage.removeItem(SUZI_REMINDER_FOCUS_STORAGE);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [suziFocusedReminder]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SUZI_NOTE_FOCUS_STORAGE);
+      if (!raw) return;
+      const p = JSON.parse(raw) as Record<string, unknown>;
+      if (
+        typeof p.id !== "string" ||
+        typeof p.title !== "string" ||
+        typeof p.noteNumber !== "number"
+      )
+        return;
+      setSuziFocusedNote({
+        id: p.id,
+        noteNumber: p.noteNumber,
+        title: p.title,
+        content: typeof p.content === "string" ? p.content : null,
+        tag: typeof p.tag === "string" ? p.tag : null,
+        pinned: typeof p.pinned === "boolean" ? p.pinned : false,
+      });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (suziFocusedNote?.id) {
+        localStorage.setItem(SUZI_NOTE_FOCUS_STORAGE, JSON.stringify(suziFocusedNote));
+      } else {
+        localStorage.removeItem(SUZI_NOTE_FOCUS_STORAGE);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [suziFocusedNote]);
+
+  const syncChatSidebarAfterTurn = useCallback((agentId: string) => {
+    fetch(`/api/chat?agent=${encodeURIComponent(agentId)}`, {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data?.history?.length) return;
+        const total = data.history.length;
+        const lastMsg = data.history[data.history.length - 1] as { text?: string };
+        const preview = lastMsg.text;
+        if (typeof preview === "string") {
+          setLastMessages((prev) => ({ ...prev, [agentId]: preview }));
+        }
+        setLastSeenCounts((prev) => {
+          const updated = { ...prev, [agentId]: total };
+          try {
+            localStorage.setItem("chat_last_seen_counts", JSON.stringify(updated));
+          } catch {
+            /* ignore */
+          }
+          return updated;
+        });
+        setUnreadCounts((prev) => ({ ...prev, [agentId]: 0 }));
+      })
+      .catch(() => {});
+  }, []);
+
   const [avatarOverrides, setAvatarOverrides] = useState<Record<string, string>>({});
   const [ttsSpeaking, setTtsSpeaking] = useState(false);
   /** Inworld voiceId from server (per-agent registry only — no global env fallback to avoid wrong voice). */
@@ -246,12 +555,13 @@ export default function CommandCentralClient() {
     });
   }, [activeAgent, messages.length]);
 
-  // Poll for new messages from other agents (every 30s)
+  // Poll other agents’ chat for sidebar preview / unread (slower when tab hidden).
   useEffect(() => {
-    const interval = setInterval(() => {
+    const ms = dashboardTabVisible ? CROSS_AGENT_CHAT_MS_VISIBLE : CROSS_AGENT_CHAT_MS_HIDDEN;
+    const tick = () => {
       AGENTS.forEach((a) => {
         if (a.id === activeAgent) return;
-        fetch(`/api/chat?agent=${a.id}`, { credentials: "include" })
+        fetch(`/api/chat?agent=${a.id}`, { credentials: "include", cache: "no-store" })
           .then(async (res) => {
             if (!res.ok) return null;
             return res.json();
@@ -283,47 +593,10 @@ export default function CommandCentralClient() {
           })
           .catch(() => {});
       });
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [activeAgent]);
-
-  // Poll for pending human tasks (Friday=ACTIVE, Penny=PENDING_APPROVAL)
-  useEffect(() => {
-    const checkTasks = () => {
-      fetch("/api/crm/human-tasks?packageStage=ACTIVE", { credentials: "include" })
-        .then(async (r) => (r.ok ? r.json() : { count: 0 }))
-        .then((d) => setPendingTaskCount(d.count || 0))
-        .catch(() => {});
-      fetch("/api/crm/human-tasks?packageStage=PENDING_APPROVAL", { credentials: "include" })
-        .then(async (r) => (r.ok ? r.json() : { count: 0 }))
-        .then((d) => setTestingTaskCount(d.count || 0))
-        .catch(() => {});
-      // Tim work queue: all human-required tasks on Tim-owned workflows (same rules as /human-tasks).
-      // Previously packageStage=ACTIVE could miss rows if package join/stage lagged workflow items.
-      fetch("/api/crm/human-tasks?ownerAgent=tim", { credentials: "include" })
-        .then(async (r) => (r.ok ? r.json() : { count: 0, tasks: [] }))
-        .then((d) => {
-          setTimMessagingTaskCount(typeof d.count === "number" ? d.count : 0);
-          const list = Array.isArray(d.tasks) ? d.tasks : [];
-          setTimPendingQueueCount(
-            list.filter((t: { waitingFollowUp?: boolean }) => Boolean(t.waitingFollowUp)).length
-          );
-        })
-        .catch(() => {});
-      fetch(
-        "/api/crm/human-tasks?ownerAgent=ghost&sourceType=content&excludePackageStages=DRAFT,PENDING_APPROVAL",
-        { credentials: "include" }
-      )
-        .then(async (r) => (r.ok ? r.json() : { count: 0 }))
-        .then((d) => {
-          setGhostContentTaskCount(typeof d.count === "number" ? d.count : 0);
-        })
-        .catch(() => {});
     };
-    checkTasks();
-    const interval = setInterval(checkTasks, 5000);
+    const interval = setInterval(tick, ms);
     return () => clearInterval(interval);
-  }, []);
+  }, [activeAgent, dashboardTabVisible]);
 
   useEffect(() => {
     if (activeAgent !== "tim") setTimWorkSelection(null);
@@ -424,6 +697,12 @@ export default function CommandCentralClient() {
   const sendMessage = useCallback(
     async (text: string) => {
       if (isLoading) return;
+      const agentForTurn = activeAgent;
+
+      // Prior turn's TTS can still be playing after the stream ends (isLoading false).
+      // Stop it immediately so the next user message never stacks two voices.
+      ttsQueueRef.current?.stop();
+      ttsQueueRef.current = null;
 
       const currentReply = replyTo;
       setReplyTo(null);
@@ -468,6 +747,10 @@ export default function CommandCentralClient() {
           body.uiContext = formatSuziWorkPanelContext({
             workPanelOpen: rightPanel === "reminders",
             subTab: suziWorkSubTab,
+            focusedIntake: suziFocusedIntake,
+            focusedPunchList: suziFocusedPunchList,
+            focusedReminder: suziFocusedReminder,
+            focusedNote: suziFocusedNote,
           });
         } else {
           const agentUi = formatAgentUiContext({
@@ -523,6 +806,7 @@ export default function CommandCentralClient() {
         const ttsQueue = voiceId
           ? new TtsQueue({
               voice: voiceId,
+              agentId: activeAgent,
               onStateChange: (state: TtsState) => {
                 setTtsSpeaking(state === "speaking" || state === "loading");
               },
@@ -613,6 +897,8 @@ export default function CommandCentralClient() {
       } finally {
         abortRef.current = null;
         setIsLoading(false);
+        syncChatSidebarAfterTurn(agentForTurn);
+        void refreshDashboardSync();
       }
     },
     [
@@ -625,6 +911,12 @@ export default function CommandCentralClient() {
       ghostWorkSelection,
       rightPanel,
       suziWorkSubTab,
+      suziFocusedIntake,
+      suziFocusedPunchList,
+      suziFocusedReminder,
+      suziFocusedNote,
+      syncChatSidebarAfterTurn,
+      refreshDashboardSync,
     ]
   );
 
@@ -644,7 +936,7 @@ export default function CommandCentralClient() {
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
         <div className="shrink-0 border-b border-[var(--border-color)] px-3 py-2 min-w-0 relative">
           <div className="absolute top-2 right-3 z-10">
-            <NotificationBell />
+            <NotificationBell sharedNotifications={dashboardNotifications} />
           </div>
           <p
             className="text-[10px] font-semibold text-[var(--text-primary)] leading-snug pr-10"
@@ -806,6 +1098,7 @@ export default function CommandCentralClient() {
           testingTaskCount={testingTaskCount}
           timMessagingTaskCount={timMessagingTaskCount}
           ghostContentTaskCount={ghostContentTaskCount}
+          sharedNotifications={dashboardNotifications}
           onSelect={(id) => {
             if (id !== activeAgent) {
               loadedAgentRef.current = null;
@@ -995,7 +1288,7 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Tim work panel — Active Work Queue & Pending Work Queue"
+                title="Tim work panel — Active & Pending queues, CRM directory"
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="8" y1="6" x2="21" y2="6" />
@@ -1025,6 +1318,23 @@ export default function CommandCentralClient() {
                   <line x1="3" y1="6" x2="3.01" y2="6" />
                   <line x1="3" y1="12" x2="3.01" y2="12" />
                   <line x1="3" y1="18" x2="3.01" y2="18" />
+                </svg>
+              </button>
+            )}
+            {activeAgent === "king" && (
+              <button
+                type="button"
+                onClick={() => setRightPanel("costs")}
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "costs"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Cost-Usage"
+              >
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="1" x2="12" y2="23" />
+                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                 </svg>
               </button>
             )}
@@ -1094,7 +1404,45 @@ export default function CommandCentralClient() {
             <SuziRemindersPanel
               onClose={() => setRightPanel("info")}
               onSubTabChange={setSuziWorkSubTab}
+              focusedIntake={suziFocusedIntake}
+              onFocusedIntakeChange={(item) => {
+                setSuziFocusedIntake(item);
+                if (item) {
+                  setSuziFocusedPunchList(null);
+                  setSuziFocusedReminder(null);
+                  setSuziFocusedNote(null);
+                }
+              }}
+              focusedPunchList={suziFocusedPunchList}
+              onFocusedPunchListChange={(item) => {
+                setSuziFocusedPunchList(item);
+                if (item) {
+                  setSuziFocusedIntake(null);
+                  setSuziFocusedReminder(null);
+                  setSuziFocusedNote(null);
+                }
+              }}
+              focusedReminder={suziFocusedReminder}
+              onFocusedReminderChange={(item) => {
+                setSuziFocusedReminder(item);
+                if (item) {
+                  setSuziFocusedIntake(null);
+                  setSuziFocusedPunchList(null);
+                  setSuziFocusedNote(null);
+                }
+              }}
+              focusedNote={suziFocusedNote}
+              onFocusedNoteChange={(item) => {
+                setSuziFocusedNote(item);
+                if (item) {
+                  setSuziFocusedIntake(null);
+                  setSuziFocusedPunchList(null);
+                  setSuziFocusedReminder(null);
+                }
+              }}
             />
+          ) : rightPanel === "costs" && activeAgent === "king" ? (
+            <KingCostPanel />
           ) : (
             <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
           )}
@@ -1107,6 +1455,7 @@ export default function CommandCentralClient() {
           testingTaskCount={testingTaskCount}
           timMessagingTaskCount={timMessagingTaskCount}
           ghostContentTaskCount={ghostContentTaskCount}
+          sharedNotifications={dashboardNotifications}
         />
       </div>
 

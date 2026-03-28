@@ -7,6 +7,7 @@ import type { PackageSpec, PackageDeliverable } from "@/lib/package-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
 import { TIM_WARM_OUTREACH_PACKAGE_BRIEF } from "@/lib/package-spec-briefs/tim-warm-outreach-package-brief";
 import { panelBus } from "@/lib/events";
+import { useDocumentVisible } from "@/lib/use-document-visible";
 import { getAgentSpec } from "@/lib/agent-registry";
 import AgentAvatar from "../AgentAvatar";
 import ArtifactViewer from "../shared/ArtifactViewer";
@@ -81,6 +82,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
   const [nameDraft, setNameDraft] = useState(pkg.name);
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const tabVisible = useDocumentVisible();
 
   useEffect(() => {
     setNameDraft(pkg.name);
@@ -217,9 +219,10 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
         .catch(() => {});
     };
     fetchProgress();
-    const interval = setInterval(fetchProgress, 5000);
+    const ms = tabVisible ? 5000 : 20_000;
+    const interval = setInterval(fetchProgress, ms);
     return () => clearInterval(interval);
-  }, [pkgStage, pkg.id]);
+  }, [pkgStage, pkg.id, tabVisible]);
 
   // Move to Testing mode (no tasks created yet)
   const appendActivationLog = useCallback((data: { activationLog?: string[] }) => {
@@ -243,6 +246,8 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
           ...prev,
         ]);
         appendActivationLog(data);
+        panelBus.emit("package_manager");
+        panelBus.emit("dashboard_sync");
       } else {
         setSimLog((prev) => [
           `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
@@ -275,6 +280,8 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
           ...prev,
         ]);
         appendActivationLog(data);
+        panelBus.emit("package_manager");
+        panelBus.emit("dashboard_sync");
       } else {
         setSimLog((prev) => [
           `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
@@ -307,6 +314,8 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
           ...prev,
         ]);
         appendActivationLog(data);
+        panelBus.emit("package_manager");
+        panelBus.emit("dashboard_sync");
       } else {
         setSimLog((prev) => [
           `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
@@ -338,6 +347,8 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
         setVolumeInfo({});
         setArtifactStages({});
         setWorkflowIds({});
+        panelBus.emit("package_manager");
+        panelBus.emit("dashboard_sync");
       } else {
         setSimLog((prev) => [`Reset error: ${data.error}`, ...prev]);
       }
@@ -363,6 +374,8 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
         setVolumeInfo({});
         setArtifactStages({});
         setWorkflowIds({});
+        panelBus.emit("package_manager");
+        panelBus.emit("dashboard_sync");
       } else {
         setSimLog((prev) => [`Error: ${data.error}`, ...prev]);
       }

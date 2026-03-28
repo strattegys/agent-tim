@@ -1,0 +1,46 @@
+-- Roll one warm-outreach item back to MESSAGE_DRAFT after a bad send / wrong name in DM.
+-- Run on CRM Postgres. Replace UUIDs after inspecting the SELECTs.
+--
+-- 1) Find Chris McGrath (edit name if needed):
+--
+-- SELECT wi.id AS workflow_item_id, wi.stage, p.id AS person_id,
+--        p."nameFirstName", p."nameLastName",
+--        p."linkedinLinkPrimaryLinkUrl", p."linkedinProviderId"
+-- FROM "_workflow_item" wi
+-- JOIN person p ON p.id = wi."sourceId" AND wi."sourceType" = 'person' AND p."deletedAt" IS NULL
+-- JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
+-- WHERE wi."deletedAt" IS NULL
+--   AND LOWER(TRIM(p."nameFirstName")) = 'chris'
+--   AND LOWER(TRIM(p."nameLastName")) LIKE '%mcgrath%';
+--
+-- 2) Fix LinkedIn on the person (example — use real public URL + optional member id from Unipile):
+--
+-- UPDATE person SET
+--   "linkedinLinkPrimaryLinkUrl" = 'https://www.linkedin.com/in/chris-mcgrath-example',
+--   "linkedinProviderId" = NULL,  -- or 'ACoA…' from Unipile when known
+--   "updatedAt" = NOW()
+-- WHERE id = 'PERSON_UUID_HERE';
+--
+-- 3) Soft-delete send + draft artifacts so Tim can regenerate a clean MESSAGE_DRAFT:
+--
+-- UPDATE "_artifact"
+-- SET "deletedAt" = NOW(), "updatedAt" = NOW()
+-- WHERE "workflowItemId" = 'WORKFLOW_ITEM_UUID_HERE'
+--   AND "deletedAt" IS NULL
+--   AND stage IN ('MESSAGED', 'MESSAGE_DRAFT', 'REPLIED', 'REPLY_DRAFT', 'REPLY_SENT');
+--
+-- 4) Reset item to MESSAGE_DRAFT (clears follow-up hold from MESSAGED):
+--
+-- UPDATE "_workflow_item"
+-- SET stage = 'MESSAGE_DRAFT', "dueDate" = NULL, "updatedAt" = NOW()
+-- WHERE id = 'WORKFLOW_ITEM_UUID_HERE' AND "deletedAt" IS NULL;
+--
+-- 5) Re-open human task if your board uses humanTaskOpen:
+--
+-- UPDATE "_workflow_item"
+-- SET "humanTaskOpen" = true, "updatedAt" = NOW()
+-- WHERE id = 'WORKFLOW_ITEM_UUID_HERE' AND "deletedAt" IS NULL;
+--
+-- 6) In Command Central: open the item — use Reject/Approve flow or trigger RESEARCHING → MESSAGE_DRAFT
+--    if no draft artifact remains. If no MESSAGE_DRAFT artifact exists, you may need to call resolve
+--    (e.g. move RESEARCHING → MESSAGE_DRAFT) or insert a draft via the app once.

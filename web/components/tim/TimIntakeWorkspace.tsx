@@ -131,12 +131,12 @@ export default function TimIntakeWorkspace({
       {documentHeaderDetail != null ? (
         <div className="flex items-start gap-3 px-5 py-3 border-b border-[var(--border-color)] shrink-0 min-w-0">
           <svg
-            className="shrink-0 mt-0.5"
+            className="shrink-0 mt-0.5 opacity-70"
             width="18"
             height="18"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="var(--accent-green)"
+            stroke="var(--text-tertiary)"
             strokeWidth="2"
             strokeLinecap="round"
           >
@@ -144,8 +144,10 @@ export default function TimIntakeWorkspace({
             <polyline points="14 2 14 8 20 8" />
           </svg>
           <div className="min-w-0 flex flex-col gap-1">
-            <span className="text-sm font-bold text-[var(--text-primary)]">{task.workflowName}</span>
-            <div className="min-w-0 text-[var(--text-secondary)]">{documentHeaderDetail}</div>
+            <span className="text-sm font-medium text-[var(--text-chat-body)]">{task.workflowName}</span>
+            <div className="min-w-0 text-[var(--text-tertiary)] [&_a]:text-[var(--text-secondary)] [&_a:hover]:text-[var(--text-primary)]">
+              {documentHeaderDetail}
+            </div>
           </div>
         </div>
       ) : null}
@@ -159,12 +161,12 @@ export default function TimIntakeWorkspace({
                 type="button"
                 data-artifact-tab-index={i}
                 onClick={() => setActiveTab(a.id)}
-                className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[200px] truncate ${
+                className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[200px] truncate border ${
                   activeTab === a.id
-                    ? "bg-[var(--accent-green)] text-white font-semibold"
+                    ? "border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-primary)] font-medium"
                     : isNewest
-                      ? "bg-[var(--bg-tertiary)] text-[var(--accent-green)] ring-2 ring-[var(--accent-green)]/70 font-semibold"
-                      : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      ? "border-[var(--text-tertiary)]/35 bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium"
+                      : "border-transparent bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] font-medium"
                 }`}
               >
                 {artifactTabLabel(a)}
@@ -175,10 +177,10 @@ export default function TimIntakeWorkspace({
             type="button"
             data-artifact-tab-index={pLen}
             onClick={() => setActiveTab("intake")}
-            className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 font-semibold ${
+            className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 font-medium border ${
               activeTab === "intake"
-                ? "bg-[var(--accent-green)] text-white"
-                : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                ? "border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+                : "border-transparent bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
             }`}
           >
             {intakeTabLabel}
@@ -192,12 +194,12 @@ export default function TimIntakeWorkspace({
                 type="button"
                 data-artifact-tab-index={flatIdx}
                 onClick={() => setActiveTab(a.id)}
-                className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[200px] truncate ${
+                className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[200px] truncate border ${
                   activeTab === a.id
-                    ? "bg-[var(--accent-green)] text-white font-semibold"
+                    ? "border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-primary)] font-medium"
                     : isNewest
-                      ? "bg-[var(--bg-tertiary)] text-[var(--accent-green)] ring-2 ring-[var(--accent-green)]/70 font-semibold"
-                      : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      ? "border-[var(--text-tertiary)]/35 bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium"
+                      : "border-transparent bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] font-medium"
                 }`}
               >
                 {artifactTabLabel(a)}
@@ -213,7 +215,7 @@ export default function TimIntakeWorkspace({
           disabled={resolving || !intakeText.trim()}
           onClick={() => onSubmitInput(intakeText.trim())}
           title={!intakeText.trim() ? "Add text above before submitting" : undefined}
-          className="text-[11px] px-4 py-2 rounded-md border border-[var(--accent-green)]/40 bg-[var(--accent-green)]/15 text-[var(--text-primary)] font-semibold hover:bg-[var(--accent-green)]/25 disabled:opacity-40 disabled:pointer-events-none"
+          className="text-[11px] px-4 py-2 rounded-md border border-[var(--accent-green)]/35 bg-[var(--accent-green)]/8 text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] hover:bg-[var(--accent-green)]/12 disabled:opacity-40 disabled:pointer-events-none"
         >
           {resolving ? "Submitting…" : "Submit"}
         </button>
@@ -223,16 +225,16 @@ export default function TimIntakeWorkspace({
         {activeTab === "intake" ? (
           <div className="p-4 space-y-4 flex-1 flex flex-col min-h-0">
             <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5 space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wide text-[var(--accent-green)]">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
                 What to do
               </p>
-              <div className="prose prose-invert prose-sm max-w-none text-[var(--text-secondary)]">
+              <div className="max-w-none text-[var(--text-chat-body)]">
                 <MarkdownRenderer
                   content={isAwaiting ? AWAITING_DIRECTIONS : ideaDirectionsMarkdown(chatAgentLabel)}
                 />
               </div>
               {task.humanAction ? (
-                <p className="text-[11px] text-[var(--text-primary)] border-t border-[var(--border-color)]/60 pt-2">
+                <p className="text-[11px] text-[var(--text-chat-body)] border-t border-[var(--border-color)]/60 pt-2">
                   <span className="text-[var(--text-tertiary)]">Task: </span>
                   {task.humanAction}
                 </p>
@@ -240,7 +242,7 @@ export default function TimIntakeWorkspace({
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col gap-2">
-              <label className="text-[10px] font-semibold text-[var(--text-tertiary)]">
+              <label className="text-[10px] font-medium text-[var(--text-tertiary)]">
                 {isAwaiting ? "Paste contact & context" : "Your idea"}
               </label>
               <textarea
@@ -251,14 +253,14 @@ export default function TimIntakeWorkspace({
                     ? "Name, LinkedIn URL, how you know them, notes…"
                     : "Topic, angle, audience, links…"
                 }
-                className="flex-1 min-h-[200px] w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg p-3 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] resize-y focus:outline-none focus:border-[var(--accent-green)]/50"
+                className="flex-1 min-h-[200px] w-full bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg p-3 text-[13px] text-[var(--text-chat-body)] placeholder:text-[var(--text-tertiary)] resize-y focus:outline-none focus:border-[var(--border-color)]"
               />
             </div>
           </div>
         ) : loading ? (
           <div className="p-8 text-center text-[var(--text-tertiary)] text-sm">Loading…</div>
         ) : activeArtifact ? (
-          <div className="p-4 prose prose-invert prose-sm max-w-none min-h-0">
+          <div className="p-4 max-w-none min-h-0 text-[var(--text-chat-body)]">
             <MarkdownRenderer content={activeArtifact.content} />
           </div>
         ) : (

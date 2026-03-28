@@ -249,8 +249,7 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
             "with zero pressure, 2–3 sentences max. All messages via the LinkedIn tool only.",
           requiresHuman: true,
           humanAction:
-            "Review and approve the message. If the contact has replied, click Replied (on the Messaged step) " +
-            "to enter conversation mode.",
+            "Tim posts the exact send text in chat — reply **Send It Now** there, then **Submit** here. If the contact has replied, click Replied (on the Messaged step) to enter conversation mode.",
         },
         {
           key: "MESSAGED",
@@ -259,7 +258,8 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
           instructions:
             "Message sent via LinkedIn DM. Wait for the follow-up window or a reply. " +
             "After 3 outreach messages with no reply, the sequence ends. If they reply, Govind marks Replied. " +
-            "The next MESSAGE_DRAFT opens automatically when the follow-up due date is reached (or start early from Tim’s work queue).",
+            "The next MESSAGE_DRAFT opens automatically when the follow-up due date is reached (or start early from Tim’s work queue). " +
+            "**Reject** returns to Message Draft (removes the MESSAGED send artifact) to fix copy or CRM LinkedIn identity and resend.",
           requiresHuman: false,
         },
         {
@@ -278,7 +278,7 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
             "No cap on replies until Govind ends the sequence.",
           requiresHuman: true,
           humanAction:
-            "Review Tim's reply. Approve to send, reject to redraft, or End Sequence if the conversation is done.",
+            "Reply **Send It Now** in Tim chat after his post of the exact reply text, then **Submit** to send. Reject to redraft, or End Sequence if the conversation is done.",
         },
         {
           key: "REPLY_SENT",
@@ -303,6 +303,33 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
         REPLY_DRAFT: ["REPLY_SENT", "ENDED"],
         REPLY_SENT: ["REPLY_DRAFT"],
         ENDED: [],
+      },
+    },
+  },
+
+  // ─── LinkedIn General Inbox (Tim) — unmatched webhook events ─────────────
+
+  "linkedin-general-inbox": {
+    id: "linkedin-general-inbox",
+    label: "LinkedIn General Inbox",
+    itemType: "person",
+    description:
+      "Inbound LinkedIn messages or connection events that did not match an active packaged workflow step (e.g. warm-outreach at Messaged). Govind triages from Tim’s active queue; Submit dismisses the row when handled.",
+    defaultBoard: {
+      stages: [
+        {
+          key: "LINKEDIN_INBOUND",
+          label: "LinkedIn — triage",
+          color: "#2563EB",
+          instructions:
+            "Unipile delivered a message or connection event for this CRM person, but no packaged Tim workflow owned the next step. Review artifacts, tie the contact to a package if needed, or dismiss when done.",
+          requiresHuman: true,
+          humanAction:
+            "Read the inbound snippet below. Link the person to a package/workflow in CRM if applicable, or click Submit when you’re done (removes this inbox row).",
+        },
+      ],
+      transitions: {
+        LINKEDIN_INBOUND: [],
       },
     },
   },

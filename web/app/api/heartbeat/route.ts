@@ -5,8 +5,8 @@ import { runTimHeartbeat, type HeartbeatFinding } from "@/lib/heartbeat";
  * POST /api/heartbeat — Manually trigger Tim's heartbeat.
  *
  * Query params:
- *   ?mode=detect     — Run checks only, return findings (no LLM execution)
- *   ?mode=autonomous — Run checks + LLM execution (default)
+ *   ?mode=detect     — Return warm-outreach findings only; no bell writes or Scout flush
+ *   ?mode=autonomous — Default: warm-outreach bell notifications + Scout delegation bell (no LLM)
  */
 
 export async function POST(request: Request) {

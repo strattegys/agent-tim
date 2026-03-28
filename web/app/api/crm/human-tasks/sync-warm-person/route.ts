@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { resolveWorkflowRegistryId, workflowTypeFromSpec } from "@/lib/workflow-spec";
-import { syncWarmPersonFromIntakeArtifacts } from "@/lib/warm-contact-intake-apply";
+import {
+  syncWarmDiscoveryFromIntakeArtifacts,
+  syncWarmPersonFromIntakeArtifacts,
+} from "@/lib/warm-contact-intake-apply";
+import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 /**
- * POST { itemId } — copy parsed fields from intake artifacts onto the linked `person`
- * when it is still the warm-outreach placeholder (Next / Contact). Use if resolve skipped CRM update.
+ * POST { itemId } — apply intake artifacts to CRM: either link/create `person` for a `warm_discovery`
+ * slot, or copy fields onto the legacy Next/Contact placeholder person. Use if resolve skipped CRM update.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -30,9 +35,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Workflow item not found" }, { status: 404 });
     }
     const row = items[0];
-    if (row.sourceType !== "person" || !row.sourceId) {
-      return NextResponse.json({ error: "Item is not a person workflow row" }, { status: 400 });
-    }
 
     const workflows = await query<{ spec: unknown }>(
       `SELECT spec FROM "_workflow" WHERE id = $1 AND "deletedAt" IS NULL`,
@@ -58,7 +60,19 @@ export async function POST(req: NextRequest) {
     }
 
     const logs: string[] = [];
+
+    if (row.sourceType === WARM_DISCOVERY_SOURCE_TYPE) {
+      const synced = await syncWarmDiscoveryFromIntakeArtifacts(itemId, logs);
+      notifyDashboardSyncChange();
+      return NextResponse.json({ ok: true, synced, logs });
+    }
+
+    if (row.sourceType !== "person" || !row.sourceId) {
+      return NextResponse.json({ error: "Item is not a person workflow row" }, { status: 400 });
+    }
+
     const synced = await syncWarmPersonFromIntakeArtifacts(itemId, row.sourceId, logs);
+    notifyDashboardSyncChange();
     return NextResponse.json({ ok: true, synced, logs });
   } catch (e) {
     console.error("[sync-warm-person]", e);

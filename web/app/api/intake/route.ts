@@ -74,12 +74,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    if (command === "delete") {
+    if (command === "delete" || command === "archive") {
       if (!data.id) {
         return NextResponse.json({ error: "Intake id is required" }, { status: 400 });
       }
       await deleteIntake(data.id);
-      return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true, archived: command === "archive" });
     }
 
     return NextResponse.json({ error: "Unknown command" }, { status: 400 });

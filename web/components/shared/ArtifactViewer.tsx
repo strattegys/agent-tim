@@ -466,12 +466,12 @@ export default function ArtifactViewer({
         <div className="flex items-start justify-between gap-3 px-5 py-3 border-b border-[var(--border-color)]">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <svg
-              className="shrink-0 mt-0.5"
+              className="shrink-0 mt-0.5 opacity-70"
               width="18"
               height="18"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="var(--accent-green)"
+              stroke="var(--text-tertiary)"
               strokeWidth="2"
               strokeLinecap="round"
             >
@@ -488,11 +488,13 @@ export default function ArtifactViewer({
               )}
             </svg>
             <div className="min-w-0 flex flex-col gap-1">
-              <span className="text-sm font-bold text-[var(--text-primary)]">
+              <span className="text-sm font-medium text-[var(--text-chat-body)]">
                 {usePeopleView ? "People Pipeline" : (title || active?.name || "Artifacts")}
               </span>
               {headerDetail ? (
-                <div className="min-w-0 text-[var(--text-secondary)]">{headerDetail}</div>
+                <div className="min-w-0 text-[var(--text-tertiary)] [&_a]:text-[var(--text-secondary)] [&_a:hover]:text-[var(--text-primary)]">
+                  {headerDetail}
+                </div>
               ) : null}
             </div>
           </div>
@@ -500,7 +502,7 @@ export default function ArtifactViewer({
             {!usePeopleView && active && !isEditing && (
               <button
                 onClick={handleStartEdit}
-                className="text-[10px] px-2.5 py-1 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-semibold hover:bg-[var(--border-color)] transition-colors"
+                className="text-[10px] px-2.5 py-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] transition-colors"
               >
                 Edit
               </button>
@@ -509,14 +511,14 @@ export default function ArtifactViewer({
               <>
                 <button
                   onClick={handleCancelEdit}
-                  className="text-[10px] px-2.5 py-1 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-semibold hover:bg-[var(--border-color)] transition-colors"
+                  className="text-[10px] px-2.5 py-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSaveEdit}
                   disabled={saving}
-                  className="text-[10px] px-2.5 py-1 rounded-full bg-[#2563EB] text-white font-semibold hover:bg-[#1d4ed8] transition-colors disabled:opacity-50"
+                  className="text-[10px] px-2.5 py-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
                 >
                   {saving ? "Saving..." : "Save"}
                 </button>
@@ -533,7 +535,7 @@ export default function ArtifactViewer({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="text-[10px] px-2.5 py-1 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors font-semibold flex items-center gap-1"
+              className="text-[10px] px-2.5 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors font-medium flex items-center gap-1"
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -545,10 +547,10 @@ export default function ArtifactViewer({
             {(confirmedWorkflowActions ?? []).map((a) => {
               const tone =
                 a.variant === "danger"
-                  ? "border-red-500/40 bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                  ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
                   : a.variant === "amber"
-                    ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
-                    : "border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:bg-[var(--border-color)]";
+                    ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    : "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]";
               const wfBusy = busyWorkflowActionId !== null;
               return (
                 <button
@@ -564,7 +566,7 @@ export default function ArtifactViewer({
                       setBusyWorkflowActionId(null);
                     }
                   }}
-                  className={`text-[10px] px-2.5 py-1 rounded font-semibold border transition-colors disabled:opacity-50 disabled:pointer-events-none ${tone}`}
+                  className={`text-[10px] px-2.5 py-1 rounded font-medium border transition-colors disabled:opacity-50 disabled:pointer-events-none ${tone}`}
                 >
                   {busyWorkflowActionId === a.id ? "…" : a.label}
                 </button>
@@ -589,7 +591,7 @@ export default function ArtifactViewer({
                     setTaskSubmitting(false);
                   }
                 }}
-                className="text-[10px] px-3 py-1 rounded bg-green-900/30 border border-green-800/50 text-green-400 hover:bg-green-900/50 transition-colors font-semibold disabled:opacity-50 disabled:pointer-events-none"
+                className="text-[10px] px-3 py-1 rounded border border-[var(--accent-green)]/35 bg-[var(--accent-green)]/8 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--accent-green)]/12 transition-colors font-medium disabled:opacity-50 disabled:pointer-events-none"
               >
                 {taskSubmitting ? "Submitting…" : hasUnsavedArtifactEdit ? "Save to submit" : "Submit"}
               </button>
@@ -616,10 +618,10 @@ export default function ArtifactViewer({
                   <button
                     key={stage}
                     onClick={() => setActiveStage(stage)}
-                    className={`text-[10px] px-2.5 py-1 rounded-full whitespace-nowrap transition-colors shrink-0 ${
+                    className={`text-[10px] px-2.5 py-1 rounded-full whitespace-nowrap transition-colors shrink-0 border ${
                       stage === activeStage
-                        ? "bg-[var(--accent-green)] text-white font-semibold"
-                        : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                        ? "border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-primary)] font-medium"
+                        : "border-transparent bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] font-medium"
                     }`}
                   >
                     {stage} ({count})
@@ -641,12 +643,12 @@ export default function ArtifactViewer({
                       type="button"
                       data-artifact-tab-index={i}
                       onClick={() => setActiveIdx(i)}
-                      className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[180px] ${
+                      className={`text-left text-[10px] px-2.5 py-1.5 rounded-lg transition-colors shrink-0 max-w-[180px] border ${
                         i === activeIdx
-                          ? "bg-[var(--accent-green)] text-white font-semibold"
+                          ? "border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-primary)] font-medium"
                           : isNewest
-                            ? "bg-[var(--bg-tertiary)] text-[var(--accent-green)] ring-2 ring-[var(--accent-green)]/70 font-semibold"
-                            : "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                            ? "border-[var(--text-tertiary)]/35 bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium"
+                            : "border-transparent bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-primary)] font-medium"
                       }`}
                     >
                       {allWorkflowArtifacts ? (
@@ -703,16 +705,16 @@ export default function ArtifactViewer({
                 <table className="w-full text-[12px]">
                   <thead>
                     <tr className="border-b border-[var(--border-color)]">
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-semibold">Name</th>
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-semibold">Title / Company</th>
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-semibold">Stage</th>
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-semibold">Added</th>
+                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Name</th>
+                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Title / Company</th>
+                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Stage</th>
+                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Added</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredPeople.map((p) => (
                       <tr key={p.itemId} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]">
-                        <td className="py-2 px-2 text-[var(--text-primary)] font-medium">
+                        <td className="py-2 px-2 text-[var(--text-chat-body)] font-medium">
                           {p.firstName} {p.lastName}
                         </td>
                         <td className="py-2 px-2 text-[var(--text-secondary)]">
@@ -738,23 +740,23 @@ export default function ArtifactViewer({
             ) : isEditing ? (
               <div className="flex flex-col gap-2 min-h-0 h-full">
                 {warmDmSplitRef.current ? (
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)] shrink-0">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)] shrink-0">
                     Edit message only (research block unchanged until you save)
                   </p>
                 ) : null}
                 <textarea
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
-                  className="w-full flex-1 min-h-[200px] bg-[var(--bg-primary)]/40 text-[var(--text-primary)] text-sm leading-relaxed border border-[var(--border-color)] rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[var(--accent-green)]/50 resize-y"
+                  className="w-full flex-1 min-h-[200px] bg-[var(--bg-primary)]/40 text-[var(--text-chat-body)] text-sm leading-relaxed border border-[var(--border-color)] rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[var(--border-color)] resize-y placeholder:text-[var(--text-tertiary)]"
                   autoFocus
                 />
               </div>
             ) : showLinkedInMessageFocus && linkedInDmSplit ? (
               <div className="space-y-3 min-h-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
                   Exact message sent on LinkedIn (plain text)
                 </p>
-                <div className="text-[var(--text-primary)] text-sm leading-relaxed whitespace-pre-wrap rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/35 px-3 py-3">
+                <div className="text-[var(--text-chat-body)] text-sm leading-relaxed whitespace-pre-wrap rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/35 px-3 py-3">
                   {linkedInPlainSendPreview ||
                     linkedInDmSplit.body.replace(/\*\*([^*]+)\*\*/g, "$1").trim() ||
                     "—"}
@@ -762,20 +764,20 @@ export default function ArtifactViewer({
                 <button
                   type="button"
                   onClick={() => setShowFullLinkedInDraft((v) => !v)}
-                  className="text-[10px] px-2.5 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-semibold hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+                  className="text-[10px] px-2.5 py-1 rounded-lg bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] border border-[var(--border-color)]"
                 >
                   {showFullLinkedInDraft
                     ? "Hide full draft"
                     : "Show full draft (research, rationale, Tim notes)"}
                 </button>
                 {showFullLinkedInDraft ? (
-                  <div className="prose prose-invert prose-sm max-w-none border-t border-[var(--border-color)] pt-4 opacity-95">
+                  <div className="max-w-none border-t border-[var(--border-color)] pt-4 text-[var(--text-chat-body)]">
                     <MarkdownRenderer content={active.content} />
                   </div>
                 ) : null}
               </div>
             ) : (
-              <div className="prose prose-invert prose-sm max-w-none">
+              <div className="max-w-none text-[var(--text-chat-body)]">
                 <MarkdownRenderer content={active.content} />
               </div>
             )}
@@ -799,13 +801,13 @@ export default function ArtifactViewer({
                 return (
                   <div className="p-3 border-b border-[var(--border-color)] flex items-center gap-3.5">
                     <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-                      style={{ backgroundColor: agent.color }}
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-medium shrink-0 border-2 bg-[var(--bg-primary)] text-[var(--text-chat-body)]"
+                      style={{ borderColor: agent.color }}
                     >
                       {agent.name[0]}
                     </div>
                     <div className="min-w-0">
-                      <div className="text-xs font-semibold text-[var(--text-primary)]">{agent.name}</div>
+                      <div className="text-xs font-medium text-[var(--text-chat-body)]">{agent.name}</div>
                       <div className="text-[10px] text-[var(--text-tertiary)]">{agent.role}</div>
                     </div>
                   </div>
@@ -821,10 +823,10 @@ export default function ArtifactViewer({
                 {chatMessages.map((m, i) => (
                   <div
                     key={i}
-                    className={`text-[11px] leading-relaxed px-2.5 py-1.5 rounded-lg ${
+                    className={`text-[11px] leading-relaxed px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] ${
                       m.role === "user"
-                        ? "ml-auto bg-blue-500/15 text-blue-300"
-                        : "mr-auto bg-[var(--bg-primary)] text-[var(--text-primary)]"
+                        ? "ml-auto bg-[var(--bg-secondary)] text-[var(--text-chat-body)]"
+                        : "mr-auto bg-[var(--bg-primary)] text-[var(--text-chat-body)]"
                     }`}
                     style={{ maxWidth: "90%" }}
                   >
@@ -941,7 +943,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   return (
     <div
       dangerouslySetInnerHTML={{ __html: html }}
-      className="text-[13px] leading-relaxed text-[var(--text-primary)] select-text cursor-text"
+      className="text-[13px] leading-relaxed text-[var(--text-chat-body)] select-text cursor-text [&_strong]:text-[var(--text-primary)] [&_strong]:font-semibold"
       style={{ lineHeight: "1.7" }}
     />
   );
@@ -965,9 +967,9 @@ function markdownToHtml(md: string): string {
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
   html = html.replace(/`([^`]+)`/g, '<code style="background:var(--bg-primary);padding:2px 6px;border-radius:4px;font-size:12px">$1</code>');
   // Links: [text](url)
-  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:#2563EB;text-decoration:underline">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--text-secondary);text-decoration:underline;text-underline-offset:2px">$1</a>');
   // Bare URLs
-  html = html.replace(/(?<![">])(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:#2563EB;text-decoration:underline">$1</a>');
+  html = html.replace(/(?<![">])(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener" style="color:var(--text-secondary);text-decoration:underline;text-underline-offset:2px">$1</a>');
   html = html.replace(/^- (.+)$/gm, '<li style="margin:4px 0;padding-left:4px">$1</li>');
   html = html.replace(/^• (.+)$/gm, '<li style="margin:4px 0;padding-left:4px">$1</li>');
   html = html.replace(/^\d+\. (.+)$/gm, '<li style="margin:4px 0;padding-left:4px">$1</li>');

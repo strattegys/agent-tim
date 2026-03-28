@@ -4,6 +4,10 @@
 import type { ToolContext } from "./types";
 import { TOOL_REGISTRY } from "./index";
 import { withToolGroundingHint } from "./tool-grounding-hint";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+
+/** Tools that do not touch CRM / dashboard data — skip SSE nudge after success. */
+const SKIP_DASHBOARD_NOTIFY = new Set<string>(["web_search", "memory"]);
 
 export async function executeTool(
   name: string,
@@ -17,6 +21,9 @@ export async function executeTool(
 
     const context: ToolContext = { lastUserMessage, agentId };
     const raw = await tool.execute(args, context);
+    if (!SKIP_DASHBOARD_NOTIFY.has(name)) {
+      notifyDashboardSyncChange();
+    }
     return withToolGroundingHint(name, raw);
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : String(error);

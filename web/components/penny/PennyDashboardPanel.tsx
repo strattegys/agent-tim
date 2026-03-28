@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { PACKAGE_TEMPLATES, type PackageTemplateSpec } from "@/lib/package-types";
 import { WORKFLOW_TYPES, type WorkflowTypeSpec } from "@/lib/workflow-types";
 import { panelBus } from "@/lib/events";
+import { useDocumentVisible } from "@/lib/use-document-visible";
 import PackageDetailCard from "./PackageDetailCard";
 import AddPackageModal from "./AddPackageModal";
 import WorkflowTemplateCard from "./WorkflowTemplateCard";
@@ -24,7 +25,8 @@ interface PackageRow {
   workflowCount: number;
 }
 
-const POLL_INTERVAL = 5000;
+const POLL_MS_VISIBLE = 5000;
+const POLL_MS_HIDDEN = 30_000;
 
 type Tab = "packages" | "pkg-templates" | "wf-templates";
 
@@ -38,6 +40,7 @@ export default function PennyDashboardPanel({
   onClose,
   onDashboardTabChange,
 }: PennyDashboardPanelProps) {
+  const tabVisible = useDocumentVisible();
   const [tab, setTab] = useState<Tab>("packages");
 
   useEffect(() => {
@@ -105,6 +108,7 @@ export default function PennyDashboardPanel({
         return;
       }
       panelBus.emit("package_manager");
+      panelBus.emit("dashboard_sync");
       fetchPackages();
       fetchOrphans();
     } finally {
@@ -120,14 +124,15 @@ export default function PennyDashboardPanel({
       fetchPackages();
       fetchOrphans();
     };
-    const interval = setInterval(tick, POLL_INTERVAL);
+    const ms = tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN;
+    const interval = setInterval(tick, ms);
     const unsub = panelBus.on("package_manager", tick);
     return () => {
       mountedRef.current = false;
       clearInterval(interval);
       unsub();
     };
-  }, [fetchPackages, fetchOrphans]);
+  }, [fetchPackages, fetchOrphans, tabVisible]);
 
   const TABS: { key: Tab; label: string; count?: string }[] = [
     {
@@ -239,6 +244,7 @@ export default function PennyDashboardPanel({
             onClose={() => setAddPackageOpen(false)}
             onCreated={() => {
               panelBus.emit("package_manager");
+              panelBus.emit("dashboard_sync");
               fetchPackages();
             }}
           />
@@ -382,6 +388,7 @@ export default function PennyDashboardPanel({
 /** Reads simLog from sessionStorage (newest-first). Refreshes on panelBus + interval. */
 function SimLogViewer({ packageId }: { packageId: string }) {
   const [log, setLog] = useState<string[]>([]);
+  const tabVisible = useDocumentVisible();
 
   useEffect(() => {
     const read = () => {
@@ -394,12 +401,13 @@ function SimLogViewer({ packageId }: { packageId: string }) {
     };
     read();
     const unsub = panelBus.on("sim_log", read);
-    const iv = setInterval(read, 4000);
+    const ms = tabVisible ? 4000 : 20_000;
+    const iv = setInterval(read, ms);
     return () => {
       unsub();
       clearInterval(iv);
     };
-  }, [packageId]);
+  }, [packageId, tabVisible]);
 
   if (log.length === 0) {
     return (

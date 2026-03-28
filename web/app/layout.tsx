@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { CronWarmup } from "@/components/CronWarmup";
 import { getAppBrandTitle, getAppHeadline, isDevAppBranding } from "@/lib/app-brand";
 
 export function generateMetadata(): Metadata {
@@ -39,6 +40,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="h-screen">
+        <CronWarmup />
         {children}
         <script
           dangerouslySetInnerHTML={{

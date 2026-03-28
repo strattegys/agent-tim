@@ -4,6 +4,11 @@ import { chatStreamAnthropic } from "@/lib/anthropic-chat";
 import { chatStreamGroq } from "@/lib/groq-chat";
 import { getAgentConfig } from "@/lib/agent-config";
 import type { ChatStreamExtraOptions } from "@/lib/chat-stream-options";
+import { initCronJobs } from "@/lib/cron";
+
+if (process.env.npm_lifecycle_event !== "build") {
+  initCronJobs();
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,6 +44,25 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
+          const {
+            userMessageIsSendItNow,
+            extractWorkflowItemIdFromTimContext,
+            markLinkedInSendChatApproved,
+          } = await import("@/lib/tim-linkedin-send-chat-gate");
+          if (agentId === "tim" && userMessageIsSendItNow(message)) {
+            const wid = extractWorkflowItemIdFromTimContext(tim);
+            if (wid) {
+              const m = await markLinkedInSendChatApproved(wid);
+              const reply = m.ok
+                ? "Got it — **Send It Now** is recorded for this workflow item. Click **Submit** in the work panel to send the LinkedIn message."
+                : m.error || "Could not record approval.";
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: reply })}\n\n`));
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              controller.close();
+              return;
+            }
+          }
+
           const result = await chatFn(agentId, message, (chunk) => {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`));
           }, extra);

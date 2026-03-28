@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import type { StageConfig } from "@/lib/board-types";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 export async function GET() {
   try {
@@ -35,6 +36,7 @@ export async function POST(request: NextRequest) {
        RETURNING id, name, description, stages, transitions`,
       [name, description || null, JSON.stringify(stages), JSON.stringify(transitions)]
     );
+    notifyDashboardSyncChange();
     return NextResponse.json({ board: rows[0] }, { status: 201 });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to create board";
@@ -93,6 +95,7 @@ export async function DELETE(request: NextRequest) {
       `UPDATE "_board" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = $1 AND "deletedAt" IS NULL`,
       [id]
     );
+    notifyDashboardSyncChange();
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to delete board";

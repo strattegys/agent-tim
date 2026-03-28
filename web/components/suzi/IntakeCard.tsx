@@ -26,11 +26,37 @@ const SOURCE_COLOR: Record<string, string> = {
   email: "#A78BFA",
 };
 
+function ArchiveIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M21 8v11H3V8" />
+      <path d="M23 3H1v5h22V3z" />
+      <path d="M10 12h4" />
+    </svg>
+  );
+}
+
 interface IntakeCardProps {
   item: IntakeCardItem;
   /** 1-based position in the current Intake list (matches Suzi `itemNumber` when list/filter matches). */
   displayNumber?: number;
-  onDelete?: (id: string) => void;
+  /** Soft-archive: removes from the active queue (same as API archive). */
+  onArchive?: (id: string) => void;
+  /** User selected this card for Suzi chat context. */
+  isFocused?: boolean;
+  /** Click card body to toggle focus (archive / link clicks do not toggle). */
+  onToggleFocus?: () => void;
 }
 
 /** Pacific time after mount only — avoids SSR/client Intl mismatches for `toLocaleString`. */
@@ -42,50 +68,69 @@ function IntakeUpdatedLabel({ updatedAt }: { updatedAt: string }) {
         timeZone: "America/Los_Angeles",
         month: "short",
         day: "numeric",
-        year: "numeric",
         hour: "numeric",
         minute: "2-digit",
       })
     );
   }, [updatedAt]);
   return (
-    <span className="text-[9px] text-[var(--text-tertiary)] tabular-nums whitespace-nowrap min-h-[1em] inline-block align-bottom">
+    <span className="text-xs text-[var(--text-tertiary)] tabular-nums min-h-[1em] ml-auto shrink-0 text-right break-words max-w-[10rem]">
       {text ?? "\u00a0"}
     </span>
   );
 }
 
-export default function IntakeCard({ item, displayNumber, onDelete }: IntakeCardProps) {
+export default function IntakeCard({
+  item,
+  displayNumber,
+  onArchive,
+  isFocused = false,
+  onToggleFocus,
+}: IntakeCardProps) {
   const src = item.source || "ui";
   const label = SOURCE_LABEL[src] || src;
   const color = SOURCE_COLOR[src] || "#8b9199";
+  const selectable = Boolean(onToggleFocus);
 
   return (
-    <div className="h-60 w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3 flex flex-col transition-colors group overflow-hidden">
-      <div className="flex items-start justify-between gap-1.5 shrink-0">
-        <div className="flex items-start gap-2 min-w-0 flex-1">
+    <div
+      className={`h-full min-h-0 w-full min-w-0 rounded-lg bg-[var(--bg-secondary)] p-2 flex flex-col outline-none transition-[box-shadow,border-color] ${
+        isFocused
+          ? "border-2 border-[var(--accent-green)] shadow-[0_0_0_1px_var(--accent-green)]"
+          : "border border-[var(--border-color)]"
+      } ${selectable ? "cursor-pointer" : ""}`}
+      onClick={selectable ? () => onToggleFocus?.() : undefined}
+      title={
+        selectable
+          ? (isFocused ? "Focused for Suzi — tap to clear" : "Tap to focus for Suzi chat")
+          : undefined
+      }
+    >
+      <div className="flex items-start gap-1.5 shrink-0">
+        <div className="flex items-start gap-1.5 min-w-0 flex-1">
           {displayNumber != null && (
             <span
-              className="shrink-0 text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--accent-green)]"
-              title={`Intake #${displayNumber} (FIFO) — e.g. ask Suzi to delete intake item ${displayNumber} or move it to punch list`}
+              className="shrink-0 text-xs font-bold tabular-nums px-1.5 py-0.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--accent-green)] leading-none"
+              title={`Intake #${displayNumber} (FIFO) — ask Suzi using item ${displayNumber}, or archive here`}
             >
               #{displayNumber}
             </span>
           )}
-          <h3 className="text-xs font-semibold text-[var(--text-primary)] line-clamp-2 leading-snug flex-1 min-w-0">
+          <h3 className="text-sm font-medium text-[var(--text-chat-body)] leading-snug flex-1 min-w-0 break-words">
             {item.title}
           </h3>
         </div>
-        {onDelete && (
+        {onArchive && (
           <button
             type="button"
-            onClick={() => onDelete(item.id)}
-            className="opacity-0 group-hover:opacity-100 text-[var(--text-tertiary)] hover:text-red-400 transition-all shrink-0 p-0.5"
-            title="Delete"
+            onClick={(e) => {
+              e.stopPropagation();
+              onArchive(item.id);
+            }}
+            className="shrink-0 p-0.5 rounded text-[var(--text-tertiary)] hover:text-[#D85A30] hover:bg-[var(--bg-primary)] border border-transparent hover:border-[var(--border-color)]"
+            title="Archive — remove from queue (recoverable from DB if needed)"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
+            <ArchiveIcon />
           </button>
         )}
       </div>
@@ -95,28 +140,30 @@ export default function IntakeCard({ item, displayNumber, onDelete }: IntakeCard
           href={item.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[11px] text-[#5B8DEF] hover:underline truncate shrink-0 mt-1.5 block"
-          title={item.url}
+          onClick={(e) => e.stopPropagation()}
+          className="text-xs text-[var(--text-secondary)] hover:text-[#5B8DEF] hover:underline mt-1.5 block leading-snug break-all"
         >
           {item.url.replace(/^https?:\/\//, "").replace(/\/$/, "")}
         </a>
       )}
 
-      <div className="flex-1 min-h-0 mt-2 overflow-y-auto overflow-x-hidden pr-0.5 [scrollbar-gutter:stable]">
+      <div className="mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto">
         {item.body?.trim() ? (
-          <p className="text-[11px] leading-relaxed text-[var(--text-secondary)] whitespace-pre-wrap break-words">
+          <p className="text-base leading-relaxed text-[var(--text-chat-body)] whitespace-pre-wrap break-words">
             {item.body}
           </p>
         ) : item.url ? (
-          <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">No text in the message — use the link above.</p>
+          <p className="text-xs text-[var(--text-tertiary)] leading-snug">
+            No text — open link above.
+          </p>
         ) : (
-          <p className="text-[10px] text-[var(--text-tertiary)] italic">No details captured.</p>
+          <p className="text-xs text-[var(--text-tertiary)] italic">No details.</p>
         )}
       </div>
 
-      <div className="flex items-center gap-2 pt-2 shrink-0 flex-wrap border-t border-[var(--border-color)]/60">
+      <div className="flex items-center gap-1.5 pt-1.5 shrink-0 border-t border-[var(--border-color)]/50 flex-wrap">
         <span
-          className="text-[9px] px-2 py-0.5 rounded-full font-medium"
+          className="text-xs px-1.5 py-px rounded-full font-medium shrink-0 max-w-full break-words"
           style={{ background: `${color}22`, color }}
         >
           {label}

@@ -354,6 +354,12 @@ const tool: ToolModule = {
       if (updated.length === 0) {
         return `No artifact found for workflow item ${itemId.slice(0, 8)}… at stage ${stageNorm} (create one first or check stage spelling).`;
       }
+      const { maybeNotifyTimAfterLinkedInDraftEdit } = await import("../tim-linkedin-send-chat-gate");
+      void maybeNotifyTimAfterLinkedInDraftEdit({
+        workflowItemId: itemId,
+        stage: stageNorm,
+        markdownContent: String(newBody),
+      }).catch(() => {});
       return `Updated artifact ${(updated[0] as Record<string, unknown>).id} (${stageNorm}) for workflow item ${args.arg1.slice(0, 8)}…`;
     }
 

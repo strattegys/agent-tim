@@ -20,6 +20,29 @@ export function isUnipileConfigured(): boolean {
   );
 }
 
+/** From Unipile `GET /users/{id}` JSON — public vanity slug for URL matching (CRM often stores /in/slug, not ACoA…). */
+export function extractUnipilePublicIdentifierFromProfile(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  if (typeof o.httpStatus === "number" && o.httpStatus >= 400) return null;
+  if (o.error != null || o.detail != null) return null;
+  const pub = typeof o.public_identifier === "string" ? o.public_identifier.trim() : "";
+  if (!pub) return null;
+  if (!/^[a-zA-Z0-9_-]{2,200}$/.test(pub)) return null;
+  return pub;
+}
+
+/** Unipile LinkedIn member id for CRM `person.linkedinProviderId` (stable for API + inbound matching). */
+export function extractUnipileProviderIdFromProfile(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  if (typeof o.httpStatus === "number" && o.httpStatus >= 400) return null;
+  if (o.error != null || o.detail != null) return null;
+  const pid = typeof o.provider_id === "string" ? o.provider_id.trim() : "";
+  if (!pid || !/^ACoA[A-Za-z0-9_-]+$/i.test(pid)) return null;
+  return pid;
+}
+
 /** Extract public slug or ACoAAA provider id from text or URL. */
 export function extractLinkedInProfileIdentifier(input: string): string | null {
   const t = input.trim();

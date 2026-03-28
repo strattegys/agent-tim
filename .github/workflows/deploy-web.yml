@@ -30,9 +30,13 @@ jobs:
         run: cd web && npm ci
 
       - name: TypeScript check
+        env:
+          AUTH_SECRET: ci-github-actions-validate-only-not-for-deploy
         run: cd web && npx tsc --noEmit
 
       - name: Production build (matches Docker builder)
+        env:
+          AUTH_SECRET: ci-github-actions-validate-only-not-for-deploy
         run: cd web && npx next build
 
   deploy:
@@ -53,6 +57,18 @@ jobs:
           ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s <<'EOF'
           set -e
           cd /opt/agent-tim
+
+          # Snapshot current UI source on disk before replacing (rollback / reference; prunes old tarballs).
+          BACKUP_DIR=/opt/agent-tim/.deploy-backups/ui-snapshots
+          mkdir -p "$BACKUP_DIR"
+          STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+          if [ -d web/app ]; then
+            tar -czf "$BACKUP_DIR/web-ui-${STAMP}.tar.gz" \
+              -C /opt/agent-tim \
+              web/app web/components web/public 2>/dev/null || true
+            echo "UI snapshot (pre-pull): $BACKUP_DIR/web-ui-${STAMP}.tar.gz"
+          fi
+          ( cd "$BACKUP_DIR" && ls -t web-ui-*.tar.gz 2>/dev/null | tail -n +21 | xargs -r rm -f ) || true
 
           # Pull latest code
           echo "Pulling latest code..."
@@ -121,7 +137,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s <<'EOF'
           cd /opt/agent-tim
           DC="docker compose --env-file web/.env.local -f docker-compose.yml"
-          if curl -sf http://localhost:3001 > /dev/null 2>&1; then
+          if curl -sf http://localhost:3001/api/health > /dev/null 2>&1; then
             echo "✓ Health check passed — Command Central is running."
           else
             echo "✗ Health check FAILED"

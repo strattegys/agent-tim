@@ -18,10 +18,10 @@ export default function GhostAgentPanel({
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2 gap-2">
-        <span className="text-xs font-semibold text-[var(--text-primary)]">Content Work Queue</span>
+        <span className="text-xs font-medium text-[var(--text-chat-body)]">Content Work Queue</span>
         {contentQueueCount > 0 ? (
           <span
-            className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums flex items-center justify-center bg-[#4A90D9]/25 text-sky-200 border border-[#4A90D9]/35"
+            className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-medium tabular-nums flex items-center justify-center bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border-color)]"
             title={`${contentQueueCount} item${contentQueueCount !== 1 ? "s" : ""}`}
           >
             {contentQueueCount > 99 ? "99+" : contentQueueCount}

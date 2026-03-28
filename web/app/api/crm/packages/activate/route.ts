@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
@@ -6,10 +7,12 @@ import { insertPackageBriefArtifactIfPresent } from "@/lib/package-brief-artifac
 import { createTask } from "@/lib/tasks";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { WARM_OUTREACH_PLACEHOLDER_JOB_TITLE } from "@/lib/warm-outreach-researching-guard";
+import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 import {
   packageStageDisallowsFakeData,
   stripUseFakeDataFromPackageSpec,
 } from "@/lib/package-use-fake-data";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 /**
  * POST /api/crm/packages/activate
@@ -68,6 +71,7 @@ export async function POST(req: NextRequest) {
       const activationLog = [
         `[${new Date().toISOString()}] Testing mode: stage → ${targetStage}, no workflows created (skipTasks)`,
       ];
+      notifyDashboardSyncChange();
       return NextResponse.json({ ok: true, packageId, workflows: [], activationLog });
     }
 
@@ -100,6 +104,7 @@ export async function POST(req: NextRequest) {
             `[${new Date().toISOString()}]   → ${w.name} (${w.ownerAgent}) id ${w.id.slice(0, 8)}…`
         ),
       ];
+      notifyDashboardSyncChange();
       return NextResponse.json({
         ok: true,
         packageId,
@@ -199,23 +204,35 @@ export async function POST(req: NextRequest) {
         // IDEA stage: no artifact — human pastes their idea via the task input,
         // then Ghost builds the content brief in CAMPAIGN_SPEC stage.
       } else if (wfType.itemType === "person" && firstStage.requiresHuman) {
-        const pRows = await query<{ id: string }>(
-          `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
-           VALUES ($1, $2, $3, NOW(), NOW())
-           RETURNING id`,
-          ["Next", "Contact", WARM_OUTREACH_PLACEHOLDER_JOB_TITLE]
-        );
-        const personId = (pRows[0] as Record<string, unknown>).id as string;
-        const wiRows = await query<{ id: string }>(
-          `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
-           VALUES ($1, $2, 'person', $3, NOW(), NOW())
-           RETURNING id`,
-          [workflowId, firstStage.key, personId]
-        );
-        const itemId = (wiRows[0] as Record<string, unknown>).id as string;
+        let itemId: string;
         if (deliverable.workflowType === "warm-outreach") {
+          const slotId = randomUUID();
+          const wiRows = await query<{ id: string }>(
+            `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, $4, NOW(), NOW())
+             RETURNING id`,
+            [workflowId, firstStage.key, WARM_DISCOVERY_SOURCE_TYPE, slotId]
+          );
+          itemId = (wiRows[0] as Record<string, unknown>).id as string;
           await insertPackageBriefArtifactIfPresent(itemId, workflowId, packageId);
-          logAct(`Warm-outreach: item ${itemId.slice(0, 8)}… at ${firstStage.key}; PACKAGE_BRIEF if package has brief`);
+          logAct(
+            `Warm-outreach: discovery slot ${itemId.slice(0, 8)}… at ${firstStage.key} (no CRM person until intake)`
+          );
+        } else {
+          const pRows = await query<{ id: string }>(
+            `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "createdAt", "updatedAt")
+             VALUES ($1, $2, $3, NOW(), NOW())
+             RETURNING id`,
+            ["Next", "Contact", WARM_OUTREACH_PLACEHOLDER_JOB_TITLE]
+          );
+          const personId = (pRows[0] as Record<string, unknown>).id as string;
+          const wiRows = await query<{ id: string }>(
+            `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
+             VALUES ($1, $2, 'person', $3, NOW(), NOW())
+             RETURNING id`,
+            [workflowId, firstStage.key, personId]
+          );
+          itemId = (wiRows[0] as Record<string, unknown>).id as string;
         }
         await syncHumanTaskOpenForItem(itemId);
       }
@@ -269,6 +286,7 @@ export async function POST(req: NextRequest) {
 
     logAct(`Done: package stage=${targetStage}, ${createdWorkflows.length} workflow(s)`);
 
+    notifyDashboardSyncChange();
     return NextResponse.json({
       ok: true,
       packageId,

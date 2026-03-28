@@ -1,14 +1,9 @@
-"use client";
+import { redirectIfBackendOnlyUi } from "@/lib/main-ui-gate";
+import RemindersRedirectClient from "./RemindersRedirectClient";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+export const dynamic = "force-dynamic";
 
 export default function RemindersPage() {
-  const router = useRouter();
-
-  useEffect(() => {
-    router.replace("/?agent=suzi&panel=reminders");
-  }, [router]);
-
-  return null;
+  redirectIfBackendOnlyUi();
+  return <RemindersRedirectClient />;
 }

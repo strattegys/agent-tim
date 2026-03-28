@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { panelBus } from "@/lib/events";
+import { useDocumentVisible } from "@/lib/use-document-visible";
 import type { GhostWorkQueueSelection } from "@/lib/ghost-work-context";
 import ArtifactViewer from "../shared/ArtifactViewer";
 import TimIntakeWorkspace from "../tim/TimIntakeWorkspace";
@@ -45,7 +46,8 @@ function messageAffiliationLine(t: ContentWorkTask): string {
   return `${pkg} · ${wf}`;
 }
 
-const POLL_INTERVAL = 8000;
+const POLL_MS_VISIBLE = 8000;
+const POLL_MS_HIDDEN = 30_000;
 
 function contentTasksFingerprint(
   list: Array<{
@@ -82,11 +84,11 @@ function GhostQueueItemRow({
       onClick={onSelect}
       className={`w-full text-left rounded-md px-2 py-1.5 border transition-colors ${
         active
-          ? "border-[#4A90D9]/50 bg-[#4A90D9]/10"
+          ? "border-[var(--border-color)] bg-[var(--bg-secondary)]"
           : "border-transparent bg-[var(--bg-primary)]/80 hover:border-[var(--border-color)]"
       }`}
     >
-      <div className="text-[10px] font-semibold text-[var(--text-primary)] truncate">{task.itemTitle}</div>
+      <div className="text-[10px] font-medium text-[var(--text-chat-body)] truncate">{task.itemTitle}</div>
       <div className="text-[9px] text-[var(--text-tertiary)] truncate">{secondary}</div>
       <div className="text-[9px] text-[var(--text-secondary)] truncate mt-0.5 leading-tight">
         {messageAffiliationLine(task)}
@@ -116,7 +118,7 @@ function GhostTaskActionBar({
             type="button"
             onClick={() => onResolve(task.itemId, "reject")}
             disabled={resolving === task.itemId}
-            className="text-[10px] px-2.5 py-1 rounded-md border border-red-500/20 bg-red-500/5 text-red-400/90 disabled:opacity-50"
+            className="text-[10px] px-2.5 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] disabled:opacity-50"
           >
             Reject
           </button>
@@ -150,6 +152,7 @@ export default function GhostMessagesPanel({
   const [focusedArtifact, setFocusedArtifact] = useState<{ stage: string; label: string } | null>(null);
   const mountedRef = useRef(true);
   const lastTasksFingerprintRef = useRef<string>("");
+  const tabVisible = useDocumentVisible();
 
   const fetchTasks = useCallback((): Promise<void> => {
     return fetch(
@@ -221,7 +224,8 @@ export default function GhostMessagesPanel({
   useEffect(() => {
     mountedRef.current = true;
     fetchTasks();
-    const interval = setInterval(fetchTasks, POLL_INTERVAL);
+    const ms = tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN;
+    const interval = setInterval(fetchTasks, ms);
     const u1 = panelBus.on("workflow_items", fetchTasks);
     const u2 = panelBus.on("package_manager", fetchTasks);
     const u3 = panelBus.on("ghost_human_task_progress", fetchTasks);
@@ -232,7 +236,7 @@ export default function GhostMessagesPanel({
       u2();
       u3();
     };
-  }, [fetchTasks]);
+  }, [fetchTasks, tabVisible]);
 
   const sortedTasks = useMemo(
     () => [...tasks].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
@@ -325,6 +329,7 @@ export default function GhostMessagesPanel({
           setResolveHint(null);
           if (data.logs?.length) pushLogs(data.logs);
           panelBus.emit("ghost_human_task_progress");
+          panelBus.emit("dashboard_sync");
           await new Promise((r) => setTimeout(r, 350));
           await fetchTasks();
         } else {
@@ -358,18 +363,18 @@ export default function GhostMessagesPanel({
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {!embedded && (
         <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-          <span className="text-xs font-semibold text-[var(--text-primary)]">Ghost — content work queue</span>
+          <span className="text-xs font-medium text-[var(--text-chat-body)]">Ghost — content work queue</span>
           <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 leading-snug">
             Content workflow items only. Use the work shortcut under Ghost’s header for the same layout in Command Central.
           </p>
           {loadError && (
-            <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">{loadError}</p>
+            <p className="text-[10px] text-[var(--text-secondary)] mt-1">{loadError}</p>
           )}
         </div>
       )}
       {embedded && loadError && (
-        <div className="shrink-0 px-3 py-1.5 border-b border-amber-500/20 bg-amber-500/5">
-          <p className="text-[10px] text-amber-600 dark:text-amber-400">{loadError}</p>
+        <div className="shrink-0 px-3 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+          <p className="text-[10px] text-[var(--text-secondary)]">{loadError}</p>
         </div>
       )}
 
@@ -379,7 +384,7 @@ export default function GhostMessagesPanel({
           aria-label="Ghost content work queue"
         >
           <div className="shrink-0 px-2 py-1.5 border-b border-[var(--border-color)]/80">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
               Content queue · {sortedTasks.length}
             </span>
             <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mt-0.5">
@@ -450,7 +455,7 @@ export default function GhostMessagesPanel({
                         setSavingContentTitle(false);
                       }
                     }}
-                    className="text-[10px] px-2.5 py-1 rounded-md border border-[#4A90D9]/40 bg-[#4A90D9]/15 text-[var(--text-primary)] font-semibold hover:bg-[#4A90D9]/25 disabled:opacity-40"
+                    className="text-[10px] px-2.5 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)]/40 disabled:opacity-40"
                   >
                     {savingContentTitle ? "Saving…" : "Save title"}
                   </button>
@@ -459,12 +464,12 @@ export default function GhostMessagesPanel({
               {["CAMPAIGN_SPEC", "DRAFTING", "REVIEW", "DRAFT_PUBLISHED"].includes(
                 selected.stage.toUpperCase()
               ) && selected.workflowType === "content-pipeline" ? (
-                <div className="shrink-0 mb-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                  <p className="text-[10px] text-[var(--text-secondary)] leading-snug">
-                    Return to <strong className="text-[var(--text-primary)]">IDEA</strong> using the idea you
-                    already submitted. This removes campaign spec, drafting, and review artifacts for this item
-                    only — your original <strong className="text-[var(--text-primary)]">IDEA</strong> note stays
-                    so you can submit again and have Ghost regenerate the spec (and later the draft).
+                <div className="shrink-0 mb-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2">
+                  <p className="text-[10px] text-[var(--text-chat-body)] leading-snug">
+                    Return to <strong className="text-[var(--text-primary)]">IDEA</strong> using the idea you already
+                    submitted. This removes campaign spec, drafting, and review artifacts for this item only — your
+                    original <strong className="text-[var(--text-primary)]">IDEA</strong> note stays so you can submit
+                    again and have Ghost regenerate the spec (and later the draft).
                   </p>
                   <button
                     type="button"
@@ -498,19 +503,19 @@ export default function GhostMessagesPanel({
                         setRollbackLoading(false);
                       }
                     }}
-                    className="mt-2 text-[10px] px-2.5 py-1 rounded-md border border-amber-500/40 bg-amber-500/15 text-amber-100 font-semibold hover:bg-amber-500/25 disabled:opacity-50"
+                    className="mt-2 text-[10px] px-2.5 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)]/40 disabled:opacity-50"
                   >
                     {rollbackLoading ? "Working…" : "Go back to idea (keep my original idea)"}
                   </button>
                 </div>
               ) : null}
               {resolveHint ? (
-                <div className="shrink-0 mb-2 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2">
-                  <p className="text-[11px] text-amber-100/95 leading-snug">{resolveHint}</p>
+                <div className="shrink-0 mb-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2">
+                  <p className="text-[11px] text-[var(--text-chat-body)] leading-snug">{resolveHint}</p>
                   <button
                     type="button"
                     onClick={() => setResolveHint(null)}
-                    className="mt-1.5 text-[10px] text-amber-200/90 underline"
+                    className="mt-1.5 text-[10px] text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
                   >
                     Dismiss
                   </button>

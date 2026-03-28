@@ -13,11 +13,14 @@ export type TtsState = "idle" | "loading" | "speaking";
 
 export interface TtsQueueOptions {
   voice: string;
+  /** Optional agent id for usage metering on /api/tts */
+  agentId?: string;
   onStateChange?: (state: TtsState) => void;
 }
 
 export class TtsQueue {
   private voice: string;
+  private agentId?: string;
   private buffer = "";
   private aborted = false;
   private currentAudio: HTMLAudioElement | null = null;
@@ -26,6 +29,7 @@ export class TtsQueue {
 
   constructor(opts: TtsQueueOptions) {
     this.voice = opts.voice;
+    this.agentId = opts.agentId?.trim() || undefined;
     this.onStateChange = opts.onStateChange ?? (() => {});
   }
 
@@ -53,7 +57,12 @@ export class TtsQueue {
       const res = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: this.voice, summarize }),
+        body: JSON.stringify({
+          text,
+          voice: this.voice,
+          summarize,
+          ...(this.agentId ? { agentId: this.agentId } : {}),
+        }),
         signal: this.abortController.signal,
       });
 

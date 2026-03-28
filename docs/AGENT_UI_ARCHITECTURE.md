@@ -42,7 +42,7 @@ The **work panel** is the **space underneath the agent header** when a **work-re
   - **Penny** — `PennyDashboardPanel`: Package Planner | Package Templates | Workflow Templates
   - **Friday** — `FridayDashboardPanel`: Packages | Human tasks | Tools
   - **Tim** — `TimAgentPanel`: Active Work Queue | Pending Work Queue
-  - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes | Intake
+  - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes | Intake — sub-tab row uses a shared header (`SuziWorkSubTabHeader`): green **command hints** per tab (agent-first copy), optional small orange **human fallback** action only when that tab already has an equivalent (e.g. Intake add modal), and **tap-to-focus** cards (green border) on Intake, Punch List, Reminders, and Notes so the selection is injected into Suzi chat context (`web/lib/suzi-work-panel.ts`).
 
 **Adding a new capability for an agent**
 

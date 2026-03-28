@@ -11,6 +11,7 @@ import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
 import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import { logCommandCentralLlmUsage } from "./llm-usage-log";
 
 const MAX_TOOL_ITERATIONS = 20;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -35,10 +36,12 @@ function tryPunchListFastUserReply(toolResultsThisRound: string[]): string | nul
   const lines = raw.split("\n").filter((l) => l.trim());
   if (lines.length > 6) return null;
 
-  const moved = raw.match(
-    /^Punch list item #(\d+) "([^"]+)" — now \[([^\]]+)\]/
-  );
-  if (moved) return `Done — I moved #${moved[1]} to ${moved[3]}.`;
+  const updated = raw.match(/^Updated punch list #(\d+): (.+)\.$/);
+  if (updated) {
+    const detail =
+      updated[2].length > 120 ? `${updated[2].slice(0, 117)}…` : updated[2];
+    return `Done — #${updated[1]}: ${detail}`;
+  }
 
   const done = raw.match(/^Punch list item #(\d+)(?: "([^"]+)")? marked done\.$/);
   if (done) return `Done — #${done[1]} is checked off.`;
@@ -60,6 +63,16 @@ function tryPunchListFastUserReply(toolResultsThisRound: string[]): string | nul
   const noteAdded = raw.match(/^Note added to punch list item #(\d+)\.$/);
   if (noteAdded) return `Note saved on #${noteAdded[1]}.`;
 
+  const subAdded = raw.match(/^Subtask added to punch list #(\d+)\. action_id=/);
+  if (subAdded) return `Added a subtask on #${subAdded[1]}.`;
+
+  const subTog = raw.match(/^Subtask on punch list #(\d+) marked (done|open)\.$/);
+  if (subTog) {
+    return subTog[2] === "done"
+      ? `Checked off a subtask on #${subTog[1]}.`
+      : `Reopened a subtask on #${subTog[1]}.`;
+  }
+
   if (
     lines.length > 1 &&
     lines.every((l) => /^Punch list item #\d+ marked done\.$/.test(l))
@@ -72,6 +85,27 @@ function tryPunchListFastUserReply(toolResultsThisRound: string[]): string | nul
 }
 
 // ── Types (OpenAI-compatible) ──
+
+interface GroqUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+function logGroqUsage(
+  agentId: string,
+  model: string,
+  usage: GroqUsage | undefined
+): void {
+  if (!usage) return;
+  logCommandCentralLlmUsage({
+    provider: "groq",
+    model,
+    agentId,
+    inputTokens: usage.prompt_tokens ?? null,
+    outputTokens: usage.completion_tokens ?? null,
+  });
+}
 
 interface GroqMessage {
   role: "system" | "user" | "assistant" | "tool";
@@ -585,7 +619,7 @@ async function groqChat(
   messages: GroqMessage[],
   tools?: GroqTool[],
   temperature?: number
-): Promise<{ content: string; tool_calls?: GroqToolCall[] }> {
+): Promise<{ content: string; tool_calls?: GroqToolCall[]; usage?: GroqUsage }> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("GROQ_API_KEY not set");
 
@@ -658,18 +692,29 @@ async function groqChat(
         body: JSON.stringify(retryBody),
       });
       if (retryRes.ok) {
-        const retryData = await retryRes.json();
+        const retryData = (await retryRes.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+          usage?: GroqUsage;
+        };
         const retryChoice = retryData.choices?.[0]?.message;
-        return { content: retryChoice?.content || "", tool_calls: undefined };
+        return {
+          content: retryChoice?.content || "",
+          tool_calls: undefined,
+          usage: retryData.usage,
+        };
       }
     }
 
     throw new Error(`Groq API error ${res.status}: ${errText}`);
   }
 
-  const data = await res.json();
+  const data = (await res.json()) as {
+    choices?: Array<{ message?: { content?: string; tool_calls?: GroqToolCall[] } }>;
+    usage?: GroqUsage;
+  };
   const choice = data.choices?.[0]?.message;
-  return mergeRecoveredToolCalls(choice?.content || "", choice?.tool_calls);
+  const merged = mergeRecoveredToolCalls(choice?.content || "", choice?.tool_calls);
+  return { ...merged, usage: data.usage };
 }
 
 // ── Streaming chat ──
@@ -708,6 +753,7 @@ export async function chatStreamGroq(
     iterations++;
 
     const response = await groqChat(model, messages, tools, config.temperature);
+    logGroqUsage(agentId, model, response.usage);
 
     if (!response.tool_calls || response.tool_calls.length === 0) {
       const text = response.content;
@@ -837,6 +883,7 @@ export async function chatStreamGroq(
 
   // Fallback: final call without tools
   const finalResponse = await groqChat(model, messages, undefined, config.temperature);
+  logGroqUsage(agentId, model, finalResponse.usage);
   const fullText = finalResponse.content;
 
   if (fullText) {
@@ -925,6 +972,7 @@ export async function autonomousChatGroq(
     iterations++;
 
     const response = await groqChat(model, messages, tools, config.temperature);
+    logGroqUsage(agentId, model, response.usage);
 
     if (response.tool_calls && response.tool_calls.length > 0) {
       messages.push({

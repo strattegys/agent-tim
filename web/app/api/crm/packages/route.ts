@@ -9,6 +9,7 @@ import {
   resolveWorkflowRegistryId,
 } from "@/lib/workflow-spec";
 import { stripUseFakeDataWhenPackageNotInTesting } from "@/lib/package-use-fake-data";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 /**
  * Packages API — CRUD for service packages.
@@ -419,6 +420,7 @@ export async function POST(req: NextRequest) {
     }
 
     const row0 = rows[0] as Record<string, unknown>;
+    notifyDashboardSyncChange();
     return NextResponse.json({ id: row0.id, packageNumber: row0.packageNumber ?? null });
   } catch (error) {
     console.error("[packages] POST error:", error);
@@ -504,6 +506,7 @@ export async function PATCH(req: NextRequest) {
       await stripUseFakeDataWhenPackageNotInTesting(id, stage.toUpperCase());
     }
 
+    notifyDashboardSyncChange();
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("[packages] PATCH error:", error);

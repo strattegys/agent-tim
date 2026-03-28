@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 /**
  * POST /api/crm/packages/reset
@@ -83,6 +84,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    notifyDashboardSyncChange();
     return NextResponse.json({
       ok: true,
       cleared: {

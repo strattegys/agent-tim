@@ -22,13 +22,36 @@ const TAG_COLORS: Record<string, string> = {
 interface NoteCardProps {
   note: Note;
   onDelete?: (id: string) => void;
+  isFocused?: boolean;
+  onToggleSuziFocus?: () => void;
 }
 
-export default function NoteCard({ note, onDelete }: NoteCardProps) {
+export default function NoteCard({
+  note,
+  onDelete,
+  isFocused = false,
+  onToggleSuziFocus,
+}: NoteCardProps) {
   const tagColor = TAG_COLORS[note.tag || ""] || "#A78BFA";
 
+  const selectable = Boolean(onToggleSuziFocus);
+
   return (
-    <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] p-3 transition-colors group">
+    <div
+      className={`rounded-lg border bg-[var(--bg-secondary)] p-3 transition-[box-shadow,border-color] group ${
+        isFocused
+          ? "border-2 border-[var(--accent-green)] shadow-[0_0_0_1px_var(--accent-green)]"
+          : "border border-[var(--border-color)]"
+      } ${selectable ? "cursor-pointer" : ""}`}
+      onClick={selectable ? () => onToggleSuziFocus?.() : undefined}
+      title={
+        selectable
+          ? isFocused
+            ? "Focused for Suzi — tap to clear"
+            : "Tap to focus for Suzi chat"
+          : undefined
+      }
+    >
       <div className="flex items-start gap-2">
         {/* Pin indicator */}
         {note.pinned && (
@@ -46,7 +69,11 @@ export default function NoteCard({ note, onDelete }: NoteCardProps) {
             </span>
             {onDelete && (
               <button
-                onClick={() => onDelete(note.id)}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(note.id);
+                }}
                 className="opacity-0 group-hover:opacity-100 text-[var(--text-tertiary)] hover:text-red-400 transition-all shrink-0 p-0.5"
                 title="Delete note"
               >

@@ -6,7 +6,7 @@ const tool: ToolModule = {
     displayName: "Workflow Manager",
     category: "internal",
     description:
-      "Create and manage agent workflows and pipelines. Tim's heartbeat monitors workflow health automatically.",
+      "Create and manage agent workflows and pipelines. Tim's periodic heartbeat only nudges warm-outreach pace/backlog (Postgres) and Scout delegation results, not full CRM health scans.",
     operations: [
       "list-workflows",
       "get-workflow",

@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import type { TimWorkQueueSelection } from "@/lib/tim-work-context";
+import TimCrmPanel from "./TimCrmPanel";
 import TimMessagesPanel from "./TimMessagesPanel";
 
-export type TimWorkPanelTab = "active" | "pending";
+export type TimWorkPanelTab = "active" | "pending" | "crm";
 
 interface TimAgentPanelProps {
   /** Actionable items (excludes waiting follow-up) — same as human-tasks `count` for Tim */
@@ -15,7 +16,7 @@ interface TimAgentPanelProps {
 }
 
 /**
- * Tim’s work panel: **work tabs** for Active vs Pending queues (see `AGENT_UI_ARCHITECTURE.md`).
+ * Tim’s work panel: Active / Pending work queues plus a **CRM** directory tab (see `AGENT_UI_ARCHITECTURE.md`).
  */
 export default function TimAgentPanel({
   messageQueueCount = 0,
@@ -27,11 +28,12 @@ export default function TimAgentPanel({
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2 gap-0.5">
-        {(["active", "pending"] as const).map((key) => {
-          const label = key === "active" ? "Active Work Queue" : "Pending Work Queue";
+        {(["active", "pending", "crm"] as const).map((key) => {
+          const label =
+            key === "active" ? "Active Work Queue" : key === "pending" ? "Pending Work Queue" : "CRM";
           const isActive = tab === key;
-          const count = key === "active" ? messageQueueCount : pendingQueueCount;
-          const showBadge = count > 0;
+          const count = key === "active" ? messageQueueCount : key === "pending" ? pendingQueueCount : 0;
+          const showBadge = count > 0 && key !== "crm";
           return (
             <button
               key={key}
@@ -46,11 +48,7 @@ export default function TimAgentPanel({
               <span className="truncate">{label}</span>
               {showBadge ? (
                 <span
-                  className={`shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums flex items-center justify-center ${
-                    key === "active"
-                      ? "bg-[#F59E0B] text-black"
-                      : "bg-teal-500/25 text-teal-200 border border-teal-500/35"
-                  }`}
+                  className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-medium tabular-nums flex items-center justify-center bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border-color)]"
                   title={`${count} item${count !== 1 ? "s" : ""}`}
                 >
                   {count > 99 ? "99+" : count}
@@ -61,11 +59,15 @@ export default function TimAgentPanel({
         })}
       </div>
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <TimMessagesPanel
-          embedded
-          queueTab={tab}
-          onWorkSelectionChange={onTimWorkSelectionChange}
-        />
+        {tab === "crm" ? (
+          <TimCrmPanel />
+        ) : (
+          <TimMessagesPanel
+            embedded
+            queueTab={tab}
+            onWorkSelectionChange={onTimWorkSelectionChange}
+          />
+        )}
       </div>
     </div>
   );

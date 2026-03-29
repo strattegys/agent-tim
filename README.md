@@ -142,5 +142,6 @@ CRM data lives in the **`crm-db`** service in **`docker-compose.yml`** (same Doc
 
 - **CRM database** -- Kanban, workflows, packages, human-tasks (PostgreSQL service **`crm-db`** in Compose)
 - **LinkedIn (Unipile)** -- Message sync, connection polling, inbound webhooks. The Next.js app reads **`UNIPILE_API_KEY`**, **`UNIPILE_DSN`** (host:port, e.g. `api32.unipile.com:16299`), and **`UNIPILE_ACCOUNT_ID`** from **`web/.env.local`** (production Docker already uses that file via `env_file`). Without them, warm-outreach enrichment shows “Unipile is not configured”. Restart **`web`** after editing.
-- **Google Gemini** -- LLM for all agents
+- **Brave Search** -- **`BRAVE_SEARCH_API_KEY`** in **`web/.env.local`** powers **Marni Knowledge Studio** web research (Brave Search API). **Production:** add the same variable to **`/opt/agent-tim/web/.env.local`** on the Command Central droplet (CI does not inject per-key secrets; the file on the server is the source of truth). Restart **`web`** after editing.
+- **Google Gemini** -- Embeddings (vector memory, Marni KB) and optional Gemini chat for configured agents; **`GEMINI_API_KEY`** in **`web/.env.local`**
 - **NextAuth** -- Authentication (credentials provider)

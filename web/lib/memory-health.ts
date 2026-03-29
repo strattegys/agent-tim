@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync } from "fs";
 import { query } from "./db";
 import { embedText } from "./embeddings";
+import { hasGeminiApiKey } from "./gemini-api-key";
 import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
 import { getAgentSpec } from "./agent-registry";
 
@@ -83,16 +84,16 @@ export async function checkMemoryHealth(agentId: string): Promise<MemoryHealthRe
   };
 
   if (USE_DEV_STORE) {
-    const hasGemini = !!process.env.GEMINI_API_KEY?.trim();
+    const hasGeminiKey = hasGeminiApiKey();
     return {
       ...base,
       database: "unavailable",
       databaseDetail:
         "CRM_DB_PASSWORD is unset — app is using .dev-store, not Postgres. Vector memory needs CRM_DB_* in web/.env.local (same DB as npm run db:exec).",
-      embeddings: hasGemini ? "error" : "missing_key",
-      embeddingDetail: hasGemini
+      embeddings: hasGeminiKey ? "error" : "missing_key",
+      embeddingDetail: hasGeminiKey
         ? "Gemini key is set, but vector rows live in CRM Postgres — connect the DB to use semantic memory."
-        : "Set GEMINI_API_KEY for embeddings once CRM Postgres is configured.",
+        : "Set GEMINI_API_KEY (or GOOGLE_API_KEY) for embeddings once CRM Postgres is configured.",
     };
   }
 
@@ -111,12 +112,16 @@ export async function checkMemoryHealth(agentId: string): Promise<MemoryHealthRe
     base.databaseDetail = e instanceof Error ? e.message : String(e);
   }
 
-  if (!process.env.GEMINI_API_KEY?.trim()) {
+  if (!hasGeminiApiKey()) {
     base.embeddings = "missing_key";
-    base.embeddingDetail = "GEMINI_API_KEY is required for vector memory (Gemini embeddings).";
+    base.embeddingDetail =
+      "GEMINI_API_KEY or GOOGLE_API_KEY is required for vector memory (Gemini embeddings). Restart dev after editing web/.env.local.";
   } else {
     try {
-      await embedText("memory health probe");
+      await embedText("memory health probe", {
+        agentId: "system",
+        purpose: "memory_health_probe",
+      });
       base.embeddings = "ok";
     } catch (e) {
       base.embeddings = "error";

@@ -22,7 +22,7 @@ export async function searchMemories(
   queryText: string,
   opts?: { topK?: number; category?: string }
 ): Promise<MemoryRecord[]> {
-  const vec = await embedText(queryText);
+  const vec = await embedText(queryText, { agentId, purpose: "memory_search" });
   const pgVec = toPgVector(vec);
   const k = opts?.topK ?? TOP_K;
 
@@ -54,7 +54,7 @@ export async function insertMemory(
   content: string,
   opts?: { category?: string; source?: string }
 ): Promise<MemoryRecord> {
-  const vec = await embedText(content);
+  const vec = await embedText(content, { agentId, purpose: "memory_insert" });
   const pgVec = toPgVector(vec);
 
   // Deduplicate: check if a very similar memory already exists

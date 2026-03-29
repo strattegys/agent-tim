@@ -6,6 +6,7 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
 import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import { getGeminiApiKey } from "./gemini-api-key";
 import {
   logGeminiUsageFromResponse,
   logGeminiUsageFromStreamChunk,
@@ -34,7 +35,11 @@ function buildToolSummary(calls: Array<{ name: string; args: Record<string, stri
 }
 
 function getClient(): GoogleGenAI {
-  return new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+  const key = getGeminiApiKey();
+  if (!key) {
+    throw new Error("GEMINI_API_KEY (or GOOGLE_API_KEY) is not set for Gemini chat.");
+  }
+  return new GoogleGenAI({ apiKey: key });
 }
 
 function buildGeminiTools(allowedTools: string[]) {

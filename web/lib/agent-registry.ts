@@ -348,6 +348,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "web_search",
       "memory",
       "knowledge_search",
+      "knowledge_topic_create",
       "linkedin",
       "delegate_task",
       "twenty_crm",

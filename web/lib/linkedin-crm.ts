@@ -6,8 +6,8 @@ import https from "https";
 import fs from "fs";
 import { execFileSync } from "child_process";
 import { join } from "path";
-import { writeNotification } from "./notifications";
 import { normalizeUnipileDsn } from "./unipile-profile";
+import { recordGeneralLinkedInInbound } from "./linkedin-general-inbox";
 import { recordUsageEvent } from "./usage-events";
 
 const UNIPILE_API_KEY = process.env.UNIPILE_API_KEY || "";
@@ -425,11 +425,22 @@ export async function checkNewConnections(): Promise<number> {
       );
     }
 
-    writeNotification(
-      `New LinkedIn Connection: ${fullName}`,
-      conn.headline ? `${fullName} — ${conn.headline}` : fullName,
-      "linkedin_inbound"
-    );
+    if (contactId) {
+      try {
+        const gen = await recordGeneralLinkedInInbound({
+          crmContactId: contactId,
+          senderProviderId: conn.public_identifier || conn.member_id,
+          senderDisplayName: fullName,
+          eventKind: "connection_accepted",
+          timestampIso: new Date(conn.created_at).toISOString(),
+        });
+        if (!gen.ok && gen.reason) {
+          console.log(`[linkedin-crm] Tim general inbox skipped: ${gen.reason}`);
+        }
+      } catch (e) {
+        console.error("[linkedin-crm] recordGeneralLinkedInInbound error:", e);
+      }
+    }
 
     posted++;
     processed.processedIds.push(conn.member_id);

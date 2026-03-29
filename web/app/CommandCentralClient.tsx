@@ -13,6 +13,7 @@ import TimAgentPanel from "@/components/tim/TimAgentPanel";
 import GhostAgentPanel from "@/components/ghost/GhostAgentPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
 import MarniWorkPanel, { type MarniWorkPanelTab } from "@/components/marni/MarniWorkPanel";
+import type { MarniKnowledgeFocus } from "@/components/marni/MarniKnowledgePanel";
 import KingCostPanel from "@/components/king/KingCostPanel";
 import StatusRail from "@/components/StatusRail";
 import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
@@ -306,9 +307,22 @@ export default function CommandCentralClient() {
   const [pennyDashboardTab, setPennyDashboardTab] =
     useState<PennyDashboardTab>("packages");
   const [marniWorkSubTab, setMarniWorkSubTab] = useState<MarniWorkPanelTab>("queue");
+  const [marniKnowledgeFocus, setMarniKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
   const onMarniWorkTabChange = useCallback((t: MarniWorkPanelTab) => {
     setMarniWorkSubTab(t);
   }, []);
+
+  useEffect(() => {
+    if (rightPanel !== "marni-work" || activeAgent !== "marni") {
+      setMarniKnowledgeFocus(null);
+    }
+  }, [rightPanel, activeAgent]);
+
+  useEffect(() => {
+    if (marniWorkSubTab !== "knowledge") {
+      setMarniKnowledgeFocus(null);
+    }
+  }, [marniWorkSubTab]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -794,6 +808,10 @@ export default function CommandCentralClient() {
             fridayTab: fridayDashboardTab,
             pennyTab: pennyDashboardTab,
             marniWorkSubTab: activeAgent === "marni" ? marniWorkSubTab : undefined,
+            marniKnowledgeTopic:
+              activeAgent === "marni" && marniWorkSubTab === "knowledge" && marniKnowledgeFocus
+                ? { id: marniKnowledgeFocus.topicId, name: marniKnowledgeFocus.name }
+                : null,
           });
           if (agentUi) body.uiContext = agentUi;
         }
@@ -948,6 +966,7 @@ export default function CommandCentralClient() {
       suziFocusedReminder,
       suziFocusedNote,
       marniWorkSubTab,
+      marniKnowledgeFocus,
       syncChatSidebarAfterTurn,
       refreshDashboardSync,
     ]
@@ -1472,6 +1491,7 @@ export default function CommandCentralClient() {
             <MarniWorkPanel
               onClose={() => setRightPanel("info")}
               onWorkTabChange={onMarniWorkTabChange}
+              onKnowledgeFocusChange={setMarniKnowledgeFocus}
             />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />

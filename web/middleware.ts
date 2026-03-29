@@ -10,6 +10,8 @@ function isPublicPath(pathname: string): boolean {
   if (pathname.startsWith("/api/agent-avatar")) return true;
   if (pathname === "/api/health" || pathname.startsWith("/api/health/"))
     return true;
+  /** JSON probe for deploy verification (no DB); rest of /api/marni-kb stays session-gated. */
+  if (pathname === "/api/marni-kb/ping") return true;
   /** PWA share target POST must reach the handler (session checked inside); redirect would drop body. */
   if (pathname === "/share-intake") return true;
   if (pathname.startsWith("/_next/")) return true;

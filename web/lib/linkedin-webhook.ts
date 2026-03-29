@@ -296,13 +296,6 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
     );
   }
 
-  // Web notification
-  writeNotification(
-    `Connection Accepted: ${senderName}`,
-    `${senderName} accepted your LinkedIn invitation`,
-    "linkedin_inbound"
-  );
-
   if (contactId) {
     try {
       const pids = await resolvePostgresPersonIdsForLinkedInSender(
@@ -328,13 +321,7 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
           eventKind: "connection_accepted",
           timestampIso: timestamp,
         });
-        if (gen.ok) {
-          writeNotification(
-            `LinkedIn: ${senderName} accepted (inbox)`,
-            "Connection not matched to an active outreach request — see Tim’s LinkedIn inbox.",
-            "linkedin_inbound"
-          );
-        } else if (gen.reason) {
+        if (!gen.ok && gen.reason) {
           console.log(`[linkedin-webhook] General inbox (accept) skipped: ${gen.reason}`);
         }
       }

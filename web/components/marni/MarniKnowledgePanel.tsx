@@ -1,6 +1,78 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import MarniTopicAddModal from "./MarniTopicAddModal";
+import MarniCorpusWordCloud from "./MarniCorpusWordCloud";
+import { HUMAN_MANUAL_ACTION_BTN_CLASS } from "@/lib/suzi-work-panel";
+import { topTermsFromChunks } from "@/lib/marni-corpus-terms";
+import { MARNI_KNOWLEDGE_TAB_HEADER_HINT } from "@/lib/marni-work-panel";
+
+/** `response.json()` throws on HTML login/error pages (`Unexpected token '<'`). */
+async function readApiJson<T = Record<string, unknown>>(r: Response): Promise<T> {
+  const text = await r.text();
+  const t = text.trim();
+  if (
+    t.startsWith("<!DOCTYPE") ||
+    t.startsWith("<!doctype") ||
+    t.startsWith("<html") ||
+    t.startsWith("<HTML")
+  ) {
+    if (r.redirected || r.url.includes("/login")) {
+      throw new Error("Session expired or not signed in — refresh the page and log in again.");
+    }
+    if (r.status === 404) {
+      throw new Error(
+        "Marni API routes are missing on this server (HTTP 404 HTML). " +
+          "If you use Docker production: rebuild and redeploy the web image from current master. " +
+          "If you use local Docker dev: restart the web container; if it persists, delete web/.next on the host and restart. " +
+          "Quick check (should return JSON): open /api/marni-kb/ping in the browser."
+      );
+    }
+    throw new Error(
+      `Server returned a web page instead of JSON (HTTP ${r.status}). Try refreshing or restarting the dev server.`
+    );
+  }
+  if (!t) {
+    throw new Error(`Empty response (HTTP ${r.status})`);
+  }
+  try {
+    return JSON.parse(t) as T;
+  } catch {
+    throw new Error(
+      t.length > 200 ? `${t.slice(0, 200)}…` : t || `Invalid JSON (HTTP ${r.status})`
+    );
+  }
+}
+
+const fetchOpts: RequestInit = { credentials: "same-origin" };
+
+function RunSpinner({ className }: { className?: string }) {
+  return (
+    <svg
+      className={`animate-spin ${className ?? ""}`}
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="4"
+      />
+      <path
+        className="opacity-90"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+      />
+    </svg>
+  );
+}
 
 interface KbTopic {
   id: string;
@@ -34,40 +106,43 @@ interface KbChunk {
   createdAt: string;
 }
 
-type SubTab = "topics" | "activity" | "corpus" | "ask";
+export type MarniKnowledgeFocus = { topicId: string; name: string };
 
 interface MarniKnowledgePanelProps {
   onClose: () => void;
   /** Hide title bar + close (used inside Marni work panel second tab). */
   embedded?: boolean;
+  /** Lifted to chat: selected topic while this panel is open (Knowledge Base tab). */
+  onKnowledgeFocusChange?: (focus: MarniKnowledgeFocus | null) => void;
+  /** Controlled from Marni work panel tab header — Add topic + modal. */
+  addTopicOpen?: boolean;
+  onAddTopicOpenChange?: (open: boolean) => void;
 }
 
 export default function MarniKnowledgePanel({
   onClose,
   embedded = false,
+  onKnowledgeFocusChange,
+  addTopicOpen: addTopicOpenProp,
+  onAddTopicOpenChange,
 }: MarniKnowledgePanelProps) {
-  const [tab, setTab] = useState<SubTab>("topics");
   const [topics, setTopics] = useState<KbTopic[]>([]);
   const [loadingTopics, setLoadingTopics] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [newName, setNewName] = useState("");
-  const [newDesc, setNewDesc] = useState("");
-  const [newQueries, setNewQueries] = useState("");
-  const [newPostUrls, setNewPostUrls] = useState("");
-  const [newSourceMode, setNewSourceMode] = useState("web_only");
-  const [newCadence, setNewCadence] = useState("");
-  const [creating, setCreating] = useState(false);
+  const [internalAddTopicOpen, setInternalAddTopicOpen] = useState(false);
+  const addTopicModalControlled = onAddTopicOpenChange != null;
+  const addTopicOpen = addTopicModalControlled ? Boolean(addTopicOpenProp) : internalAddTopicOpen;
+  const setAddTopicOpen = (open: boolean) => {
+    if (addTopicModalControlled) onAddTopicOpenChange(open);
+    else setInternalAddTopicOpen(open);
+  };
+  const [runningTopicId, setRunningTopicId] = useState<string | null>(null);
 
   const [selTopicId, setSelTopicId] = useState<string>("");
   const [runs, setRuns] = useState<KbRun[]>([]);
+  const [loadingRuns, setLoadingRuns] = useState(false);
   const [chunks, setChunks] = useState<KbChunk[]>([]);
-  const [askQ, setAskQ] = useState("");
-  const [askAnswer, setAskAnswer] = useState("");
-  const [askCitations, setAskCitations] = useState<
-    Array<{ title?: string; sourceUrl?: string; excerpt: string; score: number }>
-  >([]);
-  const [asking, setAsking] = useState(false);
+  const [loadingChunks, setLoadingChunks] = useState(false);
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -80,9 +155,9 @@ export default function MarniKnowledgePanel({
   const loadTopics = useCallback(() => {
     setLoadingTopics(true);
     setError(null);
-    fetch("/api/marni-kb/topics")
-      .then((r) => r.json())
-      .then((data) => {
+    fetch("/api/marni-kb/topics", fetchOpts)
+      .then(async (r) => {
+        const data = await readApiJson<{ error?: string; topics?: KbTopic[] }>(r);
         if (!mounted.current) return;
         if (data.error) {
           setError(data.error);
@@ -91,9 +166,9 @@ export default function MarniKnowledgePanel({
           setTopics(data.topics || []);
         }
       })
-      .catch(() => {
+      .catch((e) => {
         if (mounted.current) {
-          setError("Failed to load topics");
+          setError(e instanceof Error ? e.message : "Failed to load topics");
           setTopics([]);
         }
       })
@@ -111,98 +186,83 @@ export default function MarniKnowledgePanel({
   }, [topics, selTopicId]);
 
   const loadRuns = useCallback(() => {
-    if (!selTopicId) return;
-    fetch(`/api/marni-kb/runs?topicId=${encodeURIComponent(selTopicId)}`)
-      .then((r) => r.json())
-      .then((data) => {
+    if (!selTopicId) {
+      setRuns([]);
+      return;
+    }
+    setLoadingRuns(true);
+    fetch(`/api/marni-kb/runs?topicId=${encodeURIComponent(selTopicId)}`, fetchOpts)
+      .then(async (r) => {
+        const data = await readApiJson<{ runs?: KbRun[] }>(r);
         if (mounted.current) setRuns(data.runs || []);
       })
       .catch(() => {
         if (mounted.current) setRuns([]);
+      })
+      .finally(() => {
+        if (mounted.current) setLoadingRuns(false);
       });
   }, [selTopicId]);
 
   const loadChunks = useCallback(() => {
-    const q = selTopicId
-      ? `?topicId=${encodeURIComponent(selTopicId)}&limit=100`
-      : "?limit=100";
-    fetch(`/api/marni-kb/chunks${q}`)
-      .then((r) => r.json())
-      .then((data) => {
+    if (!selTopicId) {
+      setChunks([]);
+      return;
+    }
+    setLoadingChunks(true);
+    const q = `?topicId=${encodeURIComponent(selTopicId)}&limit=200`;
+    fetch(`/api/marni-kb/chunks${q}`, fetchOpts)
+      .then(async (r) => {
+        const data = await readApiJson<{ chunks?: KbChunk[] }>(r);
         if (mounted.current) setChunks(data.chunks || []);
       })
       .catch(() => {
         if (mounted.current) setChunks([]);
+      })
+      .finally(() => {
+        if (mounted.current) setLoadingChunks(false);
       });
   }, [selTopicId]);
 
   useEffect(() => {
-    if (tab === "activity") loadRuns();
-  }, [tab, loadRuns]);
+    if (selTopicId) loadRuns();
+  }, [selTopicId, loadRuns]);
 
   useEffect(() => {
-    if (tab === "corpus") loadChunks();
-  }, [tab, loadChunks]);
+    loadChunks();
+  }, [selTopicId, loadChunks]);
 
-  async function createTopic() {
-    const name = newName.trim();
-    if (!name) return;
-    setCreating(true);
-    setError(null);
-    const queries = newQueries
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const postUrls = newPostUrls
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    let cadenceMinutes: number | null = null;
-    if (newCadence.trim()) {
-      const n = parseInt(newCadence, 10);
-      if (Number.isFinite(n)) cadenceMinutes = Math.max(15, Math.min(10080, n));
+  const selectedTopic = topics.find((t) => t.id === selTopicId) ?? null;
+
+  useEffect(() => {
+    if (!onKnowledgeFocusChange) return;
+    if (selectedTopic && selTopicId) {
+      onKnowledgeFocusChange({ topicId: selTopicId, name: selectedTopic.name });
+    } else {
+      onKnowledgeFocusChange(null);
     }
+  }, [onKnowledgeFocusChange, selectedTopic, selTopicId]);
+
+  const corpusTerms = useMemo(() => topTermsFromChunks(chunks, 55), [chunks]);
+
+  async function runTopic(id: string) {
+    if (runningTopicId === id) return;
+    setError(null);
+    setRunningTopicId(id);
     try {
-      const r = await fetch("/api/marni-kb/topics", {
+      const r = await fetch(`/api/marni-kb/topics/${id}/run`, {
+        ...fetchOpts,
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          description: newDesc.trim() || null,
-          queries,
-          postUrls,
-          sourceMode: newSourceMode,
-          cadenceMinutes,
-          enabled: true,
-        }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Create failed");
-      setNewName("");
-      setNewDesc("");
-      setNewQueries("");
-      setNewPostUrls("");
-      setNewCadence("");
+      const data = await readApiJson<{ error?: string }>(r);
+      if (!r.ok) throw new Error(data.error || "Run failed");
       loadTopics();
-      if (data.topic?.id) setSelTopicId(data.topic.id);
+      loadRuns();
+      loadChunks();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setCreating(false);
-    }
-  }
-
-  async function runTopic(id: string) {
-    setError(null);
-    try {
-      const r = await fetch(`/api/marni-kb/topics/${id}/run`, { method: "POST" });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Run failed");
-      loadTopics();
-      if (tab === "activity") loadRuns();
-      if (tab === "corpus") loadChunks();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setRunningTopicId(null);
     }
   }
 
@@ -210,9 +270,12 @@ export default function MarniKnowledgePanel({
     if (!confirm("Delete this topic? Research runs are removed; knowledge chunks remain with topic unlinked.")) return;
     setError(null);
     try {
-      const r = await fetch(`/api/marni-kb/topics/${id}`, { method: "DELETE" });
+      const r = await fetch(`/api/marni-kb/topics/${id}`, {
+        ...fetchOpts,
+        method: "DELETE",
+      });
+      const data = await readApiJson<{ error?: string; ok?: boolean }>(r);
       if (!r.ok) {
-        const data = await r.json();
         throw new Error(data.error || "Delete failed");
       }
       if (selTopicId === id) setSelTopicId("");
@@ -222,42 +285,22 @@ export default function MarniKnowledgePanel({
     }
   }
 
-  async function ask() {
-    const q = askQ.trim();
-    if (!q) return;
-    setAsking(true);
-    setAskAnswer("");
-    setAskCitations([]);
-    try {
-      const r = await fetch("/api/marni-kb/query", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q }),
-      });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "Query failed");
-      setAskAnswer(data.answer || "");
-      setAskCitations(data.citations || []);
-    } catch (e) {
-      setAskAnswer(e instanceof Error ? e.message : String(e));
-    } finally {
-      setAsking(false);
-    }
-  }
-
-  const tabs: { id: SubTab; label: string }[] = [
-    { id: "topics", label: "Topics" },
-    { id: "activity", label: "Activity" },
-    { id: "corpus", label: "Corpus" },
-    { id: "ask", label: "Ask" },
-  ];
-
   return (
     <div
       className={`flex flex-col min-h-0 min-w-0 bg-[var(--bg-secondary)] ${
         embedded ? "flex-1 h-full overflow-hidden" : "h-full"
       }`}
     >
+      <MarniTopicAddModal
+        open={addTopicOpen}
+        onClose={() => setAddTopicOpen(false)}
+        onCreated={(id) => {
+          loadTopics();
+          setSelTopicId(id);
+        }}
+        onError={(msg) => setError(msg)}
+      />
+
       {!embedded && (
         <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-[var(--border-color)]">
           <div>
@@ -280,22 +323,27 @@ export default function MarniKnowledgePanel({
         </div>
       )}
 
-      <div className="shrink-0 flex gap-0.5 px-2 pt-2 border-b border-[var(--border-color)]">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={`px-2.5 py-1.5 text-[11px] font-medium rounded-t-md transition-colors ${
-              tab === t.id
-                ? "bg-[var(--bg-primary)] text-[#D4A017]"
-                : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            }`}
+      {!addTopicModalControlled && (
+        <div className="shrink-0 min-h-10 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center justify-end gap-2 px-2 sm:px-3 py-1.5 overflow-x-auto">
+          <div
+            className="shrink-0 rounded-md border border-[var(--border-color)]/35 bg-[var(--bg-primary)]/25 px-2 py-1 mr-auto"
+            role="note"
+            aria-label={MARNI_KNOWLEDGE_TAB_HEADER_HINT}
           >
-            {t.label}
+            <p className="text-[10px] sm:text-[11px] font-normal text-[var(--text-tertiary)]/90 leading-none whitespace-nowrap">
+              {MARNI_KNOWLEDGE_TAB_HEADER_HINT}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAddTopicOpen(true)}
+            title="Add a research topic"
+            className={HUMAN_MANUAL_ACTION_BTN_CLASS}
+          >
+            Add topic
           </button>
-        ))}
-      </div>
+        </div>
+      )}
 
       {error && (
         <div className="shrink-0 mx-2 mt-2 text-[11px] text-red-400 bg-red-950/30 border border-red-500/30 rounded px-2 py-1.5">
@@ -303,242 +351,180 @@ export default function MarniKnowledgePanel({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 text-[11px] text-[var(--text-secondary)]">
-        {tab === "topics" && (
-          <div className="space-y-4">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden text-[11px] text-[var(--text-secondary)]">
+        <div className="shrink-0 flex flex-col lg:flex-row border-b border-[var(--border-color)]">
+          <div className="lg:flex-[3] min-w-0 w-full max-h-[min(42vh,22rem)] min-h-[160px] lg:min-h-[200px] overflow-y-auto p-2 sm:p-3 border-b lg:border-b-0 lg:border-r border-[var(--border-color)]">
             {loadingTopics ? (
-              <p>Loading…</p>
+              <p className="text-[var(--text-tertiary)] p-2">Loading topics…</p>
+            ) : topics.length === 0 ? (
+              <div className="flex flex-col items-center justify-center min-h-[8rem] text-center px-4">
+                <p className="text-[var(--text-tertiary)] text-sm">No topics yet.</p>
+                <p className="text-[var(--text-tertiary)] text-xs mt-1">
+                  Use Add topic above to create your first research topic.
+                </p>
+              </div>
             ) : (
-              <div className="space-y-2">
-                {topics.length === 0 ? (
-                  <p className="text-[var(--text-tertiary)]">No topics yet. Add one below.</p>
-                ) : (
-                  topics.map((t) => (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0">
+                {topics.map((t) => {
+                  const isSelected = selTopicId === t.id;
+                  const isRunning = runningTopicId === t.id;
+                  return (
                     <div
                       key={t.id}
-                      className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-2.5"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setSelTopicId(t.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelTopicId(t.id);
+                        }
+                      }}
+                      className={`rounded-lg border bg-[var(--bg-primary)] p-2.5 text-left cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#D4A017]/50 ${
+                        isSelected
+                          ? "border-[#D4A017]/55 ring-2 ring-[#D4A017]/35"
+                          : "border-[var(--border-color)] hover:border-[var(--border-color)]/80"
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="font-semibold text-[var(--text-primary)]">{t.name}</div>
-                          <div className="text-[10px] text-[var(--text-tertiary)] font-mono">{t.slug}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-[var(--text-primary)] truncate">{t.name}</div>
+                          <div className="text-[10px] text-[var(--text-tertiary)] font-mono truncate">{t.slug}</div>
                           {t.description && (
-                            <p className="mt-1 text-[var(--text-secondary)]">{t.description}</p>
+                            <p className="mt-1 text-[10px] text-[var(--text-secondary)] line-clamp-2">
+                              {t.description}
+                            </p>
                           )}
-                          <p className="mt-1 text-[10px]">
-                            Mode: {t.sourceMode} · Queries: {t.queries.length} · Cadence:{" "}
-                            {t.cadenceMinutes ? `${t.cadenceMinutes} min` : "manual"}
-                            {t.lastRunAt && ` · Last: ${t.lastRunAt.slice(0, 16)}`}
+                          <p className="mt-1.5 text-[10px] text-[var(--text-tertiary)]">
+                            {t.sourceMode} · {t.queries.length} quer{t.queries.length === 1 ? "y" : "ies"} ·{" "}
+                            {t.cadenceMinutes ? `${t.cadenceMinutes}m cadence` : "manual"}
+                            {t.lastRunAt && ` · last ${t.lastRunAt.slice(0, 16)}`}
                           </p>
                         </div>
-                        <div className="flex flex-col gap-1 shrink-0">
+                        <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
+                            disabled={isRunning}
                             onClick={() => runTopic(t.id)}
-                            className="px-2 py-0.5 rounded bg-[#D4A017]/20 text-[#D4A017] text-[10px] font-semibold hover:bg-[#D4A017]/30"
+                            className="inline-flex items-center justify-center gap-1.5 min-w-[5.5rem] px-2 py-1 rounded bg-[#D4A017]/20 text-[#D4A017] text-[10px] font-semibold hover:bg-[#D4A017]/30 disabled:opacity-45 disabled:pointer-events-none"
                           >
-                            Run now
+                            {isRunning ? (
+                              <>
+                                <RunSpinner className="text-[#D4A017]" />
+                                <span>Running</span>
+                              </>
+                            ) : (
+                              "Run now"
+                            )}
                           </button>
                           <button
                             type="button"
+                            disabled={isRunning}
                             onClick={() => deleteTopic(t.id)}
-                            className="px-2 py-0.5 rounded text-red-400/90 text-[10px] hover:bg-red-950/40"
+                            className="px-2 py-0.5 rounded text-red-400/90 text-[10px] hover:bg-red-950/40 disabled:opacity-40"
                           >
                             Delete
                           </button>
                         </div>
                       </div>
                     </div>
-                  ))
-                )}
+                  );
+                })}
               </div>
             )}
+          </div>
 
-            <div className="rounded-lg border border-[var(--border-color)] border-dashed p-3 space-y-2">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                New topic
-              </div>
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Name"
-                className="w-full rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)]"
-              />
-              <input
-                value={newDesc}
-                onChange={(e) => setNewDesc(e.target.value)}
-                placeholder="Description (optional)"
-                className="w-full rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)]"
-              />
-              <textarea
-                value={newQueries}
-                onChange={(e) => setNewQueries(e.target.value)}
-                placeholder="Web search queries (one per line)"
-                rows={3}
-                className="w-full rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] font-mono"
-              />
-              <textarea
-                value={newPostUrls}
-                onChange={(e) => setNewPostUrls(e.target.value)}
-                placeholder="LinkedIn post URLs (one per line; Unipile ingestion coming soon)"
-                rows={2}
-                className="w-full rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] font-mono"
-              />
-              <div className="flex flex-wrap gap-2 items-center">
-                <select
-                  value={newSourceMode}
-                  onChange={(e) => setNewSourceMode(e.target.value)}
-                  className="rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)]"
-                >
-                  <option value="web_only">Web only</option>
-                  <option value="linkedin_only">LinkedIn only</option>
-                  <option value="both">Both</option>
-                </select>
-                <input
-                  value={newCadence}
-                  onChange={(e) => setNewCadence(e.target.value)}
-                  placeholder="Cadence (minutes, optional)"
-                  className="w-40 rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)]"
-                />
-              </div>
+          <div className="lg:flex-[2] lg:max-w-[40%] w-full min-h-[200px] h-[min(260px,36vh)] lg:h-[min(320px,min(42vh,22rem))] shrink-0 flex flex-col bg-[var(--bg-primary)]/25 border-[var(--border-color)]">
+            <div className="shrink-0 flex items-center justify-between gap-2 px-2 sm:px-3 py-1 border-b border-[var(--border-color)]/60">
+              {selTopicId ? (
+                <span className="text-[10px] text-[var(--text-tertiary)] tabular-nums">{chunks.length} chunks</span>
+              ) : (
+                <span />
+              )}
               <button
                 type="button"
-                disabled={creating || !newName.trim()}
-                onClick={createTopic}
-                className="px-3 py-1 rounded bg-[#D4A017] text-black text-[11px] font-semibold disabled:opacity-40"
+                onClick={loadChunks}
+                disabled={!selTopicId || loadingChunks}
+                className="text-[10px] text-[#D4A017] hover:underline disabled:opacity-40 shrink-0"
               >
-                {creating ? "Creating…" : "Create topic"}
+                {loadingChunks ? "Loading…" : "Refresh"}
               </button>
             </div>
+            <div className="flex-1 min-h-0 min-w-0 p-2 relative">
+              {!selTopicId ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center px-2 pt-4">
+                  Select a topic for a spiral word cloud from ingested chunks.
+                </p>
+              ) : loadingChunks && chunks.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-10 text-[var(--text-tertiary)]">
+                  <RunSpinner className="text-[#D4A017]" />
+                  <p className="text-[10px]">Loading corpus…</p>
+                </div>
+              ) : corpusTerms.length === 0 ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center px-2 pt-4">
+                  No terms yet. Run research, then refresh.
+                </p>
+              ) : (
+                <MarniCorpusWordCloud terms={corpusTerms} className="absolute inset-2 min-h-[140px]" />
+              )}
+            </div>
           </div>
-        )}
+        </div>
 
-        {tab === "activity" && (
-          <div className="space-y-2">
-            <label className="block text-[10px] text-[var(--text-tertiary)]">Topic</label>
-            <select
-              value={selTopicId}
-              onChange={(e) => setSelTopicId(e.target.value)}
-              className="w-full rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] mb-2"
-            >
-              <option value="">Select…</option>
-              {topics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+        <div className="flex-1 min-h-0 flex flex-col border-t border-[var(--border-color)]">
+          <div className="shrink-0 flex items-center justify-between gap-2 px-2 sm:px-3 py-1.5 bg-[var(--bg-primary)]/40 border-b border-[var(--border-color)]/60">
+            <span className="text-[11px] font-semibold text-[var(--text-primary)]">
+              Activity
+              {selectedTopic ? (
+                <span className="font-normal text-[var(--text-tertiary)]"> · {selectedTopic.name}</span>
+              ) : (
+                <span className="font-normal text-[var(--text-tertiary)]"> · select a topic</span>
+              )}
+            </span>
             <button
               type="button"
               onClick={loadRuns}
-              className="text-[10px] text-[#D4A017] underline mb-2"
+              disabled={!selTopicId || loadingRuns}
+              className="text-[10px] text-[#D4A017] hover:underline disabled:opacity-40"
             >
-              Refresh
+              {loadingRuns ? "Refreshing…" : "Refresh"}
             </button>
-            {runs.length === 0 ? (
-              <p className="text-[var(--text-tertiary)]">No runs for this topic.</p>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3 space-y-2">
+            {!selTopicId ? (
+              <p className="text-[var(--text-tertiary)] text-[10px]">Select a topic card to see its run history.</p>
+            ) : loadingRuns && runs.length === 0 ? (
+              <p className="text-[var(--text-tertiary)] text-[10px]">Loading runs…</p>
+            ) : runs.length === 0 ? (
+              <p className="text-[var(--text-tertiary)] text-[10px]">No runs for this topic yet.</p>
             ) : (
               runs.map((r) => (
                 <div
                   key={r.id}
                   className="rounded border border-[var(--border-color)] p-2 font-mono text-[10px]"
                 >
-                  <div className="flex justify-between">
+                  <div className="flex justify-between gap-2">
                     <span className={r.status === "error" ? "text-red-400" : "text-[var(--text-primary)]"}>
                       {r.status}
                     </span>
-                    <span className="text-[var(--text-tertiary)]">{r.startedAt?.slice(0, 19)}</span>
+                    <span className="text-[var(--text-tertiary)] shrink-0">{r.startedAt?.slice(0, 19)}</span>
                   </div>
                   <div>
                     sources {r.sourcesFound} · chunks {r.chunksIngested}
                   </div>
+                  {Array.isArray(r.detail?.warnings) && (r.detail.warnings as string[]).length > 0 && (
+                    <ul className="mt-1.5 text-amber-400/95 list-disc pl-4 space-y-0.5 normal-case">
+                      {(r.detail.warnings as string[]).map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  )}
                   {r.errorMessage && <div className="text-red-400 mt-1">{r.errorMessage}</div>}
                 </div>
               ))
             )}
           </div>
-        )}
-
-        {tab === "corpus" && (
-          <div className="space-y-2">
-            <label className="block text-[10px] text-[var(--text-tertiary)]">Filter by topic</label>
-            <select
-              value={selTopicId}
-              onChange={(e) => setSelTopicId(e.target.value)}
-              className="w-full rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)] mb-2"
-            >
-              <option value="">All chunks</option>
-              {topics.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={loadChunks}
-              className="text-[10px] text-[#D4A017] underline mb-2"
-            >
-              Refresh
-            </button>
-            {chunks.length === 0 ? (
-              <p className="text-[var(--text-tertiary)]">No chunks yet. Run research on a topic.</p>
-            ) : (
-              chunks.map((c) => (
-                <div key={c.id} className="rounded border border-[var(--border-color)] p-2 mb-2">
-                  <div className="text-[10px] text-[var(--text-tertiary)] mb-1">
-                    {(c.metadata?.title as string) || "chunk"} ·{" "}
-                    {(c.metadata?.sourceUrl as string) || "—"}
-                  </div>
-                  <div className="text-[var(--text-secondary)] whitespace-pre-wrap">{c.content}</div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {tab === "ask" && (
-          <div className="space-y-2">
-            <textarea
-              value={askQ}
-              onChange={(e) => setAskQ(e.target.value)}
-              placeholder="Ask about your knowledge base…"
-              rows={3}
-              className="w-full rounded bg-[var(--bg-input)] border border-[var(--border-color)] px-2 py-1 text-[var(--text-primary)]"
-            />
-            <button
-              type="button"
-              disabled={asking || !askQ.trim()}
-              onClick={ask}
-              className="px-3 py-1 rounded bg-[#D4A017] text-black text-[11px] font-semibold disabled:opacity-40"
-            >
-              {asking ? "…" : "Ask"}
-            </button>
-            {askCitations.length > 0 && (
-              <div className="mt-3 space-y-2">
-                <div className="text-[10px] font-semibold text-[var(--text-tertiary)]">Citations</div>
-                {askCitations.map((c, i) => (
-                  <div key={i} className="rounded border border-[var(--border-color)] p-2 text-[10px]">
-                    <div className="text-[#D4A017]">
-                      [{c.score}%] {c.title || "source"}{" "}
-                      {c.sourceUrl && (
-                        <a href={c.sourceUrl} className="underline break-all" target="_blank" rel="noreferrer">
-                          {c.sourceUrl}
-                        </a>
-                      )}
-                    </div>
-                    <div className="text-[var(--text-secondary)] mt-1">{c.excerpt}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {askAnswer && (
-              <div className="mt-3 rounded border border-[var(--border-color)] p-2 text-[var(--text-primary)] whitespace-pre-wrap">
-                {askAnswer}
-              </div>
-            )}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

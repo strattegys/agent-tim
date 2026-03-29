@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { isMarniKbDatabaseConfigured, runKbResearch } from "@/lib/marni-kb";
 
+export const runtime = "nodejs";
+
+/** Research = Brave + many Gemini embeds + inserts; allow long runs on serverless hosts. */
+export const maxDuration = 300;
+
 function noDb() {
   return NextResponse.json({ error: "CRM database not configured." }, { status: 503 });
 }

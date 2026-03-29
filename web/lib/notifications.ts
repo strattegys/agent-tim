@@ -3,7 +3,8 @@
  */
 import { appendFileSync } from "fs";
 
-const NOTIFICATIONS_FILE = "/root/.nanobot/web_notifications.jsonl";
+const NOTIFICATIONS_FILE =
+  process.env.WEB_NOTIFICATIONS_FILE || "/root/.nanobot/web_notifications.jsonl";
 
 export function writeNotification(
   title: string,

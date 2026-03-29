@@ -14,7 +14,7 @@ const tool: ToolModule = {
   declaration: {
     name: "cost_summary",
     description:
-      "Get metered LLM/TTS usage totals and breakdowns from the CRM usage table. " +
+      "Get metered LLM/TTS usage totals and breakdowns from the CRM usage table (includes Groq chat, Gemini chat, and Gemini embedding calls for memory + Marni KB). " +
       "Optional: days_back (default 30) — interpreted as rolling window from now in UTC.",
     parameters: {
       type: "object" as const,

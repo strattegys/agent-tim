@@ -35,6 +35,8 @@ export interface AgentUiContextInput {
   pennyTab?: PennyDashboardTab;
   /** Marni work panel: Work Queue vs Knowledge Base sub-tab. */
   marniWorkSubTab?: "queue" | "knowledge";
+  /** Marni: selected knowledge topic while Knowledge Base tab is open (from UI). */
+  marniKnowledgeTopic?: { id: string; name: string } | null;
 }
 
 export function formatAgentUiContext(input: AgentUiContextInput): string | null {
@@ -84,10 +86,18 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   if (rightPanel === "marni-work" && agentId === "marni") {
     const sub = input.marniWorkSubTab ?? "queue";
     if (sub === "knowledge") {
-      return (
-        "## Marni — UI (this message only)\n" +
-        "Work panel — **Knowledge Base** tab (topics, Activity, Corpus, Ask). Use **knowledge_search** when drafting LinkedIn or messaging so output matches ingested playbooks."
-      );
+      const lines = [
+        "## Marni — UI (this message only)",
+        "Work panel — **Knowledge Base** tab is open (topics, corpus word cloud, activity log). Treat this as your **active corpus context** for the turn.",
+        "The user asks questions **in this chat** — there is no separate Ask pane. For anything about playbooks, hooks, or what was ingested, call **knowledge_search** so answers stay grounded in chunks.",
+      ];
+      const t = input.marniKnowledgeTopic;
+      if (t?.name) {
+        lines.push(
+          `- **Selected topic (Govind’s highlighted card):** “${t.name}” (\`${t.id}\`). Use this when they say “this topic” unless they clearly mean another.`
+        );
+      }
+      return lines.join("\n");
     }
     return (
       "## Marni — UI (this message only)\n" +

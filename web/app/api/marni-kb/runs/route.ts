@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isMarniKbDatabaseConfigured, listKbRuns } from "@/lib/marni-kb";
 
+export const runtime = "nodejs";
+
 export async function GET(req: NextRequest) {
   if (!isMarniKbDatabaseConfigured()) {
     return NextResponse.json({ error: "CRM database not configured." }, { status: 503 });

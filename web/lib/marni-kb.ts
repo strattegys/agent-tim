@@ -1,8 +1,10 @@
 import "server-only";
 
-import { query } from "./db";
+import { query, resetCrmPoolForReconnect } from "./db";
+import { hasGeminiApiKey, missingGeminiKeyUserMessage } from "./gemini-api-key";
 import { embedText, toPgVector } from "./embeddings";
 import { braveWebSearch } from "./brave-search";
+import { mergeWebEnvLocalSync } from "./load-web-env-local";
 import { randomUUID } from "crypto";
 
 const KB_AGENT = "marni";
@@ -268,7 +270,10 @@ async function insertChunk(
   content: string,
   metadata: Record<string, unknown>
 ): Promise<void> {
-  const vec = await embedText(content.slice(0, 8000));
+  const vec = await embedText(content.slice(0, 8000), {
+    agentId,
+    purpose: "marni_kb_ingest",
+  });
   const pgVec = toPgVector(vec);
   await query(
     `INSERT INTO "_agent_knowledge" ("agentId", "topicId", content, embedding, metadata)
@@ -290,6 +295,12 @@ export async function runKbResearch(topicId: string): Promise<KbRunRow> {
   if (!topic) throw new Error("Topic not found");
   if (await hasRunningRun(topicId)) {
     throw new Error("A research run is already in progress for this topic");
+  }
+
+  // Drop pooled TCP clients before a long Brave + embedding loop so we do not reuse a dead
+  // connection after idle (common with SSH tunnel / host.docker.internal to a tunnel).
+  if (isMarniKbDatabaseConfigured()) {
+    await resetCrmPoolForReconnect();
   }
 
   const runRows = await query<Record<string, unknown>>(
@@ -319,8 +330,10 @@ export async function runKbResearch(topicId: string): Promise<KbRunRow> {
   };
 
   try {
-    if (!process.env.GEMINI_API_KEY?.trim()) {
-      await finish("error", "GEMINI_API_KEY is required for embeddings");
+    mergeWebEnvLocalSync();
+
+    if (!hasGeminiApiKey()) {
+      await finish("error", missingGeminiKeyUserMessage());
       const bad = await query<Record<string, unknown>>(
         `SELECT id, "topicId", status, "sourcesFound", "chunksIngested", "errorMessage", detail, "startedAt", "completedAt" FROM "_kb_research_run" WHERE id = $1`,
         [runId]
@@ -339,40 +352,71 @@ export async function runKbResearch(topicId: string): Promise<KbRunRow> {
       topic.sourceMode === "both" ||
       (topic.sourceMode === "linkedin_only" && topic.queries.length > 0);
 
+    if (doWeb && topic.queries.length === 0) {
+      warnings.push(
+        "No web search queries on this topic. Add one or more lines under “Web search queries” in the topic form, then run again."
+      );
+    }
+
     if (doWeb && topic.queries.length > 0) {
-      for (const q of topic.queries) {
-        const qq = q.trim();
-        if (!qq) continue;
-        let results: Awaited<ReturnType<typeof braveWebSearch>>;
-        try {
-          results = await braveWebSearch(qq, 4);
-        } catch (e) {
-          warnings.push(`Brave search failed for query "${qq.slice(0, 40)}…": ${e instanceof Error ? e.message : String(e)}`);
-          continue;
-        }
-        for (const hit of results) {
-          sourcesFound += 1;
-          const raw = `${hit.title}\n\n${hit.snippet}`.trim();
-          if (raw.length < 20) continue;
-          const chunks = splitIntoChunks(raw);
-          let idx = 0;
-          for (const c of chunks) {
-            await insertChunk(topic.agentId, topicId, c, {
-              title: hit.title,
-              sourceUrl: hit.url,
-              topicId,
-              runId,
-              chunkIndex: idx,
-              sourceType: "web_search",
-              ingestedAt: new Date().toISOString(),
-            });
-            idx += 1;
-            chunksIngested += 1;
+      if (!process.env["BRAVE_SEARCH_API_KEY"]?.trim()) {
+        warnings.push(
+          "BRAVE_SEARCH_API_KEY is not set — web search was skipped. Add it to web/.env.local (see .env.local.example) and restart the web server / Docker container."
+        );
+      } else {
+        for (const q of topic.queries) {
+          const qq = q.trim();
+          if (!qq) continue;
+          let results: Awaited<ReturnType<typeof braveWebSearch>>;
+          try {
+            results = await braveWebSearch(qq, 4);
+          } catch (e) {
+            warnings.push(
+              `Brave search failed for "${qq.slice(0, 60)}${qq.length > 60 ? "…" : ""}": ${e instanceof Error ? e.message : String(e)}`
+            );
+            continue;
+          }
+          if (results.length === 0) {
+            warnings.push(
+              `Brave returned no web results for "${qq.slice(0, 60)}${qq.length > 60 ? "…" : ""}". Try a broader query.`
+            );
+            continue;
+          }
+          for (const hit of results) {
+            sourcesFound += 1;
+            const raw = `${hit.title}\n\n${hit.snippet}`.trim();
+            if (raw.length < 20) {
+              warnings.push(
+                `Skipped a hit (title + snippet under 20 chars): ${(hit.title || "untitled").slice(0, 48)}`
+              );
+              continue;
+            }
+            const chunks = splitIntoChunks(raw);
+            let idx = 0;
+            for (const c of chunks) {
+              await insertChunk(topic.agentId, topicId, c, {
+                title: hit.title,
+                sourceUrl: hit.url,
+                topicId,
+                runId,
+                chunkIndex: idx,
+                sourceType: "web_search",
+                ingestedAt: new Date().toISOString(),
+              });
+              idx += 1;
+              chunksIngested += 1;
+            }
           }
         }
       }
     } else if (topic.sourceMode === "linkedin_only" && topic.postUrls.length === 0) {
       warnings.push("linkedin_only topic has no post URLs and no web queries — nothing to ingest.");
+    }
+
+    if (sourcesFound === 0 && chunksIngested === 0 && warnings.length === 0) {
+      warnings.push(
+        "Nothing was ingested. Check topic mode, web queries, BRAVE_SEARCH_API_KEY, and the messages above on the next run."
+      );
     }
 
     await finish("completed");
@@ -421,7 +465,10 @@ export async function searchAgentKnowledge(
   queryText: string,
   opts?: { topK?: number; topicId?: string | null }
 ): Promise<KnowledgeChunkRow[]> {
-  const vec = await embedText(queryText.slice(0, 4000));
+  const vec = await embedText(queryText.slice(0, 4000), {
+    agentId,
+    purpose: "marni_kb_search",
+  });
   const pgVec = toPgVector(vec);
   const k = Math.min(24, Math.max(1, opts?.topK ?? DEFAULT_TOP_K));
   const topicId = opts?.topicId;

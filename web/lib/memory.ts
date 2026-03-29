@@ -207,7 +207,10 @@ ${messages.slice(-100).join("\n")}`;
     } else {
       // Use Gemini for Gemini agents (default)
       const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const { getGeminiApiKey } = await import("./gemini-api-key");
+      const geminiKey = getGeminiApiKey();
+      if (!geminiKey) throw new Error("GEMINI_API_KEY / GOOGLE_API_KEY not set");
+      const ai = new GoogleGenAI({ apiKey: geminiKey });
       const response = await ai.models.generateContent({
         model: agentConfig.modelName || "gemini-2.5-flash",
         contents: [{ role: "user", parts: [{ text: consolidationPrompt }] }],

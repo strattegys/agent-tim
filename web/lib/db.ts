@@ -87,6 +87,32 @@ const SCHEMA = CRM_WORKSPACE_SCHEMA;
 
 let warnedDevStoreInDevelopment = false;
 
+/** True when the CRM pool/TCP path died mid-flight (common with SSH tunnels + long gaps between queries). */
+function isTransientCrmConnectionError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/Connection terminated unexpectedly/i.test(msg)) return true;
+  if (/Client has encountered a connection error/i.test(msg)) return true;
+  if (/ECONNRESET|EPIPE|ETIMEDOUT|read ECONNRESET|write EPIPE/i.test(msg)) return true;
+  const c = (e as { code?: string })?.code;
+  if (c === "ECONNRESET" || c === "EPIPE" || c === "ETIMEDOUT") return true;
+  return false;
+}
+
+async function runPooledQuery<T extends Record<string, unknown>>(
+  sql: string,
+  params?: unknown[]
+): Promise<T[]> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query(`SET search_path TO "${SCHEMA}", public`);
+    const result = await client.query(sql, params);
+    return result.rows as T[];
+  } finally {
+    client.release();
+  }
+}
+
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   sql: string,
   params?: unknown[]
@@ -105,14 +131,12 @@ export async function query<T extends Record<string, unknown> = Record<string, u
     return devQuery(sql, params) as Promise<T[]>;
   }
 
-  const pool = getPool();
-  const client = await pool.connect();
   try {
-    await client.query(`SET search_path TO "${SCHEMA}", public`);
-    const result = await client.query(sql, params);
-    return result.rows as T[];
-  } finally {
-    client.release();
+    return await runPooledQuery<T>(sql, params);
+  } catch (e) {
+    if (!isTransientCrmConnectionError(e)) throw e;
+    await resetCrmPoolForReconnect();
+    return runPooledQuery<T>(sql, params);
   }
 }
 

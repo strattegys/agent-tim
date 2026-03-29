@@ -32,6 +32,8 @@ services:
       - ./agents:/agents
       # Same as production docker-compose.yml: uploads survive container restarts (host ./docker-data/agent-avatars)
       - ./docker-data/agent-avatars:/data/agent-avatars
+    # API keys (GEMINI_API_KEY, GROQ_API_KEY, …) must live in web/.env.local on the host.
+    # Next only reads env at process start. New/changed keys in .env.local need a recreated container (restart is not enough for env_file): docker compose -f docker-compose.dev.yml up -d --no-deps --force-recreate web
     env_file: ./web/.env.local
     extra_hosts:
       - "host.docker.internal:host-gateway"

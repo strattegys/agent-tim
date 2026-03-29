@@ -62,3 +62,40 @@ export function logGeminiUsageFromStreamChunk(
     logGeminiUsageFromResponse(agentId, model, { usageMetadata: o.usageMetadata });
   }
 }
+
+const DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001";
+
+/**
+ * Log one Gemini embedding call for King / `_usage_event` (same pipeline as Groq chat usage).
+ * The Embed API often omits token counts; we record an input-token estimate (chars÷4, min 1) so
+ * Cost-Usage totals stay comparable to LLM rows. Optional `billableCharacterCount` refines the estimate.
+ */
+export function logGeminiEmbeddingUsage(params: {
+  agentId: string;
+  model?: string;
+  textLength: number;
+  billableCharacterCount?: number | null;
+  purpose?: string;
+}): void {
+  const model = params.model?.trim() || DEFAULT_EMBEDDING_MODEL;
+  const basis =
+    params.billableCharacterCount != null && params.billableCharacterCount > 0
+      ? params.billableCharacterCount
+      : Math.max(1, params.textLength);
+  const inputTokens = Math.max(1, Math.ceil(basis / 4));
+  logCommandCentralLlmUsage({
+    provider: "gemini",
+    model,
+    agentId: params.agentId,
+    inputTokens,
+    outputTokens: null,
+    metadata: {
+      kind: "embedding",
+      purpose: params.purpose ?? "unspecified",
+      textChars: params.textLength,
+      ...(params.billableCharacterCount != null
+        ? { billableCharacterCount: params.billableCharacterCount }
+        : {}),
+    },
+  });
+}

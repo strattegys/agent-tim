@@ -352,19 +352,29 @@ export async function runKbResearch(topicId: string): Promise<KbRunRow> {
       topic.sourceMode === "both" ||
       (topic.sourceMode === "linkedin_only" && topic.queries.length > 0);
 
-    if (doWeb && topic.queries.length === 0) {
-      warnings.push(
-        "No web search queries on this topic. Add one or more lines under “Web search queries” in the topic form, then run again."
-      );
+    const trimmedQueries = topic.queries.map((q) => q.trim()).filter(Boolean);
+    let webQueries = trimmedQueries;
+    if (doWeb && webQueries.length === 0) {
+      const titleQ = topic.name.trim();
+      if (titleQ.length >= 3) {
+        webQueries = [titleQ.slice(0, 200)];
+        warnings.push(
+          "No web search queries were set; used the topic title as the Brave query. Add explicit lines under Web search queries in the topic form for more focused results."
+        );
+      } else {
+        warnings.push(
+          "No web search queries on this topic. Add one or more lines under “Web search queries” in the topic form, then run again."
+        );
+      }
     }
 
-    if (doWeb && topic.queries.length > 0) {
+    if (doWeb && webQueries.length > 0) {
       if (!process.env["BRAVE_SEARCH_API_KEY"]?.trim()) {
         warnings.push(
           "BRAVE_SEARCH_API_KEY is not set — web search was skipped. Add it to web/.env.local (see .env.local.example) and restart the web server / Docker container."
         );
       } else {
-        for (const q of topic.queries) {
+        for (const q of webQueries) {
           const qq = q.trim();
           if (!qq) continue;
           let results: Awaited<ReturnType<typeof braveWebSearch>>;

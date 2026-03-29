@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import ChatWindow, { type Message } from "@/components/ChatWindow";
 import ChatInput, { type ReplyContext } from "@/components/ChatInput";
@@ -87,6 +87,12 @@ export default function CommandCentralClient() {
   const searchParams = useSearchParams();
   const paramAgent = searchParams.get("agent");
   const paramPanel = searchParams.get("panel");
+
+  /** Hide chrome (avatars, sidebar) until after layout — avoids a one-frame icon flash on hard refresh. */
+  const [shellReady, setShellReady] = useState(false);
+  useLayoutEffect(() => {
+    setShellReady(true);
+  }, []);
 
   // Each agent's default panel when selected
   function defaultPanelFor(agentId: string): RightPanel {
@@ -962,6 +968,12 @@ export default function CommandCentralClient() {
       className="flex h-screen w-screen overflow-hidden bg-[#0a0f18]"
       style={{ backgroundColor: "#0a0f18" }}
     >
+      <div
+        className={`flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden ${
+          shellReady ? "opacity-100" : "pointer-events-none select-none opacity-0"
+        }`}
+        aria-busy={!shellReady}
+      >
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
@@ -1524,6 +1536,7 @@ export default function CommandCentralClient() {
         <StatusRail agents={agents} sharedNotifications={dashboardNotifications} />
       </div>
 
+      </div>
     </div>
   );
 }

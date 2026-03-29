@@ -14,7 +14,8 @@
 #
 # Verify:  docker compose -f docker-compose.dev.yml exec web npm run check-crm-db
 ## Hot reload works via volume mount of web/ directory.
-# Runs on http://localhost:3001
+# Runs on http://localhost:3001 — open that URL in the browser (not 127.0.0.1): compose overrides
+# AUTH_URL / NEXTAUTH_URL so Auth.js matches local dev even if web/.env.local was copied from prod.
 
 services:
   web:
@@ -40,6 +41,10 @@ services:
     environment:
       - AGENT_ROOT=/agents
       - AVATAR_DIR=/data/agent-avatars
+      # Auth.js: must match the origin you type in the browser or API fetch cookies break (Marni KB, etc.).
+      # These override NEXTAUTH_URL / AUTH_URL from env_file when .env.local is copied from production.
+      - AUTH_URL=http://localhost:3001
+      - NEXTAUTH_URL=http://localhost:3001
       # Full app shell in Docker dev even if web/.env.local copies droplet settings (CC_PUBLIC_APP_UI=backend).
       - CC_PUBLIC_APP_UI=true
       # Try OpenAI GPT-OSS on Groq for better tool calling (dev only; production leaves GROQ_CHAT_MODEL unset)

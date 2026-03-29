@@ -75,12 +75,12 @@ export default function ChatInput({
       {/* Reply context bar */}
       {replyTo && (
         <div className="flex items-center gap-2 px-4 pt-2 pb-1">
-          <div className="flex-1 flex items-center gap-2 text-xs text-[var(--text-secondary)] bg-[var(--bg-primary)] rounded-lg px-3 py-1.5 border-l-2 border-[var(--accent-blue)]">
+          <div className="flex flex-1 items-center gap-2 rounded-lg border border-[color-mix(in_srgb,var(--border-color)_90%,transparent)] bg-[var(--bg-primary)]/70 px-3 py-1.5 text-xs text-[var(--text-chat-muted)]">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
               <polyline points="9,17 4,12 9,7" />
               <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
             </svg>
-            <span className="font-medium shrink-0">
+            <span className="shrink-0 font-medium text-[var(--text-tertiary)]">
               {replyTo.role === "user" ? "You" : agentName || "Agent"}
             </span>
             <span className="truncate">{replyTo.text.slice(0, 80)}</span>
@@ -106,7 +106,7 @@ export default function ChatInput({
           placeholder={placeholder}
           disabled={disabled}
           rows={3}
-          className="flex-1 bg-[var(--bg-input)] text-[var(--text-chat-body)] text-sm rounded-xl px-4 py-2.5 resize-none outline-none placeholder-[var(--text-tertiary)] disabled:opacity-50 max-h-[300px] overflow-y-auto"
+          className="max-h-[300px] flex-1 resize-none overflow-y-auto rounded-xl border border-[color-mix(in_srgb,var(--border-color)_55%,transparent)] bg-[color-mix(in_srgb,var(--bg-input)_92%,var(--bg-primary))] px-4 py-2.5 text-sm text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-chat-muted)] disabled:opacity-50"
           style={{ minHeight: "80px" }}
         />
         <div className="flex flex-col items-center gap-1.5 shrink-0">

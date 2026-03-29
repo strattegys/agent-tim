@@ -16,17 +16,16 @@ interface MessageBubbleProps {
   isThinking?: boolean;
 }
 
-/** Convert a hex color to a dark, muted version suitable for a message background */
-function toDarkBg(hex: string): string {
+/** Subtle agent tint on top of app tertiary bg — low contrast, not a saturated slab. */
+function toMutedAgentBubbleBg(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
-  // Darken significantly and desaturate: blend toward dark grey
-  const factor = 0.25;
-  const dr = Math.round(r * factor * 0.7);
-  const dg = Math.round(g * factor * 0.7);
-  const db = Math.round(b * factor * 0.7);
-  return `rgb(${dr}, ${dg}, ${db})`;
+  const br = 24;
+  const bg = 37;
+  const bb = 51;
+  const mix = 0.11;
+  return `rgb(${Math.round(br + (r - br) * mix)}, ${Math.round(bg + (g - bg) * mix)}, ${Math.round(bb + (b - bb) * mix)})`;
 }
 
 export default function MessageBubble({
@@ -48,7 +47,7 @@ export default function MessageBubble({
     minute: "2-digit",
   });
 
-  const agentBg = useMemo(() => toDarkBg(agentColor), [agentColor]);
+  const agentBg = useMemo(() => toMutedAgentBubbleBg(agentColor), [agentColor]);
 
   return (
     <div className="flex mb-1">
@@ -60,12 +59,14 @@ export default function MessageBubble({
         <div
           className="w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden"
           style={{
-            background: isUser ? "var(--bg-tertiary)" : agentBg,
-            border: isUser ? "1px solid rgba(74, 158, 202, 0.22)" : `1px solid ${agentColor}33`,
+            background: isUser ? "color-mix(in srgb, var(--bg-tertiary) 92%, var(--bg-primary))" : agentBg,
+            border: isUser
+              ? "1px solid color-mix(in srgb, var(--border-color) 75%, transparent)"
+              : `1px solid color-mix(in srgb, ${agentColor} 14%, var(--border-color))`,
           }}
         >
           {replyTo && (
-            <div className="text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 bg-[var(--bg-primary)]/80 border-[var(--border-color)] text-[var(--text-secondary)]">
+            <div className="text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 border-l-[color-mix(in_srgb,var(--border-color)_70%,transparent)] bg-[var(--bg-primary)]/50 text-[var(--text-chat-muted)]">
               <div className="font-medium text-[10px] mb-0.5 text-[var(--text-tertiary)]">
                 {replyTo.role === "user" ? "You" : agentName}
               </div>
@@ -73,20 +74,17 @@ export default function MessageBubble({
             </div>
           )}
           {isUser && (
-            <div className="text-sm font-medium mb-1 text-[var(--text-secondary)]">
+            <div className="text-sm font-medium mb-1 text-[var(--text-tertiary)]">
               {fromAgent
                 ? fromAgent.charAt(0).toUpperCase() + fromAgent.slice(1)
                 : "You"}
             </div>
           )}
           {!isUser && (
-            <div
-              className="text-sm font-medium mb-1"
-              style={{ color: agentColor, opacity: 0.82 }}
-            >
+            <div className="text-sm font-medium mb-1 text-[var(--text-secondary)]">
               {agentName}
               {delegatedFrom && (
-                <span className="text-[var(--text-secondary)] font-normal">
+                <span className="text-[var(--text-tertiary)] font-normal">
                   {" "}(via {delegatedFrom.split(",").map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(", ")})
                 </span>
               )}
@@ -94,18 +92,9 @@ export default function MessageBubble({
           )}
           {isThinking ? (
             <div className="flex items-center gap-1.5 py-1" aria-label="Thinking">
-              <div
-                className="w-2 h-2 rounded-full animate-bounce [animation-delay:0ms]"
-                style={{ backgroundColor: agentColor, opacity: 0.85 }}
-              />
-              <div
-                className="w-2 h-2 rounded-full animate-bounce [animation-delay:150ms]"
-                style={{ backgroundColor: agentColor, opacity: 0.85 }}
-              />
-              <div
-                className="w-2 h-2 rounded-full animate-bounce [animation-delay:300ms]"
-                style={{ backgroundColor: agentColor, opacity: 0.85 }}
-              />
+              <div className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0ms] bg-[var(--text-tertiary)]/55" />
+              <div className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:150ms] bg-[var(--text-tertiary)]/55" />
+              <div className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:300ms] bg-[var(--text-tertiary)]/55" />
             </div>
           ) : (
             <div className="message-markdown">
@@ -116,7 +105,7 @@ export default function MessageBubble({
             {onReply && !isThinking && (
               <button
                 onClick={onReply}
-                className={`p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}
+                className={`p-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] transition-opacity ${hovered ? "opacity-100" : "opacity-0"}`}
                 title="Reply"
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -126,7 +115,7 @@ export default function MessageBubble({
               </button>
             )}
             {!isThinking && (
-              <span className="text-[11px] text-[var(--text-tertiary)]">{time}</span>
+              <span className="text-[11px] text-[var(--text-chat-muted)] tabular-nums">{time}</span>
             )}
           </div>
         </div>

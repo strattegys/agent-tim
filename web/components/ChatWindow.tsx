@@ -45,7 +45,7 @@ export default function ChatWindow({
   return (
     <div className="flex-1 overflow-y-auto overflow-x-hidden pl-2.5 pr-1.5 py-3 space-y-2.5">
       {messages.length === 0 && !isLoading && (
-        <div className="flex items-center justify-center h-full text-[var(--text-secondary)] text-sm">
+        <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-sm">
           Send a message to {agentName}
         </div>
       )}
@@ -77,11 +77,11 @@ export default function ChatWindow({
         (messages.length === 0 ||
           messages[messages.length - 1]?.role !== "model") && (
           <div className="flex justify-start mb-1">
-            <div className="bg-[var(--bg-tertiary)] rounded-lg px-4 py-3">
+            <div className="rounded-lg border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-tertiary)_85%,var(--bg-primary))] px-4 py-3">
               <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:0ms]" />
-                <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:150ms]" />
-                <div className="w-2 h-2 bg-[var(--text-secondary)] rounded-full animate-bounce [animation-delay:300ms]" />
+                <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:0ms]" />
+                <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:150ms]" />
+                <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:300ms]" />
               </div>
             </div>
           </div>

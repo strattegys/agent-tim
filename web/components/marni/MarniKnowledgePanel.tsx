@@ -221,9 +221,11 @@ export default function MarniKnowledgePanel({
     setError(null);
     setRunningTopicId(id);
     try {
-      const r = await fetch(`/api/marni-kb/topics/${id}/run`, {
+      const r = await fetch("/api/marni-kb/research", {
         ...fetchOpts,
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topicId: id }),
       });
       const data = await readMarniKbApiJson<{ error?: string }>(r);
       if (!r.ok) throw new Error(data.error || "Run failed");

@@ -6,6 +6,7 @@ import MarniCorpusWordCloud from "./MarniCorpusWordCloud";
 import { HUMAN_MANUAL_ACTION_BTN_CLASS } from "@/lib/suzi-work-panel";
 import { topTermsFromChunks } from "@/lib/marni-corpus-terms";
 import { MARNI_KNOWLEDGE_TAB_HEADER_HINT } from "@/lib/marni-work-panel";
+import { panelBus } from "@/lib/events";
 
 /** `response.json()` throws on HTML login/error pages (`Unexpected token '<'`). */
 async function readApiJson<T = Record<string, unknown>>(r: Response): Promise<T> {
@@ -179,6 +180,12 @@ export default function MarniKnowledgePanel({
 
   useEffect(() => {
     loadTopics();
+  }, [loadTopics]);
+
+  /** Chat invokes `knowledge_topic_create`; stream emits panelBus with that tool name — refetch so the list stays in sync without closing the panel. */
+  useEffect(() => {
+    const unsub = panelBus.on("knowledge_topic_create", () => loadTopics());
+    return unsub;
   }, [loadTopics]);
 
   useEffect(() => {

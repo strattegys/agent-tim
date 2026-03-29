@@ -81,36 +81,38 @@ export default function AgentSidebar({
                       )}
                     </div>
                     <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                      <div className="flex items-center gap-1.5 min-w-0 w-full">
-                        <div
-                          className={`text-sm font-medium truncate min-w-0 flex-1 ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
-                        >
-                          {agent.name}
-                        </div>
-                        <span
-                          className="shrink-0 w-[14px] flex items-center justify-center"
-                          title={
-                            agentHasUserWorkItem(agent.id, workBadges)
-                              ? "Work waiting for you"
-                              : "No items waiting for you"
-                          }
-                        >
+                      <div className="flex min-w-0 w-full items-center">
+                        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                          <div
+                            className={`min-w-0 truncate text-sm font-medium ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
+                          >
+                            {agent.name}
+                          </div>
                           <span
-                            className={
-                              agentHasUserWorkItem(agent.id, workBadges)
-                                ? "text-[var(--accent-orange)]"
-                                : "text-[var(--accent-green)]"
-                            }
-                            aria-label={
+                            className="shrink-0 flex w-[14px] items-center justify-center"
+                            title={
                               agentHasUserWorkItem(agent.id, workBadges)
                                 ? "Work waiting for you"
-                                : undefined
+                                : "No items waiting for you"
                             }
-                            aria-hidden={!agentHasUserWorkItem(agent.id, workBadges)}
                           >
-                            <WorkBellIcon size={11} stroke="currentColor" />
+                            <span
+                              className={
+                                agentHasUserWorkItem(agent.id, workBadges)
+                                  ? "text-[var(--accent-orange)]"
+                                  : "text-[var(--accent-green)]"
+                              }
+                              aria-label={
+                                agentHasUserWorkItem(agent.id, workBadges)
+                                  ? "Work waiting for you"
+                                  : undefined
+                              }
+                              aria-hidden={!agentHasUserWorkItem(agent.id, workBadges)}
+                            >
+                              <WorkBellIcon size={11} stroke="currentColor" />
+                            </span>
                           </span>
-                        </span>
+                        </div>
                       </div>
                       <div className="text-xs text-[var(--text-secondary)] truncate">{agent.role}</div>
                     </div>

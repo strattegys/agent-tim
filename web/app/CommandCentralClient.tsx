@@ -1008,37 +1008,16 @@ export default function CommandCentralClient() {
                         />
                       </div>
                       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                        <div className="flex items-center gap-1.5 min-w-0 w-full">
-                          <span
-                            className={`text-sm font-medium truncate min-w-0 flex-1 ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
-                          >
-                            {a.name}
-                          </span>
-                          <span
-                            className="shrink-0 w-[14px] flex items-center justify-center"
-                            title={
-                              agentHasUserWorkItem(a.id, {
-                                pendingTaskCount,
-                                testingTaskCount,
-                                timMessagingTaskCount,
-                                ghostContentTaskCount,
-                              })
-                                ? "Work waiting for you"
-                                : "No items waiting for you"
-                            }
-                          >
+                        <div className="flex min-w-0 w-full items-center gap-2">
+                          <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                             <span
-                              className={
-                                agentHasUserWorkItem(a.id, {
-                                  pendingTaskCount,
-                                  testingTaskCount,
-                                  timMessagingTaskCount,
-                                  ghostContentTaskCount,
-                                })
-                                  ? "text-[var(--accent-orange)]"
-                                  : "text-[var(--accent-green)]"
-                              }
-                              aria-label={
+                              className={`min-w-0 truncate text-sm font-medium ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
+                            >
+                              {a.name}
+                            </span>
+                            <span
+                              className="shrink-0 flex w-[14px] items-center justify-center"
+                              title={
                                 agentHasUserWorkItem(a.id, {
                                   pendingTaskCount,
                                   testingTaskCount,
@@ -1046,22 +1025,45 @@ export default function CommandCentralClient() {
                                   ghostContentTaskCount,
                                 })
                                   ? "Work waiting for you"
-                                  : undefined
-                              }
-                              aria-hidden={
-                                !agentHasUserWorkItem(a.id, {
-                                  pendingTaskCount,
-                                  testingTaskCount,
-                                  timMessagingTaskCount,
-                                  ghostContentTaskCount,
-                                })
+                                  : "No items waiting for you"
                               }
                             >
-                              <WorkBellIcon size={11} stroke="currentColor" />
+                              <span
+                                className={
+                                  agentHasUserWorkItem(a.id, {
+                                    pendingTaskCount,
+                                    testingTaskCount,
+                                    timMessagingTaskCount,
+                                    ghostContentTaskCount,
+                                  })
+                                    ? "text-[var(--accent-orange)]"
+                                    : "text-[var(--accent-green)]"
+                                }
+                                aria-label={
+                                  agentHasUserWorkItem(a.id, {
+                                    pendingTaskCount,
+                                    testingTaskCount,
+                                    timMessagingTaskCount,
+                                    ghostContentTaskCount,
+                                  })
+                                    ? "Work waiting for you"
+                                    : undefined
+                                }
+                                aria-hidden={
+                                  !agentHasUserWorkItem(a.id, {
+                                    pendingTaskCount,
+                                    testingTaskCount,
+                                    timMessagingTaskCount,
+                                    ghostContentTaskCount,
+                                  })
+                                }
+                              >
+                                <WorkBellIcon size={11} stroke="currentColor" />
+                              </span>
                             </span>
-                          </span>
+                          </div>
                           {unread > 0 && (
-                            <span className="min-w-[20px] h-[20px] rounded-full bg-[var(--accent-orange)] text-white text-[11px] font-bold flex items-center justify-center px-1 shrink-0">
+                            <span className="flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-[var(--accent-orange)] px-1 text-[11px] font-bold text-white">
                               {unread > 99 ? "99+" : unread}
                             </span>
                           )}

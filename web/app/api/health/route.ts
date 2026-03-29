@@ -5,7 +5,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   if (process.env.npm_lifecycle_event !== "build") {
-    initCronJobs();
+    try {
+      initCronJobs();
+    } catch (e) {
+      console.error("[api/health] initCronJobs failed:", e);
+    }
   }
   return NextResponse.json({ ok: true });
 }

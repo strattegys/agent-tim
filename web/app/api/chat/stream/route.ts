@@ -7,7 +7,11 @@ import type { ChatStreamExtraOptions } from "@/lib/chat-stream-options";
 import { initCronJobs } from "@/lib/cron";
 
 if (process.env.npm_lifecycle_event !== "build") {
-  initCronJobs();
+  try {
+    initCronJobs();
+  } catch (e) {
+    console.error("[api/chat/stream] initCronJobs failed:", e);
+  }
 }
 
 export async function POST(request: NextRequest) {

@@ -1,9 +1,6 @@
 import { signIn, auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
-
-const brandTitle = getAppBrandTitle();
-const tagline = getAppHeadline();
 import { isBackendOnlyUiMode } from "@/lib/backend-only-ui";
 
 export default async function LoginPage() {
@@ -12,6 +9,9 @@ export default async function LoginPage() {
   }
   const session = await auth();
   if (session) redirect("/");
+
+  const brandTitle = getAppBrandTitle();
+  const tagline = getAppHeadline();
 
   return (
     <div className="h-screen flex items-center justify-center bg-[#0e1621]">

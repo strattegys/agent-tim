@@ -1006,13 +1006,6 @@ export default function CommandCentralClient() {
                           circleClassName="w-11 h-11 min-w-[44px] min-h-[44px]"
                           initialClassName="text-base font-medium text-white"
                         />
-                        <span
-                          className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-secondary)]"
-                          style={{
-                            background: !a.online ? "#555" : "#1D9E75",
-                          }}
-                          title={a.online ? "Online" : "Offline"}
-                        />
                       </div>
                       <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                         <div className="flex items-center gap-1.5 min-w-0 w-full">
@@ -1022,7 +1015,7 @@ export default function CommandCentralClient() {
                             {a.name}
                           </span>
                           <span
-                            className="shrink-0 flex items-center justify-center text-[var(--text-tertiary)]"
+                            className="shrink-0 w-[14px] flex items-center justify-center"
                             title={
                               agentHasUserWorkItem(a.id, {
                                 pendingTaskCount,
@@ -1031,23 +1024,41 @@ export default function CommandCentralClient() {
                                 ghostContentTaskCount,
                               })
                                 ? "Work waiting for you"
-                                : a.online
-                                  ? "No items waiting"
-                                  : "Offline"
+                                : "No items waiting for you"
                             }
                           >
-                            {agentHasUserWorkItem(a.id, {
-                              pendingTaskCount,
-                              testingTaskCount,
-                              timMessagingTaskCount,
-                              ghostContentTaskCount,
-                            }) ? (
-                              <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
-                                <WorkBellIcon size={15} stroke="currentColor" />
-                              </span>
-                            ) : (
-                              <WorkBellIcon size={15} stroke="currentColor" aria-hidden />
-                            )}
+                            <span
+                              className={
+                                agentHasUserWorkItem(a.id, {
+                                  pendingTaskCount,
+                                  testingTaskCount,
+                                  timMessagingTaskCount,
+                                  ghostContentTaskCount,
+                                })
+                                  ? "text-[var(--accent-orange)]"
+                                  : "text-[var(--accent-green)]"
+                              }
+                              aria-label={
+                                agentHasUserWorkItem(a.id, {
+                                  pendingTaskCount,
+                                  testingTaskCount,
+                                  timMessagingTaskCount,
+                                  ghostContentTaskCount,
+                                })
+                                  ? "Work waiting for you"
+                                  : undefined
+                              }
+                              aria-hidden={
+                                !agentHasUserWorkItem(a.id, {
+                                  pendingTaskCount,
+                                  testingTaskCount,
+                                  timMessagingTaskCount,
+                                  ghostContentTaskCount,
+                                })
+                              }
+                            >
+                              <WorkBellIcon size={11} stroke="currentColor" />
+                            </span>
                           </span>
                           {unread > 0 && (
                             <span className="min-w-[20px] h-[20px] rounded-full bg-[var(--accent-orange)] text-white text-[11px] font-bold flex items-center justify-center px-1 shrink-0">

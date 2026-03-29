@@ -74,14 +74,6 @@ export default function AgentSidebar({
                         color={agent.color}
                         src={agent.avatar}
                       />
-                      <span
-                        className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-secondary)]"
-                        style={{
-                          background: !agent.online ? "#555" : "#1D9E75",
-                        }}
-                        title={agent.online ? "Online" : "Offline"}
-                        aria-hidden
-                      />
                       {unread > 0 && (
                         <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--accent-orange)] text-white text-[10px] font-bold flex items-center justify-center px-1">
                           {unread > 99 ? "99+" : unread}
@@ -96,22 +88,28 @@ export default function AgentSidebar({
                           {agent.name}
                         </div>
                         <span
-                          className="shrink-0 flex items-center justify-center text-[var(--text-tertiary)]"
+                          className="shrink-0 w-[14px] flex items-center justify-center"
                           title={
                             agentHasUserWorkItem(agent.id, workBadges)
                               ? "Work waiting for you"
-                              : agent.online
-                                ? "No items waiting"
-                                : "Offline"
+                              : "No items waiting for you"
                           }
                         >
-                          {agentHasUserWorkItem(agent.id, workBadges) ? (
-                            <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
-                              <WorkBellIcon size={15} stroke="currentColor" />
-                            </span>
-                          ) : (
-                            <WorkBellIcon size={15} stroke="currentColor" aria-hidden />
-                          )}
+                          <span
+                            className={
+                              agentHasUserWorkItem(agent.id, workBadges)
+                                ? "text-[var(--accent-orange)]"
+                                : "text-[var(--accent-green)]"
+                            }
+                            aria-label={
+                              agentHasUserWorkItem(agent.id, workBadges)
+                                ? "Work waiting for you"
+                                : undefined
+                            }
+                            aria-hidden={!agentHasUserWorkItem(agent.id, workBadges)}
+                          >
+                            <WorkBellIcon size={11} stroke="currentColor" />
+                          </span>
                         </span>
                       </div>
                       <div className="text-xs text-[var(--text-secondary)] truncate">{agent.role}</div>

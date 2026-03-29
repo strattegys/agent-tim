@@ -5,6 +5,17 @@
 export async function readMarniKbApiJson<T = Record<string, unknown>>(r: Response): Promise<T> {
   const text = await r.text();
   const t = text.trim();
+  if (r.status === 401) {
+    let msg =
+      "Sign in required — sign in on Command Central, then try again. Use the same host in the browser as NEXTAUTH_URL / AUTH_URL in web/.env.local (do not mix localhost and 127.0.0.1).";
+    try {
+      const j = JSON.parse(t) as { error?: string };
+      if (j.error && j.error !== "Unauthorized") msg = j.error;
+    } catch {
+      /* non-JSON 401 body */
+    }
+    throw new Error(msg);
+  }
   if (
     t.startsWith("<!DOCTYPE") ||
     t.startsWith("<!doctype") ||

@@ -25,7 +25,8 @@ async function readApiJson<T = Record<string, unknown>>(r: Response): Promise<T>
       throw new Error(
         "Marni API routes are missing on this server (HTTP 404 HTML). " +
           "If you use Docker production: rebuild and redeploy the web image from current master. " +
-          "If you use local Docker dev: restart the web container; if it persists, delete web/.next on the host and restart. " +
+          "If you run production compose locally behind Caddy and open http://localhost, Caddy must proxy that host (see Caddyfile http://localhost block); restart the caddy container after changing it. " +
+          "If you use local Docker dev (docker-compose.dev.yml): use http://localhost:3001 and restart web; if it persists, delete web/.next on the host and restart. " +
           "Quick check (should return JSON): open /api/marni-kb/ping in the browser."
       );
     }

@@ -2,3 +2,12 @@
 stratt-central.b2bcontentartist.com {
 	reverse_proxy web:3001
 }
+
+# ── Local Docker (docker-compose.yml on your machine): Caddy listens on :80 but the site
+# above only matches the production Host. Browsers hitting http://localhost or 127.0.0.1
+# would otherwise get Caddy’s HTML 404 — API fetches then look like “Marni routes missing”.
+# Explicit HTTP only (no ACME for these names). [::1] helps Windows clients that resolve
+# “localhost” to IPv6 first.
+http://localhost, http://127.0.0.1, http://[::1] {
+	reverse_proxy web:3001
+}

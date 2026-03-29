@@ -107,7 +107,7 @@ if ($useBridge) {
 }
 
 Stop-CrmForwardersOnPort $localPort
-Start-Sleep -Seconds 1
+Start-Sleep -Seconds 3
 
 if ($useBridge) {
   $bridgeScript = Join-Path $RepoRoot "scripts\crm-db-tailscale-bridge.mjs"
@@ -131,9 +131,9 @@ if ($useBridge) {
       if (Test-Path -LiteralPath $p) { $identity = $p; break }
     }
   }
-  $sshArgs = @("-o", "StrictHostKeyChecking=accept-new")
+  $sshArgs = @("-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new")
   if ($identity) { $sshArgs += "-i", $identity }
-  $sshArgs += "-N", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", "TCPKeepAlive=yes", "-L", "0.0.0.0:${localPort}:localhost:5432", "root@${remoteSsh}"
+  $sshArgs += "-N", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", "TCPKeepAlive=yes", "-L", "0.0.0.0:${localPort}:127.0.0.1:5432", "root@${remoteSsh}"
   Write-Host "  Starting background ssh..."
   Start-Process -FilePath $ssh -ArgumentList $sshArgs -WindowStyle Hidden
 }

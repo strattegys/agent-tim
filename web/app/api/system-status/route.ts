@@ -196,9 +196,9 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
           0,
           220
         );
-    } else if (/terminated unexpectedly|Connection closed/i.test(msg)) {
+    } else if (/ECONNRESET|terminated unexpectedly|Connection closed/i.test(msg)) {
       detail =
-        `TCP/Postgres dropped (${msg.slice(0, 48)}) · ${target}. Docker dev: restart the host bridge (cd web && npm run db:reconnect:bridge) or pull latest crm-db-tailscale-bridge.mjs; then Refresh Data platform.`.slice(
+        `TCP/Postgres dropped (${msg.slice(0, 48)}) · ${target}. Often right after crm-db restarts on the server (deploy/expose). Wait ~30s, run cd web && npm run db:reconnect:bridge, then Refresh.`.slice(
           0,
           220
         );

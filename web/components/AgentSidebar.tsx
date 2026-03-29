@@ -74,45 +74,47 @@ export default function AgentSidebar({
                         color={agent.color}
                         src={agent.avatar}
                       />
+                      <span
+                        className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-secondary)]"
+                        style={{
+                          background: !agent.online ? "#555" : "#1D9E75",
+                        }}
+                        title={agent.online ? "Online" : "Offline"}
+                        aria-hidden
+                      />
                       {unread > 0 && (
                         <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--accent-orange)] text-white text-[10px] font-bold flex items-center justify-center px-1">
                           {unread > 99 ? "99+" : unread}
                         </span>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0 flex items-start gap-2">
-                      <span
-                        className="shrink-0 w-[18px] flex items-center justify-center pt-0.5"
-                        title={
-                          agentHasUserWorkItem(agent.id, workBadges)
-                            ? "Work waiting for you"
-                            : agent.online
-                              ? "Online"
-                              : "Offline"
-                        }
-                      >
-                        {agentHasUserWorkItem(agent.id, workBadges) ? (
-                          <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
-                            <WorkBellIcon size={15} stroke="currentColor" />
-                          </span>
-                        ) : (
-                          <span
-                            className="w-2 h-2 rounded-full"
-                            style={{
-                              background: !agent.online ? "#555" : "#1D9E75",
-                            }}
-                            aria-hidden
-                          />
-                        )}
-                      </span>
-                      <div className="min-w-0 flex-1">
+                    <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1.5 min-w-0 w-full">
                         <div
-                          className={`text-sm font-medium truncate ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
+                          className={`text-sm font-medium truncate min-w-0 flex-1 ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
                         >
                           {agent.name}
                         </div>
-                        <div className="text-xs text-[var(--text-secondary)] truncate">{agent.role}</div>
+                        <span
+                          className="shrink-0 flex items-center justify-center text-[var(--text-tertiary)]"
+                          title={
+                            agentHasUserWorkItem(agent.id, workBadges)
+                              ? "Work waiting for you"
+                              : agent.online
+                                ? "No items waiting"
+                                : "Offline"
+                          }
+                        >
+                          {agentHasUserWorkItem(agent.id, workBadges) ? (
+                            <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
+                              <WorkBellIcon size={15} stroke="currentColor" />
+                            </span>
+                          ) : (
+                            <WorkBellIcon size={15} stroke="currentColor" aria-hidden />
+                          )}
+                        </span>
                       </div>
+                      <div className="text-xs text-[var(--text-secondary)] truncate">{agent.role}</div>
                     </div>
                   </button>
                 );

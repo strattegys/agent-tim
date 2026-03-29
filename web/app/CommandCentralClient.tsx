@@ -1014,47 +1014,40 @@ export default function CommandCentralClient() {
                           title={a.online ? "Online" : "Offline"}
                         />
                       </div>
-                      <div className="flex-1 min-w-0 flex items-start gap-2">
-                        <span
-                          className="shrink-0 w-[18px] flex items-center justify-center pt-0.5"
-                          title={
-                            agentHasUserWorkItem(a.id, {
+                      <div className="flex-1 min-w-0 flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5 min-w-0 w-full">
+                          <span
+                            className={`text-sm font-medium truncate min-w-0 flex-1 ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
+                          >
+                            {a.name}
+                          </span>
+                          <span
+                            className="shrink-0 flex items-center justify-center text-[var(--text-tertiary)]"
+                            title={
+                              agentHasUserWorkItem(a.id, {
+                                pendingTaskCount,
+                                testingTaskCount,
+                                timMessagingTaskCount,
+                                ghostContentTaskCount,
+                              })
+                                ? "Work waiting for you"
+                                : a.online
+                                  ? "No items waiting"
+                                  : "Offline"
+                            }
+                          >
+                            {agentHasUserWorkItem(a.id, {
                               pendingTaskCount,
                               testingTaskCount,
                               timMessagingTaskCount,
                               ghostContentTaskCount,
-                            })
-                              ? "Work waiting for you"
-                              : a.online
-                                ? "Online"
-                                : "Offline"
-                          }
-                        >
-                          {agentHasUserWorkItem(a.id, {
-                            pendingTaskCount,
-                            testingTaskCount,
-                            timMessagingTaskCount,
-                            ghostContentTaskCount,
-                          }) ? (
-                            <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
-                              <WorkBellIcon size={15} stroke="currentColor" />
-                            </span>
-                          ) : (
-                            <span
-                              className="w-2 h-2 rounded-full"
-                              style={{
-                                background: !a.online ? "#555" : "#1D9E75",
-                              }}
-                              aria-hidden
-                            />
-                          )}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2 min-w-0">
-                          <span
-                            className={`text-sm font-medium truncate min-w-0 ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
-                          >
-                            {a.name}
+                            }) ? (
+                              <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
+                                <WorkBellIcon size={15} stroke="currentColor" />
+                              </span>
+                            ) : (
+                              <WorkBellIcon size={15} stroke="currentColor" aria-hidden />
+                            )}
                           </span>
                           {unread > 0 && (
                             <span className="min-w-[20px] h-[20px] rounded-full bg-[var(--accent-orange)] text-white text-[11px] font-bold flex items-center justify-center px-1 shrink-0">
@@ -1062,9 +1055,8 @@ export default function CommandCentralClient() {
                             </span>
                           )}
                         </div>
-                        <div className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
+                        <div className="text-xs text-[var(--text-secondary)] truncate">
                           {preview ? preview.slice(0, 60) + (preview.length > 60 ? "..." : "") : a.role}
-                        </div>
                         </div>
                       </div>
                     </button>

@@ -51,13 +51,13 @@ if ($UseSshTunnel) {
 } elseif ($UseTailscaleBridge) {
   $useBridge = $true
   if (-not $tsCrmOpen) {
-    Write-Host "WARN: ${tsHost}:5432 did not respond — bridge may fail until expose-crm-db-tailscale.sh has been run on the server." -ForegroundColor Yellow
+    Write-Host "WARN: $($tsHost):5432 did not respond - bridge may fail until expose-crm-db-tailscale.sh has been run on the server." -ForegroundColor Yellow
   }
 } elseif ($tsCrmOpen) {
   $useBridge = $true
-  Write-Host "Tailscale CRM at ${tsHost}:5432 is reachable — using TCP bridge (no SSH)." -ForegroundColor Cyan
+  Write-Host "Tailscale CRM at $($tsHost):5432 is reachable - using TCP bridge (no SSH)." -ForegroundColor Cyan
 } else {
-  Write-Host "Tailscale CRM at ${tsHost}:5432 not reachable — using SSH tunnel (need key + droplet SSH)." -ForegroundColor Yellow
+  Write-Host "Tailscale CRM at $($tsHost):5432 not reachable - using SSH tunnel (need key + droplet SSH)." -ForegroundColor Yellow
 }
 
 $already = Get-NetTCPConnection -LocalPort $localPort -State Listen -ErrorAction SilentlyContinue
@@ -71,7 +71,7 @@ if (-not $already) {
     $node = (Get-Command node -ErrorAction Stop).Source
     $env:CRM_DB_TAILSCALE_HOST = $tsHost
     $env:CRM_TUNNEL_LOCAL_PORT = "$localPort"
-    Write-Host "Starting CRM Tailscale bridge: 0.0.0.0:${localPort} -> ${tsHost}:5432"
+    Write-Host "Starting CRM Tailscale bridge: 0.0.0.0:$localPort -> $($tsHost):5432"
     Start-Process -FilePath $node -ArgumentList @($bridgeScript) -WorkingDirectory $RepoRoot -WindowStyle Hidden
     Start-Sleep -Seconds 2
   } else {
@@ -83,14 +83,14 @@ if (-not $already) {
     }
     $sshArgs = @()
     if ($identity) { $sshArgs += "-i", $identity }
-    $sshArgs += "-N", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", "TCPKeepAlive=yes", "-L", "0.0.0.0:${localPort}:localhost:5432", "root@${remoteSsh}"
-    Write-Host "Starting CRM SSH tunnel: 0.0.0.0:${localPort} -> ${remoteSsh}:5432 (server localhost:5432)"
+    $sshArgs += "-N", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", "TCPKeepAlive=yes", "-L", "0.0.0.0:$($localPort):localhost:5432", "root@$remoteSsh"
+    Write-Host "Starting CRM SSH tunnel: 0.0.0.0:$localPort -> $remoteSsh:5432 (server localhost:5432)"
     Start-Process -FilePath $ssh -ArgumentList $sshArgs -WindowStyle Hidden
     Start-Sleep -Seconds 2
   }
 } else {
-  Write-Host "Port ${localPort} already listening (bridge or tunnel may already be running)."
+  Write-Host "Port $localPort already listening (bridge or tunnel may already be running)."
 }
 
 docker compose -f docker-compose.dev.yml up -d
-Write-Host "Dev web: http://localhost:3001  (logs: docker compose -f docker-compose.dev.yml logs -f web)"
+Write-Host 'Dev web: http://localhost:3001  (logs: docker compose -f docker-compose.dev.yml logs --follow web)'

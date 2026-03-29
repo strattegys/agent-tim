@@ -7,7 +7,11 @@ import { withToolGroundingHint } from "./tool-grounding-hint";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 
 /** Tools that do not touch CRM / dashboard data — skip SSE nudge after success. */
-const SKIP_DASHBOARD_NOTIFY = new Set<string>(["web_search", "memory"]);
+const SKIP_DASHBOARD_NOTIFY = new Set<string>([
+  "web_search",
+  "memory",
+  "knowledge_search",
+]);
 
 export async function executeTool(
   name: string,

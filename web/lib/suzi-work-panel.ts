@@ -91,9 +91,12 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
       ? `${descRaw.slice(0, FOCUSED_PUNCH_DESC_MAX)}\n… (truncated)`
       : descRaw;
 
+  const notesOrdered = [...p.notes].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
   let notesTotal = 0;
   const noteLines: string[] = [];
-  for (const n of p.notes) {
+  for (const n of notesOrdered) {
     let c = n.content?.trim() || "";
     if (c.length > FOCUSED_PUNCH_NOTE_BODY_MAX) {
       c = `${c.slice(0, FOCUSED_PUNCH_NOTE_BODY_MAX)}…`;
@@ -126,7 +129,7 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
       ? `- **description:**\n\`\`\`\n${descShown}\n\`\`\``
       : "- **description:** (empty)",
     p.notes.length
-      ? `- **notes** (${p.notes.length}, chronological in Inspect):\n${noteLines.join("\n")}`
+      ? `- **notes** (${p.notes.length}, newest first in Inspect):\n${noteLines.join("\n")}`
       : "- **notes:** (none)",
     p.actions.length
       ? `- **actions (subtasks):** Each line is \`done\` or \`open\` with \`action_id\` for **punch_list** **action_toggle**:\n${p.actions
@@ -137,7 +140,7 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
           .join("\n")}`
       : "- **actions:** (none — use **action_add** with this item's **item_number** to add subtasks)",
     "",
-    "**How to help:** Answer from title, description, notes, and actions above. Use **punch_list** to move, complete (**done** / close out), add notes, add/toggle **action** subtasks (**action_add**, **action_toggle** with **action_id**), or **archive** — the snapshot may be stale after tool calls. For **“close out” / duplicate**, **done** is usual unless they said **archive**. When editing **titles**, Govind usually wants **Title Case** unless he says otherwise.",
+    "**How to help:** Answer from title, description, notes, and actions above. Use **punch_list** to move, complete (**done** / close out), **archive**, add **journal notes** (**note** — Inspect **Notes**), or add/toggle **checkbox subtasks** (**action_add** / **action_toggle** — Inspect **Actions**). If Govind asks to **add an action**, **action item**, **subtask**, **checkbox step**, or **to-do on this card**, use **action_add** with **content**, **not** **note**. **note** is for narrative/log text only. The snapshot may be stale after tool calls. For **“close out” / duplicate**, **done** is usual unless they said **archive**. When editing **titles**, Govind usually wants **Title Case** unless he says otherwise.",
   ];
   return lines.join("\n");
 }
@@ -325,7 +328,7 @@ const TABS: Record<SuziWorkSubTab, TabSpec> = {
     purpose:
       "Engineering / ops tasks in Kanban columns (Now, Later, Next, Sometime, Backlog, Idea). Not calendar reminders, not reference notes, not Intake captures.",
     commands:
-      "punch_list: list | add (NEW item only) | update | done / close_out / finish / close this out / duplicate — use **focused item_number** when **ACTIVE PUNCH LIST TARGET** (green card on board) is in context and user did not name another # | reopen | archive | archive_done | note | action_add | action_toggle. After done, reply briefly; do not list-hunt or ask which # when green-target context is present.",
+      "punch_list: list | add (NEW item only) | update | done / close_out / finish / close this out / duplicate — use **focused item_number** when **ACTIVE PUNCH LIST TARGET** (green card on board) is in context and user did not name another # | reopen | archive | archive_done | **note** (Inspect **Notes** — journal only) | **action_add** / **action_toggle** (Inspect **Actions** — user “action item” / subtask / checkbox). After done, reply briefly; do not list-hunt or ask which # when green-target context is present.",
     ids: "Item numbers on cards (e.g. 1001). Comma-separate for batch done.",
   },
   reminders: {

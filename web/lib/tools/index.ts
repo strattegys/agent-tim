@@ -25,6 +25,7 @@ import notesTool from "./notes-tool";
 import intakeTool from "./intake-tool";
 import publishArticle from "./publish-article";
 import articleBuilder from "./article-builder";
+import knowledgeSearchTool from "./knowledge-search-tool";
 
 // ── Registry (keyed by tool name) ─────────────────────────────────────────
 /** Exported for providers that need to validate recovered / malformed tool names. */
@@ -44,6 +45,7 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   intake: intakeTool,
   publish_article: publishArticle,
   article_builder: articleBuilder,
+  knowledge_search: knowledgeSearchTool,
 };
 
 // ── Backward-compatible exports ───────────────────────────────────────────

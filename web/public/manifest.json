@@ -1,7 +1,7 @@
 {
   "name": "Strattegys Command Central",
   "short_name": "Command Central",
-  "description": "Agent Team",
+  "description": "CRM and agent workspace",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0f18",

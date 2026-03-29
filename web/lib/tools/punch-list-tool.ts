@@ -41,6 +41,9 @@ function normalizePunchListArgs(raw: Record<string, string>): Record<string, str
       subtask_toggle: "action_toggle",
       add_subtask: "action_add",
       toggle_subtask: "action_toggle",
+      action_add: "action_add",
+      add_action: "action_add",
+      add_action_item: "action_add",
     };
     if (actionToCommand[a]) args.command = actionToCommand[a];
   }
@@ -71,6 +74,16 @@ function normalizePunchListArgs(raw: Record<string, string>): Record<string, str
   ]);
   if (doneAliases.has(rawCmd)) {
     args.command = "done";
+  }
+  const actionAddAliases = new Set([
+    "add_action",
+    "add_action_item",
+    "new_action",
+    "create_action",
+    "action_add_item",
+  ]);
+  if (actionAddAliases.has(rawCmd)) {
+    args.command = "action_add";
   }
   return args;
 }
@@ -109,12 +122,13 @@ const tool: ToolModule = {
 
   declaration: {
     name: "punch_list",
-    description: `Manage the punch list (Kanban columns). Use parameter command (not "action"): list, add, update, done, reopen, archive, archive_done, note.
+    description: `Manage the punch list (Kanban columns). Use parameter command (not "action"): list, add, update, done, reopen, archive, archive_done, note, action_add, action_toggle.
+**Notes vs Actions (Inspect panel):** **note** appends a **journal entry** to the card's **Notes** section (timestamped log, commentary). **action_add** adds a **checkbox subtask** to the **Actions** section. When the user asks to **add an action**, **action item**, **subtask**, **checkbox**, **step**, or **to-do on this card / on #N**, use **action_add** with **content** — **not** **note**. Use **note** only when they want a **note**, **comment**, **log**, or freeform **journal** text, not a checklist item.
 CRITICAL — Moving an existing card to another column (e.g. "move #1040 to Next"): use command **update** with item_number="1040" and rank="next" (or 1–6). Do **NOT** use **add** when the user names an existing item number — add always creates a NEW # and duplicates work.
 **add** only when creating a brand-new item (needs title, rank, category). When **promoting from Intake** (focused capture + user wants it on the board): **title** = short actionable summary you write; **description** = original intake **title**, **body**, **URL** preserved; **rank** = **now** unless user said otherwise; **category** = best fit unless user specified. **update** to change column (rank), title, description, or category on an existing #. The tool result lists **only fields that changed** (e.g. title only → no column move). Do not tell the user you moved a card unless the result includes **moved to column**.
 **done** (or **close_out**, **close**, **finish**, **close this out**, **it’s a duplicate**) marks an item complete. If context has **ACTIVE PUNCH LIST TARGET** / green-highlighted card and they say **this / highlighted / green / close it / duplicate** without another #, use **item_number (focused)**. If they name a # (e.g. "close out 1043"), use that. After marking done, do **not** dump the full **list** unless asked; confirm briefly. Do **not** ask which # when that section is present.
 For item IDs use item_number with the # shown on cards. Batch mark done: command done and item_number "1032,1033". ${RANK_HELP} Category is a short tag for new items.
-**Subtasks (Inspect panel):** **action_add** with item_number + **content** adds a checkbox subtask. **action_toggle** with **action_id** (UUID from focused context or action_add result) and **done** "true" or "false" marks it done or reopens it.
+**Subtasks / Actions (Inspect panel):** **action_add** with item_number + **content** adds a checkbox line under **Actions**. **action_toggle** with **action_id** (UUID from focused context or action_add result) and **done** "true" or "false" marks it done or reopens it. Synonyms for **action_add**: add_action, add_action_item, new_action (normalized server-side).
 When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**, Govind has that row selected on screen (green border) — **Inspect may be closed**. **This / highlighted / green / close this / update title / duplicate** → use **item_number (focused)** from that section; do not substitute another # or **list** first. **One-two-five** (spoken digits) → **125**, not 1025.`,
     parameters: {
       type: "object" as const,
@@ -122,7 +136,7 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
         command: {
           type: "string",
           description:
-            "list | add | update | done | reopen | archive | archive_done | note | action_add (subtask) | action_toggle (subtask checkbox)",
+            "list | add | update | done | reopen | archive | archive_done | note (journal → Notes section) | action_add (checkbox → Actions section) | action_toggle. For “add an action / action item / subtask” use action_add, not note.",
         },
         title: {
           type: "string",
@@ -157,7 +171,8 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
         },
         content: {
           type: "string",
-          description: "Note body (command note) or subtask label (command action_add)",
+          description:
+            "For **note**: journal text (Notes section). For **action_add**: checkbox label (Actions section) — use this when user wants an action item / subtask / step.",
         },
         action_id: {
           type: "string",

@@ -347,6 +347,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     tools: [
       "web_search",
       "memory",
+      "knowledge_search",
       "linkedin",
       "delegate_task",
       "twenty_crm",
@@ -357,13 +358,23 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "Outreach messaging",
       "Content repurposing",
       "Email content",
+      "Knowledge Studio (playbook RAG)",
     ],
     connections: [
       { label: "LinkedIn", connected: true, toolId: "linkedin" },
       { label: "CRM", connected: true, toolId: "twenty_crm" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
-    routines: [],
+    routines: [
+      {
+        id: "marni-kb-cadence",
+        name: "Marni Knowledge Studio (cadence)",
+        schedule: "23 * * * *",
+        description:
+          "Runs due Knowledge Studio topics: web research → chunks when cadenceMinutes elapsed",
+        handler: "marni-kb-cadence",
+      },
+    ],
     heartbeat: null,
     workflowTypes: ["content-distribution"],
     delegation: {

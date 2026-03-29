@@ -1,6 +1,9 @@
 import { signIn, auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
+
+const brandTitle = getAppBrandTitle();
+const tagline = getAppHeadline();
 import { isBackendOnlyUiMode } from "@/lib/backend-only-ui";
 
 export default async function LoginPage() {
@@ -18,11 +21,9 @@ export default async function LoginPage() {
             <span className="text-2xl font-bold text-white">S</span>
           </div>
           <h1 className="text-lg sm:text-xl font-semibold text-[#f5f5f5] leading-snug max-w-md mx-auto px-2">
-            {getAppHeadline()}
+            {brandTitle}
           </h1>
-          {getAppBrandTitle() !== getAppHeadline() && (
-            <p className="text-[13px] text-[#6b8a9e] mt-3">{getAppBrandTitle()}</p>
-          )}
+          <p className="text-[13px] text-[#6b8a9e] mt-3 max-w-md mx-auto px-2">{tagline}</p>
         </div>
         <form
           action={async () => {

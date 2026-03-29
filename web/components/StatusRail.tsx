@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AgentConfig } from "@/lib/agent-frontend";
 import type { DashboardNotification } from "@/lib/dashboard-sync-types";
+import type { StatusRailAgentRow, StatusRailHeartbeat, StatusRailMemory } from "@/lib/status-rail-agents-types";
+import { AgentsOverviewEyeIcon } from "@/components/icons/AgentsOverviewEyeIcon";
+import { HeartbeatActivityIcon } from "@/components/icons/HeartbeatActivityIcon";
+import { KnowledgeRagIcon } from "@/components/icons/KnowledgeRagIcon";
+import { MemoryBrainIcon } from "@/components/icons/MemoryBrainIcon";
+import { getAgentSpec } from "@/lib/agent-registry";
 
 const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "workflow", "schedule"];
 
@@ -37,12 +43,120 @@ function serviceSubline(s: ServiceRow): string {
   return parts.length > 0 ? parts.join(" · ") : "OK";
 }
 
+const CORE_SYSTEM_IDS = new Set(["web", "data_platform"]);
+/** Strattegys site + Rainbow and other project-server HTTP probes (`site` = legacy id). */
+const WEBSITE_PROJECT_IDS = new Set(["strattegys", "site", "rainbow"]);
+const MAX_SERVICE_LINES = 5;
+
+function aggregateGroupStatus(rows: ServiceRow[]): ServiceRow["status"] {
+  if (rows.length === 0) return "skipped";
+  if (rows.some((r) => r.status === "down")) return "down";
+  if (rows.every((r) => r.status === "skipped")) return "skipped";
+  return "ok";
+}
+
+/** One line per probe (Unipile, Inworld, …) for the Services block. */
+function linesFromRows(rows: ServiceRow[]): string {
+  if (rows.length === 0) return "—";
+  return rows.map((r) => `${r.label} — ${serviceSubline(r)}`).join("\n");
+}
+
+function pickServiceRows(services: ServiceRow[]): ServiceRow[] {
+  const excluded = new Set([...CORE_SYSTEM_IDS, ...WEBSITE_PROJECT_IDS]);
+  const candidates = services.filter((s) => !excluded.has(s.id));
+  const preferredOrder = ["unipile", "inworld_tts"];
+  const out: ServiceRow[] = [];
+  for (const id of preferredOrder) {
+    const r = candidates.find((c) => c.id === id);
+    if (r) out.push(r);
+  }
+  for (const c of candidates) {
+    if (!out.some((o) => o.id === c.id)) out.push(c);
+  }
+  return out.slice(0, MAX_SERVICE_LINES);
+}
+
+/** Command Central, Data platform, Website-projects (project server), Services (Unipile, Inworld, …). */
+function buildConsolidatedSystemRows(services: ServiceRow[] | null): ServiceRow[] {
+  if (services === null) {
+    return [
+      { id: "web", label: "Command Central", status: "ok", ms: 0 },
+      {
+        id: "data_platform",
+        label: "Data platform",
+        status: "skipped",
+        detail: "Loading…",
+      },
+      {
+        id: "website_projects",
+        label: "Website-projects",
+        status: "skipped",
+        detail: "Loading…",
+      },
+      {
+        id: "integrations_services",
+        label: "Services",
+        status: "skipped",
+        detail: "Loading…",
+      },
+    ];
+  }
+
+  const find = (id: string) => services.find((s) => s.id === id);
+
+  const commandCentral =
+    find("web") ??
+    ({ id: "web", label: "Command Central", status: "ok" as const, ms: 0 } satisfies ServiceRow);
+
+  const dataPlatform =
+    find("data_platform") ??
+    ({
+      id: "data_platform",
+      label: "Data platform",
+      status: "skipped" as const,
+      detail: "not reported",
+    } satisfies ServiceRow);
+
+  const rawStrattegys = find("strattegys") ?? find("site");
+  const strattegysRow: ServiceRow = rawStrattegys
+    ? { ...rawStrattegys, id: "strattegys", label: "Strattegys" }
+    : {
+        id: "strattegys",
+        label: "Strattegys",
+        status: "skipped",
+        detail: "not probed",
+      };
+
+  const rainbowRow =
+    find("rainbow") ??
+    ({
+      id: "rainbow",
+      label: "Rainbow",
+      status: "skipped" as const,
+      detail: "set PROJECT_SERVER_RAINBOW_URL to probe",
+    } satisfies ServiceRow);
+
+  const websiteProjectParts = [strattegysRow, rainbowRow];
+  const websiteProjects: ServiceRow = {
+    id: "website_projects",
+    label: "Website-projects",
+    status: aggregateGroupStatus(websiteProjectParts),
+    detail: linesFromRows(websiteProjectParts),
+  };
+
+  const serviceParts = pickServiceRows(services);
+  const servicesRow: ServiceRow = {
+    id: "integrations_services",
+    label: "Services",
+    status: aggregateGroupStatus(serviceParts),
+    detail: linesFromRows(serviceParts),
+  };
+
+  return [commandCentral, dataPlatform, websiteProjects, servicesRow];
+}
+
 interface StatusRailProps {
   agents: AgentConfig[];
-  pendingTaskCount: number;
-  testingTaskCount: number;
-  timMessagingTaskCount?: number;
-  ghostContentTaskCount?: number;
   /** When provided, rail uses parent-fed alerts and skips /api/notifications polling. */
   sharedNotifications?: DashboardNotification[];
 }
@@ -70,12 +184,41 @@ function noticeSeverityClass(sev: SystemNotice["severity"]) {
   return "border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-secondary)]";
 }
 
+function heartbeatStroke(s: StatusRailHeartbeat): string {
+  if (s === "ok") return "#1D9E75";
+  if (s === "warn") return "#F59E0B";
+  if (s === "error") return "#E54D2E";
+  if (s === "skipped") return "#6b7280";
+  return "#6b7280";
+}
+
+function memoryStroke(s: StatusRailMemory): string {
+  if (s === "ok") return "#1D9E75";
+  if (s === "warn") return "#F59E0B";
+  if (s === "error") return "#E54D2E";
+  return "#6b7280";
+}
+
+/** Per-agent “functioning?”: online + heartbeat (eye icon). */
+function perAgentOverviewStroke(
+  a: AgentConfig,
+  agentOps: Record<string, StatusRailAgentRow> | null
+): string {
+  if (!agentOps) return "#6b7280";
+  const hb = agentOps[a.id]?.heartbeat ?? "none";
+  if (hb === "error") return "#E54D2E";
+  if (!a.online || hb === "warn") return "#F59E0B";
+  return "#1D9E75";
+}
+
+function perAgentOverviewTitle(a: AgentConfig, row: StatusRailAgentRow | undefined): string {
+  const online = a.online ? "Online" : "Offline";
+  if (!row) return `${a.name}: ${online} · loading heartbeat…`;
+  return `${a.name}: ${online} · heartbeat ${row.heartbeat} (${row.heartbeatDetail})`;
+}
+
 export default function StatusRail({
   agents,
-  pendingTaskCount,
-  testingTaskCount,
-  timMessagingTaskCount = 0,
-  ghostContentTaskCount = 0,
   sharedNotifications,
 }: StatusRailProps) {
   const [services, setServices] = useState<ServiceRow[] | null>(null);
@@ -83,8 +226,24 @@ export default function StatusRail({
   const [systemNotices, setSystemNotices] = useState<SystemNotice[]>([]);
   const [reconnectBusy, setReconnectBusy] = useState(false);
   const [reconnectNote, setReconnectNote] = useState<string | null>(null);
+  const [agentOps, setAgentOps] = useState<Record<string, StatusRailAgentRow> | null>(null);
 
   const teamAgents = agents.filter((a) => a.category !== "Toys");
+
+  const consolidatedSystemRows = useMemo(
+    () => buildConsolidatedSystemRows(services),
+    [services]
+  );
+
+  const fetchAgentOps = useCallback(() => {
+    fetch("/api/status-rail-agents", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data: { agents?: Record<string, StatusRailAgentRow> }) => {
+        if (data.agents && typeof data.agents === "object") setAgentOps(data.agents);
+        else setAgentOps({});
+      })
+      .catch(() => setAgentOps({}));
+  }, []);
 
   const fetchStatus = useCallback(() => {
     fetch("/api/system-status", { credentials: "include" })
@@ -133,6 +292,12 @@ export default function StatusRail({
     return () => clearInterval(i);
   }, [fetchStatus]);
 
+  useEffect(() => {
+    fetchAgentOps();
+    const i = setInterval(fetchAgentOps, 60000);
+    return () => clearInterval(i);
+  }, [fetchAgentOps]);
+
   const onReconnectDataPlatform = useCallback(async () => {
     setReconnectBusy(true);
     setReconnectNote(null);
@@ -146,48 +311,42 @@ export default function StatusRail({
       const text = data.message || data.error || (r.ok ? "Done." : "Request failed.");
       setReconnectNote(text);
       fetchStatus();
+      fetchAgentOps();
     } catch {
       setReconnectNote("Request failed — try again.");
       fetchStatus();
+      fetchAgentOps();
     } finally {
       setReconnectBusy(false);
     }
-  }, [fetchStatus]);
+  }, [fetchStatus, fetchAgentOps]);
 
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
-      aria-label="System status"
+      aria-label="System monitor"
     >
-      <div className="shrink-0 h-11 border-b border-[var(--border-color)] px-2 flex items-center gap-1.5 min-w-0">
-        <span
-          className="w-1.5 h-1.5 rounded-full bg-[#1D9E75] shrink-0 animate-pulse"
-          title="Polling"
-        />
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-secondary)] truncate min-w-0">
-          Status
-        </span>
-        <span
-          className="ml-auto shrink-0 text-[10px] font-mono text-[var(--text-tertiary)] tabular-nums"
-          title="Build code"
+      <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5 min-w-0">
+        <p
+          className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide truncate min-w-0"
+          title="System monitor"
         >
-          B25D
-        </span>
+          System monitor
+        </p>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
         <section>
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
-            Services
-          </div>
           <ul className="font-mono text-[10px] space-y-1">
-            {(services ?? [{ id: "web", label: "Command Central", status: "ok" as const }]).map((s) => (
+            {consolidatedSystemRows.map((s) => (
               <li key={s.id} className="flex items-start gap-1.5 min-w-0" title={s.detail}>
                 <span className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${statusDotClass(s.status)}`} />
                 <span className="min-w-0 flex-1">
                   <span className="text-[var(--text-secondary)] block truncate">{s.label}</span>
-                  <span className="text-[var(--text-tertiary)] break-words whitespace-normal leading-snug">
-                    {serviceSubline(s)}
+                  <span className="text-[var(--text-tertiary)] break-words whitespace-pre-line leading-snug">
+                    {s.id === "website_projects" || s.id === "integrations_services"
+                      ? s.detail
+                      : serviceSubline(s)}
                   </span>
                 </span>
               </li>
@@ -198,13 +357,13 @@ export default function StatusRail({
             disabled={reconnectBusy}
             onClick={onReconnectDataPlatform}
             className="mt-2 w-full rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-            title="Clears stale CRM connection pool and probes Postgres. Local dev: if the SSH tunnel died, also run npm run db:reconnect on your PC (this button cannot start the tunnel)."
+            title="Clears stale CRM connection pool and probes Postgres. Docker dev: tunnel must listen on 0.0.0.0:5433 on Windows — run npm run db:reconnect from COMMAND-CENTRAL/web (this button cannot start SSH)."
           >
             {reconnectBusy ? "Checking…" : "Refresh Data platform"}
           </button>
           {reconnectNote ? (
             <p
-              className="mt-1.5 text-[9px] leading-snug text-[var(--text-tertiary)] break-words line-clamp-6"
+              className="mt-1.5 text-[9px] leading-snug text-[var(--text-tertiary)] break-words line-clamp-12"
               title={reconnectNote}
             >
               {reconnectNote}
@@ -216,45 +375,55 @@ export default function StatusRail({
           <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
             Agents
           </div>
-          <ul className="font-mono text-[10px] space-y-1">
+          <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mb-1.5 font-mono">
+            Per agent: eye · heartbeat · memory · knowledge — work items: bell in the left bar
+          </p>
+          <ul className="font-mono text-[10px] space-y-2">
             {teamAgents.map((a) => {
-              const showFridayTaskCount = a.id === "friday" && pendingTaskCount > 0;
-              const warnPenny = a.id === "penny" && testingTaskCount > 0;
-              const warnTim = a.id === "tim" && timMessagingTaskCount > 0;
-              const warnGhost = a.id === "ghost" && ghostContentTaskCount > 0;
+              const row = agentOps?.[a.id];
+              const hb: StatusRailHeartbeat = row?.heartbeat ?? "none";
+              const mem: StatusRailMemory = row?.memory ?? "none";
+              const hasMemoryTool = getAgentSpec(a.id).tools.includes("memory");
+              const hbTitle = row
+                ? `Heartbeat: ${row.heartbeatDetail}`
+                : "Heartbeat: loading…";
+              const memTitle = hasMemoryTool
+                ? row
+                  ? `Memory: ${row.memoryDetail}`
+                  : "Memory: loading…"
+                : "Memory tool not enabled for this agent";
+              const eyeTitle = perAgentOverviewTitle(a, row);
               return (
-                <li key={a.id} className="flex items-center gap-1.5 min-w-0">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0"
-                    style={{
-                      background: !a.online
-                        ? "#555"
-                        : warnPenny || warnTim || warnGhost
-                          ? "#F59E0B"
-                          : "#1D9E75",
-                    }}
-                  />
-                  <span className="truncate text-[var(--text-secondary)]">{a.name}</span>
-                  {showFridayTaskCount && (
-                    <span className="text-[var(--text-tertiary)] shrink-0 tabular-nums" title="Active-package human tasks (see Friday → Human tasks)">
-                      {pendingTaskCount}
+                <li key={a.id} className="flex items-center gap-1 min-w-0">
+                  <span className="truncate text-[var(--text-secondary)] min-w-0 flex-1 pr-0.5">{a.name}</span>
+                  <span className="shrink-0 inline-flex items-center gap-0.5" aria-label={`${a.name} status icons`}>
+                    <span className="inline-flex items-center justify-center w-[18px]" title={eyeTitle}>
+                      <AgentsOverviewEyeIcon
+                        size={14}
+                        stroke={perAgentOverviewStroke(a, agentOps)}
+                      />
                     </span>
-                  )}
-                  {warnPenny && (
-                    <span className="text-[#F59E0B] shrink-0" title="Pending approval">
-                      {testingTaskCount}
+                    <span className="inline-flex items-center justify-center w-[18px]" title={hbTitle}>
+                      <HeartbeatActivityIcon
+                        size={14}
+                        stroke={agentOps ? heartbeatStroke(hb) : "#6b7280"}
+                      />
                     </span>
-                  )}
-                  {warnTim && (
-                    <span className="text-[#F59E0B] shrink-0" title="Tim work queue (open tasks)">
-                      {timMessagingTaskCount}
+                    <span className="inline-flex items-center justify-center w-[18px]" title={memTitle}>
+                      <MemoryBrainIcon
+                        size={14}
+                        stroke={
+                          agentOps && hasMemoryTool ? memoryStroke(mem) : "#6b7280"
+                        }
+                      />
                     </span>
-                  )}
-                  {warnGhost && (
-                    <span className="text-[#F59E0B] shrink-0" title="Ghost content work queue">
-                      {ghostContentTaskCount}
+                    <span
+                      className="inline-flex items-center justify-center w-[18px]"
+                      title="Knowledge & external RAG (Marni) — in development"
+                    >
+                      <KnowledgeRagIcon size={14} stroke="#6b7280" />
                     </span>
-                  )}
+                  </span>
                 </li>
               );
             })}

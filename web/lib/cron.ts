@@ -151,6 +151,14 @@ const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
     await runWarmOutreachDiscoveryTick();
   },
 
+  "marni-kb-cadence": () => async () => {
+    const { processDueKbTopicsCron } = await import("./marni-kb");
+    const n = await processDueKbTopicsCron("marni");
+    if (n > 0) {
+      console.log(`[cron] Marni KB: ran ${n} topic(s)`);
+    }
+  },
+
   "scout-daily-research": () => async () => {
     const { agentAutonomousChat } = await import("./agent-llm");
     const { query: dbQuery } = await import("./db");

@@ -132,6 +132,10 @@ jobs:
           $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-punch-list-actions-jsonb.sql
 
+          echo "Applying idempotent Marni Knowledge Studio (_kb_topic, _agent_knowledge)..."
+          $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+            < web/scripts/migrate-marni-kb.sql
+
           echo "Waiting for server to start..."
           sleep 8
           EOF

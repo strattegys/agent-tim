@@ -61,10 +61,14 @@ function tryPunchListFastUserReply(toolResultsThisRound: string[]): string | nul
   if (archivedOne) return `Archived #${archivedOne[1]}.`;
 
   const noteAdded = raw.match(/^Note added to punch list item #(\d+)\.$/);
-  if (noteAdded) return `Note saved on #${noteAdded[1]}.`;
+  if (noteAdded) {
+    return `Saved a journal note (Notes section) on #${noteAdded[1]}.`;
+  }
 
   const subAdded = raw.match(/^Subtask added to punch list #(\d+)\. action_id=/);
-  if (subAdded) return `Added a subtask on #${subAdded[1]}.`;
+  if (subAdded) {
+    return `Added an action item (Actions checkboxes) on #${subAdded[1]}.`;
+  }
 
   const subTog = raw.match(/^Subtask on punch list #(\d+) marked (done|open)\.$/);
   if (subTog) {

@@ -25,7 +25,8 @@ export type ToolId =
   | "notes"
   | "intake"
   | "publish_article"
-  | "article_builder";
+  | "article_builder"
+  | "knowledge_search";
 
 // ─── Agent Categories ───
 

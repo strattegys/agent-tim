@@ -1,7 +1,15 @@
-# Start CRM SSH tunnel (Tailscale by default) if port 5433 is free, then docker compose dev stack.
-# Run from repo root or anywhere:  .\scripts\dev-docker-up.ps1
+# Start CRM path to droplet Postgres, then docker compose dev stack.
+# Run from COMMAND-CENTRAL:  .\scripts\dev-docker-up.ps1
+#   -UseTailscaleBridge   Stable dev without SSH: TCP bridge 0.0.0.0:PORT -> tailnet :5432
+#   (default)             SSH tunnel if port free (same as before)
 #
-# Requires: Tailscale connected on this PC, same tailnet as CC droplet. Optional: $env:CRM_SSH_HOST
+# Requires: Tailscale on this PC. Droplet must expose CRM DB on tailnet for -UseTailscaleBridge:
+#   ssh root@<100.x> 'cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh'
+# Optional: CRM_SSH_HOST, CRM_DB_TAILSCALE_HOST, CC_TAILSCALE_IP, CRM_TUNNEL_LOCAL_PORT
+
+param(
+  [switch]$UseTailscaleBridge
+)
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path $PSScriptRoot -Parent
@@ -12,24 +20,39 @@ if (-not (Test-Path (Join-Path $RepoRoot "docker-compose.dev.yml"))) {
 Set-Location $RepoRoot
 
 $localPort = if ($env:CRM_TUNNEL_LOCAL_PORT) { $env:CRM_TUNNEL_LOCAL_PORT } else { "5433" }
-$remoteHost = if ($env:CRM_SSH_HOST) { $env:CRM_SSH_HOST } else { "100.74.54.12" }
+$tsHost = if ($env:CRM_DB_TAILSCALE_HOST) { $env:CRM_DB_TAILSCALE_HOST.Trim() } elseif ($env:CC_TAILSCALE_IP) { $env:CC_TAILSCALE_IP.Trim() } else { "100.74.54.12" }
+$remoteSsh = if ($env:CRM_SSH_HOST) { $env:CRM_SSH_HOST } else { $tsHost }
 
 $already = Get-NetTCPConnection -LocalPort $localPort -State Listen -ErrorAction SilentlyContinue
 if (-not $already) {
-  $ssh = (Get-Command ssh -ErrorAction Stop).Source
-  $identity = $null
-  foreach ($name in @("hetzner_ed25519", "id_ed25519", "id_rsa")) {
-    $p = Join-Path $env:USERPROFILE ".ssh\$name"
-    if (Test-Path -LiteralPath $p) { $identity = $p; break }
+  if ($UseTailscaleBridge) {
+    $bridgeScript = Join-Path $RepoRoot "scripts\crm-db-tailscale-bridge.mjs"
+    if (-not (Test-Path -LiteralPath $bridgeScript)) {
+      Write-Error "Missing $bridgeScript"
+      exit 1
+    }
+    $node = (Get-Command node -ErrorAction Stop).Source
+    $env:CRM_DB_TAILSCALE_HOST = $tsHost
+    $env:CRM_TUNNEL_LOCAL_PORT = "$localPort"
+    Write-Host "Starting CRM Tailscale bridge: 0.0.0.0:${localPort} -> ${tsHost}:5432 (no SSH)"
+    Start-Process -FilePath $node -ArgumentList @($bridgeScript) -WorkingDirectory $RepoRoot -WindowStyle Hidden
+    Start-Sleep -Seconds 2
+  } else {
+    $ssh = (Get-Command ssh -ErrorAction Stop).Source
+    $identity = $null
+    foreach ($name in @("hetzner_ed25519", "id_ed25519", "id_rsa")) {
+      $p = Join-Path $env:USERPROFILE ".ssh\$name"
+      if (Test-Path -LiteralPath $p) { $identity = $p; break }
+    }
+    $sshArgs = @()
+    if ($identity) { $sshArgs += "-i", $identity }
+    $sshArgs += "-N", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", "TCPKeepAlive=yes", "-L", "0.0.0.0:${localPort}:localhost:5432", "root@${remoteSsh}"
+    Write-Host "Starting CRM SSH tunnel: 0.0.0.0:${localPort} -> ${remoteSsh}:5432 (server localhost:5432)"
+    Start-Process -FilePath $ssh -ArgumentList $sshArgs -WindowStyle Hidden
+    Start-Sleep -Seconds 2
   }
-  $sshArgs = @()
-  if ($identity) { $sshArgs += "-i", $identity }
-  $sshArgs += "-N", "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=4", "-o", "TCPKeepAlive=yes", "-L", "0.0.0.0:${localPort}:localhost:5432", "root@${remoteHost}"
-  Write-Host "Starting CRM tunnel: 0.0.0.0:${localPort} -> ${remoteHost}:5432 (localhost:5432 on server)"
-  Start-Process -FilePath $ssh -ArgumentList $sshArgs -WindowStyle Hidden
-  Start-Sleep -Seconds 2
 } else {
-  Write-Host "Port ${localPort} already listening (tunnel may already be running)."
+  Write-Host "Port ${localPort} already listening (bridge or tunnel may already be running)."
 }
 
 docker compose -f docker-compose.dev.yml up -d

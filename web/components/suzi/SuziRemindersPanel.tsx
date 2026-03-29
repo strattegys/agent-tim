@@ -322,7 +322,7 @@ export default function SuziRemindersPanel({
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--bg-primary)] min-w-0">
         {renderSubTabHeader()}
-        {/* Inspect is sized to ~⅔ of this pane only (below sub-tab header), not the tab row */}
+        {/* Inspect sheet: fixed 90% height of this pane (below sub-tab header), not the tab row */}
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden min-w-0">
           <SuziPunchListPanel
             onClose={onClose}

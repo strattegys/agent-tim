@@ -30,7 +30,7 @@ export default function SuziWorkSubTabHeader({
   const hint = SUZI_WORK_TAB_HEADER_HINT[subTab];
 
   return (
-    <div className="min-h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center gap-2 px-2 sm:px-3 py-1.5">
+    <div className="min-h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center gap-2 px-2 sm:px-3 py-1.5 overflow-x-auto">
       <div className="flex items-center gap-0.5 sm:gap-1 flex-wrap min-w-0 flex-1">
         {TAB_ORDER.map((tab) => {
           const isActive = subTab === tab;
@@ -51,11 +51,11 @@ export default function SuziWorkSubTabHeader({
         })}
       </div>
       <div
-        className="shrink-0 max-w-[min(50vw,16rem)] sm:max-w-[18rem] rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-primary)]/60 px-2 py-1"
+        className="shrink-0 rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-primary)]/60 px-2 py-1"
         role="note"
         aria-label={hint}
       >
-        <p className="text-[10px] sm:text-[11px] font-medium text-[var(--accent-green)] leading-tight">
+        <p className="text-[10px] sm:text-[11px] font-medium text-[var(--accent-green)] leading-none whitespace-nowrap">
           {hint}
         </p>
       </div>

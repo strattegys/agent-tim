@@ -2,10 +2,10 @@
 
 import type { AgentConfig } from "@/lib/agent-frontend";
 import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
-import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
+import { SIDEBAR_HEADER_TITLE } from "@/lib/app-brand";
+import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
+import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
 import AgentAvatar from "./AgentAvatar";
-import NotificationBell from "./NotificationBell";
-import type { DashboardNotification } from "@/lib/dashboard-sync-types";
 
 const TEAM_CATEGORIES = AGENT_CATEGORIES.filter((c) => c !== "Toys");
 
@@ -18,7 +18,6 @@ interface AgentSidebarProps {
   testingTaskCount?: number;
   timMessagingTaskCount?: number;
   ghostContentTaskCount?: number;
-  sharedNotifications?: DashboardNotification[];
 }
 
 export default function AgentSidebar({
@@ -30,30 +29,22 @@ export default function AgentSidebar({
   testingTaskCount = 0,
   timMessagingTaskCount = 0,
   ghostContentTaskCount = 0,
-  sharedNotifications,
 }: AgentSidebarProps) {
-  const appTitle = getAppBrandTitle();
-  const headline = getAppHeadline();
+  const workBadges = {
+    pendingTaskCount,
+    testingTaskCount,
+    timMessagingTaskCount,
+    ghostContentTaskCount,
+  };
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
-      <div className="shrink-0 px-2 py-2 border-b border-[var(--border-color)] min-w-0 relative">
-        <div className="absolute top-2 right-2 z-10">
-          <NotificationBell sharedNotifications={sharedNotifications} />
-        </div>
+      <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
         <p
-          className="text-[10px] font-semibold text-[var(--text-primary)] leading-snug pr-7"
-          title={headline}
+          className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
+          title={SIDEBAR_HEADER_TITLE}
         >
-          {headline}
+          {SIDEBAR_HEADER_TITLE}
         </p>
-        {appTitle !== headline && (
-          <p
-            className="text-[9px] text-[var(--text-secondary)] mt-1 truncate"
-            title={appTitle}
-          >
-            {appTitle}
-          </p>
-        )}
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {TEAM_CATEGORIES.map((category) => {
@@ -89,26 +80,38 @@ export default function AgentSidebar({
                         </span>
                       )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className={`text-sm font-medium ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}>
+                    <div className="flex-1 min-w-0 flex items-start gap-2">
+                      <span
+                        className="shrink-0 w-[18px] flex items-center justify-center pt-0.5"
+                        title={
+                          agentHasUserWorkItem(agent.id, workBadges)
+                            ? "Work waiting for you"
+                            : agent.online
+                              ? "Online"
+                              : "Offline"
+                        }
+                      >
+                        {agentHasUserWorkItem(agent.id, workBadges) ? (
+                          <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
+                            <WorkBellIcon size={15} stroke="currentColor" />
+                          </span>
+                        ) : (
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{
+                              background: !agent.online ? "#555" : "#1D9E75",
+                            }}
+                            aria-hidden
+                          />
+                        )}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className={`text-sm font-medium truncate ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
+                        >
                           {agent.name}
-                        </span>
-                        <span
-                          className="w-2 h-2 rounded-full shrink-0"
-                          style={{
-                            background: !agent.online
-                              ? "#555"
-                              : (agent.id === "penny" && testingTaskCount > 0) ||
-                                  (agent.id === "tim" && timMessagingTaskCount > 0) ||
-                                  (agent.id === "ghost" && ghostContentTaskCount > 0)
-                                ? "#F59E0B"
-                                : "#1D9E75",
-                          }}
-                        />
-                      </div>
-                      <div className="text-xs text-[var(--text-secondary)] truncate">
-                        {agent.role}
+                        </div>
+                        <div className="text-xs text-[var(--text-secondary)] truncate">{agent.role}</div>
                       </div>
                     </div>
                   </button>

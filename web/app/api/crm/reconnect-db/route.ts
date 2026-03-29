@@ -7,6 +7,15 @@ export const runtime = "nodejs";
 
 const PROBE_MS = 8000;
 
+function dockerDesktopTunnelHint(host: string, port: number): string {
+  if (!host.toLowerCase().includes("host.docker.internal")) return "";
+  return (
+    ` Docker dev: the tunnel on your PC must listen on 0.0.0.0:${port} (all interfaces), not 127.0.0.1 only, or this container cannot reach Postgres. ` +
+    `From COMMAND-CENTRAL/web run: npm run db:reconnect — or scripts/crm-db-tunnel.ps1 / dev-docker-up.ps1. ` +
+    `Then click Refresh again.`
+  );
+}
+
 /**
  * POST /api/crm/reconnect-db — authenticated only.
  * Drops the server-side CRM connection pool and probes Postgres (same checks as Data platform).
@@ -85,21 +94,32 @@ export async function POST() {
     const isConn =
       /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|timeout/i.test(msg) ||
       msg.toLowerCase().includes("connect");
-    const devTunnelHint =
-      process.env.NODE_ENV === "development" && /ECONNREFUSED/i.test(msg)
-        ? " On your machine, restart the SSH tunnel (e.g. cd web && npm run db:reconnect, or COMMAND-CENTRAL/scripts/crm-db-tunnel.ps1). The app cannot open that tunnel for you from the browser."
-        : "";
+    const dockerHint = dockerDesktopTunnelHint(host, port);
+    let devHints = "";
+    if (process.env.NODE_ENV === "development") {
+      if (/ECONNREFUSED/i.test(msg)) {
+        devHints =
+          dockerHint ||
+          " On your machine, restart the SSH tunnel (e.g. cd web && npm run db:reconnect, or COMMAND-CENTRAL/scripts/crm-db-tunnel.ps1). The app cannot open that tunnel for you from the browser.";
+      } else if (isConn && dockerHint) {
+        devHints = dockerHint;
+      }
+    }
     const prodHint =
       process.env.NODE_ENV === "production" && isConn
         ? " If crm-db was restarted, this button clears stale pool connections; if it still fails, check docker compose on the host."
         : "";
 
+    const suffix = `${devHints}${prodHint}`.trim();
     return NextResponse.json({
       ok: false,
       dataPlatform: "down",
       target,
       error: msg.slice(0, 200),
-      message: `Could not reach CRM Postgres at ${target}.${devTunnelHint}${prodHint}`.slice(0, 600),
+      message: `Could not reach CRM Postgres at ${target}.${suffix ? ` ${suffix}` : ""}`.slice(
+        0,
+        900
+      ),
     });
   }
 }

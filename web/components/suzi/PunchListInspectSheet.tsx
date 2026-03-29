@@ -21,13 +21,11 @@ const ACTION_FILTERS: { key: ActionFilter; label: string }[] = [
 ];
 
 /**
- * ~⅔ of the positioning parent (punch-list pane below Suzi sub-tabs). Centered in overlay.
+ * Fixed 90% of the overlay height (area below Suzi sub-tabs down to panel bottom). Does not
+ * shrink when inner content is short — shrink-0 + min-h match h so flex centering cannot collapse it.
  */
 const INSPECT_PANEL_CLASS =
-  "relative z-10 flex h-2/3 w-2/3 min-h-0 min-w-0 max-h-full max-w-full flex-col rounded-xl border-2 border-[var(--border-color)] bg-[var(--bg-primary)] shadow-2xl overflow-hidden";
-
-/** Compact actions strip on the right (notes fill remaining height below). */
-const INSPECT_ACTIONS_H = "h-[6.5rem]";
+  "relative z-10 flex h-[90%] min-h-[90%] w-2/3 shrink-0 min-w-0 max-h-full max-w-full flex-col rounded-xl border-2 border-[var(--border-color)] bg-[var(--bg-primary)] shadow-2xl overflow-hidden";
 
 /** Renders inside a `relative` kanban root so Suzi chat and the rest of the UI stay visible. */
 export default function PunchListInspectSheet({
@@ -50,10 +48,10 @@ export default function PunchListInspectSheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const notesChronological = useMemo(() => {
+  const notesNewestFirst = useMemo(() => {
     const list = [...(item.notes || [])];
     list.sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     return list;
   }, [item.notes]);
@@ -115,46 +113,45 @@ export default function PunchListInspectSheet({
         onClick={onClose}
       />
       <div className={INSPECT_PANEL_CLASS}>
-        <div className="shrink-0 flex items-start gap-2 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-          <h2
-            id="punch-inspect-title"
-            className={`text-sm font-semibold flex-1 min-w-0 leading-snug line-clamp-2 ${
-              item.status === "done"
-                ? "line-through text-[var(--text-tertiary)]"
-                : "text-[var(--text-primary)]"
-            }`}
-          >
-            <span className="tabular-nums">#{item.itemNumber}</span>
-            <span className="text-[var(--text-tertiary)] font-normal"> · </span>
-            {item.title}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 self-center px-2 py-1 text-xs rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
-          >
-            Close
-          </button>
+        <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] space-y-2">
+          <div className="flex items-start gap-2">
+            <h2
+              id="punch-inspect-title"
+              className={`text-sm font-semibold flex-1 min-w-0 leading-snug line-clamp-2 ${
+                item.status === "done"
+                  ? "line-through text-[var(--text-tertiary)]"
+                  : "text-[var(--text-primary)]"
+              }`}
+            >
+              <span className="tabular-nums">#{item.itemNumber}</span>
+              <span className="text-[var(--text-tertiary)] font-normal"> · </span>
+              {item.title}
+            </h2>
+            <button
+              type="button"
+              onClick={onClose}
+              className="shrink-0 self-center px-2 py-1 text-xs rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
+            >
+              Close
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-[var(--text-secondary)]">
+            <span className="px-2 py-0.5 rounded-md bg-[var(--bg-primary)] border border-[var(--border-color)]">
+              {columnLabel}
+            </span>
+            <span className="px-2 py-0.5 rounded-md bg-[var(--bg-primary)] border border-[var(--border-color)]">
+              {item.status === "open" ? "Open" : "Done"}
+            </span>
+            {item.category && (
+              <span className="px-2 py-0.5 rounded-md bg-[var(--bg-primary)] border border-[var(--border-color)]">
+                {item.category}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-1 min-h-0 flex-col gap-2 overflow-hidden p-3">
-          <div className="shrink-0">
-            <div className="flex flex-wrap gap-2 text-xs text-[var(--text-secondary)]">
-              <span className="px-2 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                {columnLabel}
-              </span>
-              <span className="px-2 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                {item.status === "open" ? "Open" : "Done"}
-              </span>
-              {item.category && (
-                <span className="px-2 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                  {item.category}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Left: description (60%) · Right: actions strip + notes — grows with panel height */}
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden p-3 pt-2">
+          {/* Left: description (60%) · Right: 60% actions / 40% notes (column height) */}
           <div className="flex min-h-0 flex-1 flex-row gap-3 overflow-hidden">
             <div className="w-[60%] min-w-0 h-full flex flex-col min-h-0">
               <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] mb-1 shrink-0">
@@ -171,10 +168,8 @@ export default function PunchListInspectSheet({
               </div>
             </div>
 
-            <div className="w-[40%] min-w-0 h-full flex flex-col gap-2 border-l border-[var(--border-color)] pl-3 min-h-0">
-              <div
-                className={`${INSPECT_ACTIONS_H} shrink-0 flex flex-col border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]/40 overflow-hidden`}
-              >
+            <div className="w-[40%] min-w-0 h-full min-h-0 grid grid-rows-[3fr_2fr] gap-2 border-l border-[var(--border-color)] pl-3">
+              <div className="min-h-0 flex h-full min-w-0 flex-col border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]/40 overflow-hidden">
                 <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] px-2 py-1 space-y-1">
                   <p className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)]">
                     Actions {item.actions?.length ? `(${item.actions.length})` : ""}
@@ -256,15 +251,15 @@ export default function PunchListInspectSheet({
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 flex flex-col border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]/40 overflow-hidden">
+              <div className="min-h-0 flex h-full min-w-0 flex-col border border-[var(--border-color)] rounded-lg bg-[var(--bg-secondary)]/40 overflow-hidden">
                 <p className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
                   Notes {item.notes?.length ? `(${item.notes.length})` : ""}
                 </p>
                 <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-3">
-                  {!notesChronological.length ? (
+                  {!notesNewestFirst.length ? (
                     <p className="text-xs text-[var(--text-tertiary)] italic">No notes yet.</p>
                   ) : (
-                    notesChronological.map((note) => (
+                    notesNewestFirst.map((note) => (
                       <div
                         key={note.id}
                         className="pl-2 border-l-2 border-[var(--border-color)] text-sm text-[var(--text-chat-body)] whitespace-pre-wrap break-words"

@@ -1,14 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import { existsSync } from "fs";
 import { writeFile, mkdir, readFile } from "fs/promises";
 import path from "path";
 import { getAgentSpec } from "@/lib/agent-registry";
 
 export const runtime = "nodejs";
 
-// Persistent avatar uploads. Docker Compose sets AVATAR_DIR=/data/agent-avatars (mounted volume).
-// Default /tmp/... avoids EACCES when the process user cannot read /root.
-const AVATAR_DIR =
-  process.env.AVATAR_DIR || "/tmp/agent-avatars";
+/**
+ * Persistent avatar uploads.
+ * - Production Docker: AVATAR_DIR=/data/agent-avatars (see root docker-compose.yml).
+ * - Dev Docker: same via docker-compose.dev.yml + ./docker-data/agent-avatars on the host.
+ * - Native `npm run dev` from web/: defaults to ../docker-data/agent-avatars (repo root), unless
+ *   running inside a container without AVATAR_DIR (use /tmp — set AVATAR_DIR in compose).
+ */
+function resolveAvatarDir(): string {
+  if (process.env.AVATAR_DIR?.trim()) {
+    return process.env.AVATAR_DIR.trim();
+  }
+  if (process.env.NODE_ENV === "production") {
+    return "/tmp/agent-avatars";
+  }
+  if (existsSync("/.dockerenv")) {
+    return "/tmp/agent-avatars";
+  }
+  return path.join(process.cwd(), "..", "docker-data", "agent-avatars");
+}
+
+const AVATAR_DIR = resolveAvatarDir();
 
 function safeHexColor(c: string | undefined, fallback: string): string {
   if (c && /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(c)) return c;

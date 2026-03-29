@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { AgentConfig } from "@/lib/agent-frontend";
+import { compressAvatarImage } from "@/lib/compress-avatar-image";
+import { getAgentSpec } from "@/lib/agent-registry";
 
 
 interface Routine {
@@ -30,6 +32,23 @@ interface BackendConfig {
   memoryDir?: string;
   tools: string[];
   routines: Routine[];
+  vectorMemory?: boolean;
+}
+
+interface MemoryHealthPayload {
+  enabled: boolean;
+  agentId: string;
+  mode: "none" | "vector" | "file";
+  ok: boolean;
+  ephemeral: boolean;
+  memoryDir?: string;
+  database?: "ok" | "unavailable" | "error";
+  databaseDetail?: string;
+  memoryCount?: number;
+  embeddings?: "ok" | "missing_key" | "error";
+  embeddingDetail?: string;
+  fileBackend?: "ok" | "deferred" | "error";
+  fileDetail?: string;
 }
 
 interface VoiceRuntime {
@@ -51,8 +70,9 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
   const [cronJobs, setCronJobs] = useState<CronJobStatus[]>([]);
   const [agentSummary, setAgentSummary] = useState("");
   const [promptCollapsed, setPromptCollapsed] = useState(true);
-  const [uploading, setUploading] = useState(false);
   const [voiceRuntime, setVoiceRuntime] = useState<VoiceRuntime | null>(null);
+  /** undefined = loading; null = no memory tool or fetch failed; object = health payload */
+  const [memoryHealth, setMemoryHealth] = useState<MemoryHealthPayload | null | undefined>(undefined);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load all dashboard data on agent change
@@ -64,6 +84,7 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
     setAgentSummary("");
     setPromptCollapsed(true);
     setVoiceRuntime(null);
+    setMemoryHealth(undefined);
 
     fetch(`/api/agent-summary?agent=${agent.id}`)
       .then((res) => res.json())
@@ -90,6 +111,18 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
       .then((res) => res.json())
       .then((data) => { if (data.jobs) setCronJobs(data.jobs); })
       .catch(() => {});
+
+    if (!getAgentSpec(agent.id).tools.includes("memory")) {
+      setMemoryHealth(null);
+    } else {
+      fetch(`/api/memory-health?agent=${agent.id}`)
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+        .then((data: MemoryHealthPayload) => {
+          if (data && typeof data.enabled === "boolean") setMemoryHealth(data);
+          else setMemoryHealth(null);
+        })
+        .catch(() => setMemoryHealth(null));
+    }
   }, [agent.id]);
 
   const heartbeatJob = cronJobs.find((j) => j.id === `heartbeat-${agent.id}`);
@@ -101,32 +134,11 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
           { name: "Scheduled Messages", desc: "Detects failed or overdue scheduled LinkedIn messages", priority: "high" },
           { name: "Workflow Health", desc: "Checks for empty or inactive workflows in CRM", priority: "low" },
         ]
-      : [];
-
-  const compressImage = (file: File): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const MAX = 512;
-        let w = img.width, h = img.height;
-        if (w > MAX || h > MAX) {
-          if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
-          else { w = Math.round(w * MAX / h); h = MAX; }
-        }
-        canvas.width = w;
-        canvas.height = h;
-        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
-        canvas.toBlob(
-          (blob) => blob ? resolve(blob) : reject(new Error("Compression failed")),
-          "image/png",
-          0.85
-        );
-      };
-      img.onerror = () => reject(new Error("Failed to load image"));
-      img.src = URL.createObjectURL(file);
-    });
-  };
+      : (getAgentSpec(agent.id).heartbeat?.checks ?? []).map((c) => ({
+          name: c.name,
+          desc: c.description,
+          priority: c.priority,
+        }));
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -137,13 +149,19 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
       return;
     }
 
-    setUploading(true);
+    const uploadAbort = new AbortController();
+    const uploadTimer = window.setTimeout(() => uploadAbort.abort(), 60_000);
     try {
-      const compressed = await compressImage(file);
+      const compressed = await compressAvatarImage(file);
       const form = new FormData();
       form.append("file", new File([compressed], `${agent.id}-avatar.png`, { type: "image/png" }));
       form.append("agentId", agent.id);
-      const res = await fetch("/api/agent-avatar", { method: "POST", credentials: "include", body: form });
+      const res = await fetch("/api/agent-avatar", {
+        method: "POST",
+        credentials: "include",
+        body: form,
+        signal: uploadAbort.signal,
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: "Upload failed" }));
         alert(`Upload failed: ${err.error || "Unknown error"}`);
@@ -154,9 +172,14 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
         onAvatarChange(agent.id, data.avatarUrl);
       }
     } catch (err) {
-      alert(`Upload failed: ${err instanceof Error ? err.message : "Unknown error"}`);
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      alert(
+        err instanceof DOMException && err.name === "AbortError"
+          ? "Upload timed out"
+          : `Upload failed: ${msg}`
+      );
     } finally {
-      setUploading(false);
+      clearTimeout(uploadTimer);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -188,6 +211,114 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
                   </span>
                 </div>
               ))}
+              {getAgentSpec(agent.id).tools.includes("memory") && (
+                <div className="flex items-start gap-2 text-xs pt-1 border-t border-[var(--border-color)]">
+                  {(() => {
+                    const mh = memoryHealth;
+                    const dot =
+                      mh === undefined
+                        ? "#888"
+                        : mh === null
+                          ? "#E54D2E"
+                          : mh.mode === "file"
+                            ? mh.ok
+                              ? "#1D9E75"
+                              : "#E54D2E"
+                            : mh.ok
+                              ? "#1D9E75"
+                              : mh.database === "ok" && mh.embeddings !== "ok"
+                                ? "#F59E0B"
+                                : "#E54D2E";
+                    const headline =
+                      mh === undefined
+                        ? "Checking…"
+                        : mh === null
+                          ? "Unavailable"
+                          : mh.mode === "file"
+                            ? mh.ok
+                              ? "Ready"
+                              : "Error"
+                            : mh.ok
+                              ? "Ready"
+                              : mh.database === "ok"
+                                ? "Embeddings issue"
+                                : mh.embeddings === "ok"
+                                  ? "Database issue"
+                                  : "Needs setup";
+                    const modeLabel =
+                      mh && mh !== null && mh.enabled
+                        ? mh.mode === "vector"
+                          ? "Semantic (CRM + Gemini)"
+                          : mh.ephemeral
+                            ? "File (local ephemeral)"
+                            : "File (MEMORY.md)"
+                        : "Long-term memory";
+                    return (
+                      <>
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0 mt-1"
+                          style={{ background: dot }}
+                          title={mh === undefined ? "Loading memory status…" : undefined}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[var(--text-primary)]">{modeLabel}</span>
+                            <span className="text-[11px] shrink-0" style={{ color: dot }}>
+                              {headline}
+                            </span>
+                          </div>
+                          {mh && mh.enabled && mh.mode === "vector" && (
+                            <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5 leading-snug space-y-0.5">
+                              <div>
+                                Database:{" "}
+                                {mh.database === "ok"
+                                  ? `OK (${mh.memoryCount ?? 0} memories)`
+                                  : mh.database === "unavailable"
+                                    ? "Not connected"
+                                    : "Error"}
+                                {mh.databaseDetail && mh.database !== "ok" ? (
+                                  <span className="block text-[#E54D2E] mt-0.5">{mh.databaseDetail}</span>
+                                ) : null}
+                              </div>
+                              <div>
+                                Embeddings:{" "}
+                                {mh.embeddings === "ok"
+                                  ? "OK (Gemini)"
+                                  : mh.embeddings === "missing_key"
+                                    ? "GEMINI_API_KEY missing"
+                                    : "Error"}
+                                {mh.embeddingDetail && mh.embeddings !== "ok" ? (
+                                  <span className="block text-[#F59E0B] mt-0.5">{mh.embeddingDetail}</span>
+                                ) : null}
+                              </div>
+                            </div>
+                          )}
+                          {mh && mh.enabled && mh.mode === "file" && mh.memoryDir && (
+                            <div className="text-[10px] text-[var(--text-tertiary)] mt-0.5 font-mono break-all">
+                              {mh.fileDetail ? (
+                                <span className={mh.ok ? "text-[var(--text-tertiary)]" : "text-[#E54D2E]"}>
+                                  {mh.fileDetail}
+                                </span>
+                              ) : (
+                                mh.memoryDir
+                              )}
+                            </div>
+                          )}
+                          {(mh === null || (mh && mh.enabled && !mh.ok)) && (
+                            <div className="text-[10px] text-[var(--text-tertiary)] mt-1">
+                              {mh === null
+                                ? "Could not load memory status. Check dev server logs and CRM / env."
+                                : mh.mode === "vector" && mh.database === "unavailable"
+                                  ? "Use the same CRM_DB_* settings as db:exec, run migrate-vector-memory.sql on the workspace schema, and set GEMINI_API_KEY."
+                                  : null}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
               {agent.ttsVoice && (
                 <div className="flex items-start gap-2 text-xs pt-1 border-t border-[var(--border-color)]">
                   <span

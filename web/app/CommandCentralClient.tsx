@@ -12,15 +12,19 @@ import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
 import TimAgentPanel from "@/components/tim/TimAgentPanel";
 import GhostAgentPanel from "@/components/ghost/GhostAgentPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
+import MarniWorkPanel, { type MarniWorkPanelTab } from "@/components/marni/MarniWorkPanel";
 import KingCostPanel from "@/components/king/KingCostPanel";
 import StatusRail from "@/components/StatusRail";
+import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
 
 import AgentAvatar from "@/components/AgentAvatar";
-import NotificationBell from "@/components/NotificationBell";
+import { SIDEBAR_HEADER_TITLE } from "@/lib/app-brand";
+import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
+import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
 import { getFrontendAgents, agentHasKanban, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
 import { TtsQueue, type TtsState } from "@/lib/tts-queue";
-import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
+import { compressAvatarImage } from "@/lib/compress-avatar-image";
 import {
   formatTimWorkQueueContext,
   type TimWorkQueueSelection,
@@ -64,7 +68,8 @@ type RightPanel =
   | "notes"
   | "tasks"
   | "messages"
-  | "costs";
+  | "costs"
+  | "marni-work";
 
 const VALID_RIGHT_PANELS: RightPanel[] = [
   "info",
@@ -75,6 +80,7 @@ const VALID_RIGHT_PANELS: RightPanel[] = [
   "tasks",
   "messages",
   "costs",
+  "marni-work",
 ];
 
 export default function CommandCentralClient() {
@@ -90,6 +96,7 @@ export default function CommandCentralClient() {
     if (agentId === "tim") return "messages";
     if (agentId === "ghost") return "messages";
     if (agentId === "king") return "costs";
+    if (agentId === "marni") return "marni-work";
     if (agentHasKanban(agentId)) return "kanban";
     return "info";
   }
@@ -103,6 +110,7 @@ export default function CommandCentralClient() {
     if (agent === "friday" && p === "tasks") return "dashboard";
     if (agent === "tim" && p === "kanban") return "messages";
     if (agent === "ghost" && p === "kanban") return "messages";
+    if (agent === "marni" && (p === "kanban" || paramPanel === "knowledge")) return "marni-work";
     return p || defaultPanelFor(agent);
   });
 
@@ -111,6 +119,10 @@ export default function CommandCentralClient() {
   useEffect(() => {
     if (paramAgent && AGENTS.some((a) => a.id === paramAgent)) {
       setActiveAgent(paramAgent);
+    }
+    if (paramAgent === "marni" && (paramPanel === "kanban" || paramPanel === "knowledge")) {
+      setRightPanel("marni-work");
+      return;
     }
     if (paramPanel && VALID_RIGHT_PANELS.includes(paramPanel as RightPanel)) {
       if (paramAgent === "friday" && paramPanel === "tasks") {
@@ -153,6 +165,23 @@ export default function CommandCentralClient() {
     // defaultPanelFor is stable logic for agent id → panel; listing it causes redundant runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAgent, rightPanel]);
+
+  useEffect(() => {
+    if (rightPanel === "marni-work" && activeAgent !== "marni") {
+      setRightPanel(defaultPanelFor(activeAgent));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgent, rightPanel]);
+
+  useEffect(() => {
+    if (activeAgent === "marni" && rightPanel === "kanban") {
+      setRightPanel("marni-work");
+    }
+  }, [activeAgent, rightPanel]);
+
+  useEffect(() => {
+    if (activeAgent !== "marni") setMarniWorkSubTab("queue");
+  }, [activeAgent]);
 
   useEffect(() => {
     setRightPanel((prev) =>
@@ -270,6 +299,10 @@ export default function CommandCentralClient() {
     useState<FridayDashboardTab>("packages");
   const [pennyDashboardTab, setPennyDashboardTab] =
     useState<PennyDashboardTab>("packages");
+  const [marniWorkSubTab, setMarniWorkSubTab] = useState<MarniWorkPanelTab>("queue");
+  const onMarniWorkTabChange = useCallback((t: MarniWorkPanelTab) => {
+    setMarniWorkSubTab(t);
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -499,33 +532,27 @@ export default function CommandCentralClient() {
     if (!file) return;
     if (file.size > 25 * 1024 * 1024) { alert("Image must be under 25MB"); return; }
     setAvatarUploading(true);
+    const uploadAbort = new AbortController();
+    const uploadTimer = window.setTimeout(() => uploadAbort.abort(), 60_000);
     try {
-      // Compress
-      const img = new Image();
-      const blob: Blob = await new Promise((resolve, reject) => {
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          const MAX = 512;
-          let w = img.width, h = img.height;
-          if (w > MAX || h > MAX) {
-            if (w > h) { h = Math.round(h * MAX / w); w = MAX; } else { w = Math.round(w * MAX / h); h = MAX; }
-          }
-          canvas.width = w; canvas.height = h;
-          canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
-          canvas.toBlob((b) => b ? resolve(b) : reject(new Error("Compress failed")), "image/png", 0.85);
-        };
-        img.onerror = () => reject(new Error("Failed to load image"));
-        img.src = URL.createObjectURL(file);
-      });
+      const blob = await compressAvatarImage(file);
       const form = new FormData();
       form.append("file", new File([blob], `${activeAgent}-avatar.png`, { type: "image/png" }));
       form.append("agentId", activeAgent);
-      const res = await fetch("/api/agent-avatar", { method: "POST", credentials: "include", body: form });
+      const res = await fetch("/api/agent-avatar", {
+        method: "POST",
+        credentials: "include",
+        body: form,
+        signal: uploadAbort.signal,
+      });
       if (!res.ok) { alert("Upload failed"); return; }
       const data = await res.json();
       if (data.avatarUrl) handleAvatarChange(activeAgent, data.avatarUrl);
-    } catch { alert("Upload failed"); }
-    finally {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      alert(err instanceof DOMException && err.name === "AbortError" ? "Upload timed out" : `Upload failed: ${msg}`);
+    } finally {
+      clearTimeout(uploadTimer);
       setAvatarUploading(false);
       if (avatarInputRef.current) avatarInputRef.current.value = "";
     }
@@ -535,8 +562,6 @@ export default function CommandCentralClient() {
   // No HEAD-request discovery needed — the API is the single source of truth.
 
   const agent = agents.find((a) => a.id === activeAgent) || agents[0];
-  const appBrandTitle = getAppBrandTitle();
-  const appHeadline = getAppHeadline();
 
   // Filter messages by search query
   const filteredMessages = useMemo(() => {
@@ -762,6 +787,7 @@ export default function CommandCentralClient() {
               activeAgent === "ghost" && ghostWorkSelection != null,
             fridayTab: fridayDashboardTab,
             pennyTab: pennyDashboardTab,
+            marniWorkSubTab: activeAgent === "marni" ? marniWorkSubTab : undefined,
           });
           if (agentUi) body.uiContext = agentUi;
         }
@@ -915,6 +941,7 @@ export default function CommandCentralClient() {
       suziFocusedPunchList,
       suziFocusedReminder,
       suziFocusedNote,
+      marniWorkSubTab,
       syncChatSidebarAfterTurn,
       refreshDashboardSync,
     ]
@@ -934,21 +961,13 @@ export default function CommandCentralClient() {
     <div className="flex h-screen w-screen overflow-hidden">
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
-        <div className="shrink-0 border-b border-[var(--border-color)] px-3 py-2 min-w-0 relative">
-          <div className="absolute top-2 right-3 z-10">
-            <NotificationBell sharedNotifications={dashboardNotifications} />
-          </div>
+        <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
           <p
-            className="text-[10px] font-semibold text-[var(--text-primary)] leading-snug pr-10"
-            title={appHeadline}
+            className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
+            title={SIDEBAR_HEADER_TITLE}
           >
-            {appHeadline}
+            {SIDEBAR_HEADER_TITLE}
           </p>
-          {appBrandTitle !== appHeadline && (
-            <p className="text-[9px] text-[var(--text-secondary)] mt-0.5 truncate pr-10" title={appBrandTitle}>
-              {appBrandTitle}
-            </p>
-          )}
         </div>
         <div className="flex-1 overflow-y-auto">
           {AGENT_CATEGORIES.filter((c) => c !== "Toys").map((category) => {
@@ -990,28 +1009,62 @@ export default function CommandCentralClient() {
                         <span
                           className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-secondary)]"
                           style={{
-                            background: !a.online
-                              ? "#555"
-                              : (a.id === "tim" && timMessagingTaskCount > 0) ||
-                                  (a.id === "ghost" && ghostContentTaskCount > 0)
-                                ? "#F59E0B"
-                                : "#1D9E75",
+                            background: !a.online ? "#555" : "#1D9E75",
                           }}
+                          title={a.online ? "Online" : "Offline"}
                         />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-sm font-medium ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}>
+                      <div className="flex-1 min-w-0 flex items-start gap-2">
+                        <span
+                          className="shrink-0 w-[18px] flex items-center justify-center pt-0.5"
+                          title={
+                            agentHasUserWorkItem(a.id, {
+                              pendingTaskCount,
+                              testingTaskCount,
+                              timMessagingTaskCount,
+                              ghostContentTaskCount,
+                            })
+                              ? "Work waiting for you"
+                              : a.online
+                                ? "Online"
+                                : "Offline"
+                          }
+                        >
+                          {agentHasUserWorkItem(a.id, {
+                            pendingTaskCount,
+                            testingTaskCount,
+                            timMessagingTaskCount,
+                            ghostContentTaskCount,
+                          }) ? (
+                            <span className="text-[var(--accent-orange)]" aria-label="Work waiting for you">
+                              <WorkBellIcon size={15} stroke="currentColor" />
+                            </span>
+                          ) : (
+                            <span
+                              className="w-2 h-2 rounded-full"
+                              style={{
+                                background: !a.online ? "#555" : "#1D9E75",
+                              }}
+                              aria-hidden
+                            />
+                          )}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <span
+                            className={`text-sm font-medium truncate min-w-0 ${unread > 0 ? "text-white" : "text-[var(--text-primary)]"}`}
+                          >
                             {a.name}
                           </span>
                           {unread > 0 && (
-                            <span className="min-w-[20px] h-[20px] rounded-full bg-[var(--accent-orange)] text-white text-[11px] font-bold flex items-center justify-center px-1">
+                            <span className="min-w-[20px] h-[20px] rounded-full bg-[var(--accent-orange)] text-white text-[11px] font-bold flex items-center justify-center px-1 shrink-0">
                               {unread > 99 ? "99+" : unread}
                             </span>
                           )}
                         </div>
                         <div className="text-xs text-[var(--text-secondary)] truncate mt-0.5">
                           {preview ? preview.slice(0, 60) + (preview.length > 60 ? "..." : "") : a.role}
+                        </div>
                         </div>
                       </div>
                     </button>
@@ -1046,17 +1099,6 @@ export default function CommandCentralClient() {
                   ttsSpeaking && (activeAgent === "suzi" || activeAgent === "tim")
                     ? `0 0 12px ${agent.color}`
                     : undefined,
-              }}
-            />
-            <span
-              className="absolute bottom-0 right-0 w-2 h-2 rounded-full border border-[var(--bg-primary)]"
-              style={{
-                background: !agent.online
-                  ? "#555"
-                  : (activeAgent === "tim" && timMessagingTaskCount > 0) ||
-                      (activeAgent === "ghost" && ghostContentTaskCount > 0)
-                    ? "#F59E0B"
-                    : "#1D9E75",
               }}
             />
           </div>
@@ -1098,7 +1140,6 @@ export default function CommandCentralClient() {
           testingTaskCount={testingTaskCount}
           timMessagingTaskCount={timMessagingTaskCount}
           ghostContentTaskCount={ghostContentTaskCount}
-          sharedNotifications={dashboardNotifications}
           onSelect={(id) => {
             if (id !== activeAgent) {
               loadedAgentRef.current = null;
@@ -1148,7 +1189,10 @@ export default function CommandCentralClient() {
               </button>
             )}
             {/* Mobile only: kanban link */}
-            {agentHasKanban(activeAgent) && activeAgent !== "tim" && activeAgent !== "ghost" && (
+            {agentHasKanban(activeAgent) &&
+              activeAgent !== "tim" &&
+              activeAgent !== "ghost" &&
+              activeAgent !== "marni" && (
               <Link
                 href="/kanban"
                 className="md:hidden p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
@@ -1189,7 +1233,7 @@ export default function CommandCentralClient() {
       {/* Desktop: Right panel with persistent agent header */}
       <div className="flex min-w-0 min-h-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-secondary)]">
         {/* Persistent agent header + nav icons */}
-        <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-3 flex items-center gap-3">
+        <div className="shrink-0 border-b border-[var(--border-color)] px-4 py-3 flex items-center gap-3 min-w-0">
           <div
             className="w-[74px] h-[74px] rounded-full overflow-hidden shrink-0 relative group cursor-pointer"
             onClick={() => avatarInputRef.current?.click()}
@@ -1222,28 +1266,19 @@ export default function CommandCentralClient() {
               onChange={handleAvatarUpload}
             />
           </div>
-          <div className="min-w-0">
-            <span className="text-sm font-semibold truncate block" style={{ color: agent.color }}>
-              {agent.name}
-            </span>
-            <div className="flex items-center gap-1.5">
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{
-                  background: !agent.online
-                    ? "#555"
-                    : (activeAgent === "tim" && timMessagingTaskCount > 0) ||
-                        (activeAgent === "ghost" && ghostContentTaskCount > 0)
-                      ? "#F59E0B"
-                      : "#1D9E75",
-                }}
-              />
-              <span className="text-[10px] text-[var(--text-secondary)]">{agent.role}</span>
+          <div className="flex min-w-0 items-center gap-[0.25in] shrink">
+            <div className="min-w-0">
+              <span className="text-sm font-semibold truncate block" style={{ color: agent.color }}>
+                {agent.name}
+              </span>
+              <span className="text-[10px] text-[var(--text-secondary)] block truncate">{agent.role}</span>
             </div>
-          </div>
-          {/* Panel nav icons - right of text */}
-          <div className="flex items-center gap-1 ml-6">
-            {agentHasKanban(activeAgent) && activeAgent !== "tim" && activeAgent !== "ghost" && (
+            {/* Panel nav — next to agent name */}
+            <div className="flex items-center gap-1 shrink-0">
+            {agentHasKanban(activeAgent) &&
+              activeAgent !== "tim" &&
+              activeAgent !== "ghost" &&
+              activeAgent !== "marni" && (
               <button
                 type="button"
                 onClick={() => setRightPanel("kanban")}
@@ -1258,6 +1293,25 @@ export default function CommandCentralClient() {
                   <rect x="3" y="3" width="5" height="18" rx="1" />
                   <rect x="10" y="3" width="5" height="12" rx="1" />
                   <rect x="17" y="3" width="5" height="8" rx="1" />
+                </svg>
+              </button>
+            )}
+            {activeAgent === "marni" && (
+              <button
+                type="button"
+                onClick={() => setRightPanel("marni-work")}
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "marni-work"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Work panel — distribution queue & knowledge base"
+              >
+                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                  <line x1="8" y1="7" x2="16" y2="7" />
+                  <line x1="8" y1="11" x2="14" y2="11" />
                 </svg>
               </button>
             )}
@@ -1374,6 +1428,11 @@ export default function CommandCentralClient() {
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
             </button>
+            </div>
+          </div>
+          <div className="flex-1 min-w-2 min-h-[1px]" aria-hidden />
+          <div className="hidden md:block shrink-0 pr-[0.25in]">
+            <AgentPanelPrinciples />
           </div>
         </div>
         {/* Panel content */}
@@ -1388,6 +1447,11 @@ export default function CommandCentralClient() {
             <GhostAgentPanel
               contentQueueCount={ghostContentTaskCount}
               onGhostWorkSelectionChange={setGhostWorkSelection}
+            />
+          ) : rightPanel === "marni-work" && activeAgent === "marni" ? (
+            <MarniWorkPanel
+              onClose={() => setRightPanel("info")}
+              onWorkTabChange={onMarniWorkTabChange}
             />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
@@ -1449,14 +1513,7 @@ export default function CommandCentralClient() {
         </div>
       </div>
 
-        <StatusRail
-          agents={agents}
-          pendingTaskCount={pendingTaskCount}
-          testingTaskCount={testingTaskCount}
-          timMessagingTaskCount={timMessagingTaskCount}
-          ghostContentTaskCount={ghostContentTaskCount}
-          sharedNotifications={dashboardNotifications}
-        />
+        <StatusRail agents={agents} sharedNotifications={dashboardNotifications} />
       </div>
 
     </div>

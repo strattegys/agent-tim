@@ -1,5 +1,5 @@
 /** Prepended to every Tim request that includes a work-queue row (client → API). */
-export const TIM_COLLABORATION_FRAMEWORK = `PRIMARY FRAMEWORK (Command Central / Agent Team)
+export const TIM_COLLABORATION_FRAMEWORK = `PRIMARY FRAMEWORK (Command Central)
 • Chat = Govind’s **instructions**: what to change, tone, questions, short acknowledgements.
 • Work panes = **where the work product goes**: artifact tabs (Message draft, package raise, etc.). Use tools to read/write those surfaces.
 • Never substitute a long chat reply for updating the pane. If he asked for copy or edits while a queue item is open, the deliverable belongs in the artifact (e.g. \`workflow_items\` \`update-workflow-artifact\`), then say briefly in chat that the pane was updated.`;

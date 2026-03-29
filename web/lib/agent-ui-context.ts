@@ -13,7 +13,8 @@ export type AgentUiRightPanel =
   | "notes"
   | "tasks"
   | "messages"
-  | "costs";
+  | "costs"
+  | "marni-work";
 
 export type FridayDashboardTab = "packages" | "tasks" | "tools";
 export type PennyDashboardTab = "packages" | "pkg-templates" | "wf-templates";
@@ -32,6 +33,8 @@ export interface AgentUiContextInput {
   ghostHasWorkQueueSelection?: boolean;
   fridayTab?: FridayDashboardTab;
   pennyTab?: PennyDashboardTab;
+  /** Marni work panel: Work Queue vs Knowledge Base sub-tab. */
+  marniWorkSubTab?: "queue" | "knowledge";
 }
 
 export function formatAgentUiContext(input: AgentUiContextInput): string | null {
@@ -72,15 +75,23 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
         "Content pipeline board is open. Use workflow_items for content-pipeline stages as in your prompt."
       );
     }
-    if (agentId === "marni") {
-      return (
-        "## Marni — UI (this message only)\n" +
-        "Distribution board is open. Use workflow_items for content-distribution as in your prompt."
-      );
-    }
     return (
       `## UI (this message only)\n` +
       `Kanban is open for ${agentId}. Use workflow_items when moving pipeline items.`
+    );
+  }
+
+  if (rightPanel === "marni-work" && agentId === "marni") {
+    const sub = input.marniWorkSubTab ?? "queue";
+    if (sub === "knowledge") {
+      return (
+        "## Marni — UI (this message only)\n" +
+        "Work panel — **Knowledge Base** tab (topics, Activity, Corpus, Ask). Use **knowledge_search** when drafting LinkedIn or messaging so output matches ingested playbooks."
+      );
+    }
+    return (
+      "## Marni — UI (this message only)\n" +
+      "Work panel — **Work Queue** tab (distribution pipeline board). Use workflow_items for content-distribution as in your prompt."
     );
   }
 

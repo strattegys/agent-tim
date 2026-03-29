@@ -330,6 +330,7 @@ async function probeUnipile(): Promise<ProbeResult> {
 
 /**
  * GET /api/system-status — lightweight reachability checks (server-side only).
+ * Website-projects: Strattegys (SITE_API_URL origin) + optional Rainbow (PROJECT_SERVER_RAINBOW_URL).
  */
 export async function GET() {
   const siteArticles = process.env.SITE_API_URL?.trim() || "https://strattegys.com/api/articles";
@@ -340,9 +341,13 @@ export async function GET() {
     /* keep default */
   }
 
-  const [dataPlatform, site, unipile] = await Promise.all([
+  /** Public Rainbow origin on the project server (optional; skipped if unset). */
+  const rainbowBase = process.env.PROJECT_SERVER_RAINBOW_URL?.trim() || "";
+
+  const [dataPlatform, strattegys, rainbow, unipile] = await Promise.all([
     probeDataPlatform(),
-    probeHttp("site", "Site", siteOrigin, "/"),
+    probeHttp("strattegys", "Strattegys", siteOrigin, "/"),
+    probeHttp("rainbow", "Rainbow", rainbowBase || undefined, "/"),
     probeUnipile(),
   ]);
 
@@ -370,7 +375,8 @@ export async function GET() {
   const services: ProbeResult[] = [
     { id: "web", label: "Command Central", status: "ok", ms: 0 },
     dataPlatform,
-    site,
+    strattegys,
+    rainbow,
     unipile,
     inworldTts,
   ];

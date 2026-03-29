@@ -3,6 +3,9 @@ import "./globals.css";
 import { CronWarmup } from "@/components/CronWarmup";
 import { getAppBrandTitle, getAppHeadline, isDevAppBranding } from "@/lib/app-brand";
 
+const appleWebAppTitle = () =>
+  isDevAppBranding() ? "Command Central · Local" : "Command Central";
+
 export function generateMetadata(): Metadata {
   const title = getAppBrandTitle();
   return {
@@ -19,7 +22,7 @@ export function generateMetadata(): Metadata {
     appleWebApp: {
       capable: true,
       statusBarStyle: "black-translucent",
-      title: isDevAppBranding() ? "Agent Team · Dev" : "Agent Team",
+      title: appleWebAppTitle(),
     },
   };
 }

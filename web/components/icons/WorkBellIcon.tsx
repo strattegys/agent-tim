@@ -1,7 +1,7 @@
 /** Small work-queue bell (sidebar). Solid fill, inherits `currentColor`. */
 
 export function WorkBellIcon({
-  size = 9,
+  size = 11,
   className,
 }: {
   size?: number;

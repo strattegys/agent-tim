@@ -89,7 +89,7 @@ export default function AgentSidebar({
                             {agent.name}
                           </div>
                           <span
-                            className="shrink-0 flex w-[11px] items-center justify-center"
+                            className="shrink-0 flex w-[13px] items-center justify-center"
                             title={
                               agentHasUserWorkItem(agent.id, workBadges)
                                 ? "Work waiting for you"
@@ -109,7 +109,7 @@ export default function AgentSidebar({
                               }
                               aria-hidden={!agentHasUserWorkItem(agent.id, workBadges)}
                             >
-                              <WorkBellIcon size={8} />
+                              <WorkBellIcon size={11} />
                             </span>
                           </span>
                         </div>

@@ -958,7 +958,10 @@ export default function CommandCentralClient() {
   }, []);
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
+    <div
+      className="flex h-screen w-screen overflow-hidden bg-[#0a0f18]"
+      style={{ backgroundColor: "#0a0f18" }}
+    >
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">

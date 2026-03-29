@@ -41,8 +41,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="h-screen">
+    <html lang="en" style={{ backgroundColor: "#0a0f18" }}>
+      <body
+        className="h-screen"
+        style={{
+          margin: 0,
+          backgroundColor: "#0a0f18",
+          color: "#c5c8ce",
+        }}
+      >
         <CronWarmup />
         {children}
         <script

@@ -74,14 +74,14 @@ export default function MessageBubble({
             </div>
           )}
           {isUser && (
-            <div className="text-sm font-medium mb-1 text-[var(--text-tertiary)]">
+            <div className="mb-1 text-[12px] font-medium text-[var(--text-tertiary)]">
               {fromAgent
                 ? fromAgent.charAt(0).toUpperCase() + fromAgent.slice(1)
                 : "You"}
             </div>
           )}
           {!isUser && (
-            <div className="text-sm font-medium mb-1 text-[var(--text-secondary)]">
+            <div className="mb-1 text-[12px] font-medium text-[var(--text-secondary)]">
               {agentName}
               {delegatedFrom && (
                 <span className="text-[var(--text-tertiary)] font-normal">

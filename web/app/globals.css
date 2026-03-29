@@ -63,7 +63,7 @@ body {
 /* Chat markdown — low-contrast, easy on the eyes */
 .message-markdown {
   color: var(--text-chat-body);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.65;
   max-width: none;
 }
@@ -91,7 +91,7 @@ body {
   color: var(--text-secondary);
 }
 .message-markdown code {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-chat-muted);
   background: var(--bg-primary);
   padding: 0.1em 0.35em;
@@ -104,7 +104,7 @@ body {
   background: var(--bg-primary);
   border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
   overflow-x: auto;
-  font-size: 12px;
+  font-size: 11px;
 }
 .message-markdown pre code {
   padding: 0;

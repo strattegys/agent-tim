@@ -106,7 +106,7 @@ export default function ChatInput({
           placeholder={placeholder}
           disabled={disabled}
           rows={3}
-          className="max-h-[300px] flex-1 resize-none overflow-y-auto rounded-xl border border-[color-mix(in_srgb,var(--border-color)_55%,transparent)] bg-[color-mix(in_srgb,var(--bg-input)_92%,var(--bg-primary))] px-4 py-2.5 text-sm text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-chat-muted)] disabled:opacity-50"
+          className="max-h-[300px] flex-1 resize-none overflow-y-auto rounded-xl border border-[color-mix(in_srgb,var(--border-color)_55%,transparent)] bg-[color-mix(in_srgb,var(--bg-input)_92%,var(--bg-primary))] px-4 py-2.5 text-[13px] leading-snug text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-chat-muted)] disabled:opacity-50"
           style={{ minHeight: "80px" }}
         />
         <div className="flex flex-col items-center gap-1.5 shrink-0">

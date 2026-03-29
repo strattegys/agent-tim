@@ -371,9 +371,15 @@ export const SUZI_WORK_TAB_HEADER_HINT: Record<SuziWorkSubTab, string> = {
   notes: "List · Add · Search · Update · Tags · Note Numbers",
 };
 
-/** Class for small low-contrast “human fallback” actions in the Suzi work sub-tab header (e.g. Intake add). */
-export const SUZI_WORK_PANEL_FALLBACK_BTN_CLASS =
-  "shrink-0 text-[9px] sm:text-[10px] leading-none px-1.5 py-0.5 rounded border border-[#5b8eb8]/55 bg-transparent font-normal text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--accent-blue)]/12 hover:border-[#7aa8d4]/65 whitespace-nowrap transition-colors";
+/**
+ * Light orange frame for **manual / human** actions (add by hand, etc.).
+ * Reuse this class anywhere we surface a human-only control so it reads consistently.
+ */
+export const HUMAN_MANUAL_ACTION_BTN_CLASS =
+  "inline-flex shrink-0 items-center justify-center text-center text-[9px] sm:text-[10px] leading-none font-medium min-h-[22px] px-2 py-0.5 rounded-md border border-[var(--accent-orange)]/50 bg-[var(--accent-orange)]/12 text-[var(--text-secondary)] hover:bg-[var(--accent-orange)]/20 hover:border-[var(--accent-orange)]/72 hover:text-[var(--text-primary)] whitespace-nowrap transition-colors";
+
+/** Suzi work sub-tab header — same as {@link HUMAN_MANUAL_ACTION_BTN_CLASS}. */
+export const SUZI_WORK_PANEL_FALLBACK_BTN_CLASS = HUMAN_MANUAL_ACTION_BTN_CLASS;
 
 const GLOBAL_TOOLS =
   "Also available: web_search, memory (your long-term agent memory — not the Notes tab).";

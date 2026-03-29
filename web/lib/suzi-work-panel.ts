@@ -361,7 +361,7 @@ const TABS: Record<SuziWorkSubTab, TabSpec> = {
 };
 
 /**
- * One-line green hints in Suzi’s work sub-tab header (human UI).
+ * One-line muted hints in Suzi’s work sub-tab header (human UI).
  * Commands echo `TABS` tool verbs (see PROJECT-MEMORY for agent-first UI defaults).
  */
 export const SUZI_WORK_TAB_HEADER_HINT: Record<SuziWorkSubTab, string> = {
@@ -371,9 +371,9 @@ export const SUZI_WORK_TAB_HEADER_HINT: Record<SuziWorkSubTab, string> = {
   notes: "List · Add · Search · Update · Tags · Note Numbers",
 };
 
-/** Class for small orange “human fallback” actions in the Suzi work sub-tab header (e.g. Intake add). */
+/** Class for small low-contrast “human fallback” actions in the Suzi work sub-tab header (e.g. Intake add). */
 export const SUZI_WORK_PANEL_FALLBACK_BTN_CLASS =
-  "shrink-0 text-[9px] leading-none px-1.5 py-0.5 rounded bg-[#D85A30] text-white font-medium hover:opacity-90 whitespace-nowrap";
+  "shrink-0 text-[9px] sm:text-[10px] leading-none px-1.5 py-0.5 rounded border border-[var(--border-color)]/50 bg-transparent font-normal text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]/50 hover:border-[var(--border-color)]/70 whitespace-nowrap transition-colors";
 
 const GLOBAL_TOOLS =
   "Also available: web_search, memory (your long-term agent memory — not the Notes tab).";

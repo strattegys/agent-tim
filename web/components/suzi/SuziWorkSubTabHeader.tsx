@@ -14,7 +14,7 @@ const TAB_LABEL: Record<SuziWorkSubTab, string> = {
 };
 
 /**
- * Shared Suzi work-panel sub-tab row: tabs (left), green command hint (center-right),
+ * Shared Suzi work-panel sub-tab row: tabs (left), low-contrast command hint (center-right),
  * optional human fallback control (e.g. Intake add) after the hint.
  */
 export default function SuziWorkSubTabHeader({
@@ -51,11 +51,11 @@ export default function SuziWorkSubTabHeader({
         })}
       </div>
       <div
-        className="shrink-0 rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-primary)]/60 px-2 py-1"
+        className="shrink-0 rounded-md border border-[var(--border-color)]/35 bg-[var(--bg-primary)]/25 px-2 py-1"
         role="note"
         aria-label={hint}
       >
-        <p className="text-[10px] sm:text-[11px] font-medium text-[var(--accent-green)] leading-none whitespace-nowrap">
+        <p className="text-[10px] sm:text-[11px] font-normal text-[var(--text-tertiary)]/90 leading-none whitespace-nowrap">
           {hint}
         </p>
       </div>

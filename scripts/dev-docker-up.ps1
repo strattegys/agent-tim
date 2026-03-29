@@ -1,17 +1,38 @@
-# Start CRM path to droplet Postgres, then docker compose dev stack.
+# Start CRM forwarder to droplet Postgres, then docker compose dev stack.
 # Run from COMMAND-CENTRAL:  .\scripts\dev-docker-up.ps1
-#   -UseTailscaleBridge   Stable dev without SSH: TCP bridge 0.0.0.0:PORT -> tailnet :5432
-#   (default)             SSH tunnel if port free (same as before)
 #
-# Requires: Tailscale on this PC. Droplet must expose CRM DB on tailnet for -UseTailscaleBridge:
-#   ssh root@<100.x> 'cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh'
+# Default (auto): if ${tsHost}:5432 answers, start the Tailscale TCP bridge (no SSH). Otherwise SSH tunnel.
+#   -UseSshTunnel        Always use SSH (even when tailnet Postgres is up).
+#   -UseTailscaleBridge  Always use TCP bridge (even if tailnet check fails — e.g. transient).
+#
+# Droplet must publish CRM DB on tailnet for the bridge:  cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh
+# (Deploy workflow runs this after each compose up so restarts do not drop the mapping.)
+#
 # Optional: CRM_SSH_HOST, CRM_DB_TAILSCALE_HOST, CC_TAILSCALE_IP, CRM_TUNNEL_LOCAL_PORT
 
 param(
+  [switch]$UseSshTunnel,
   [switch]$UseTailscaleBridge
 )
 
 $ErrorActionPreference = "Stop"
+
+function Test-TcpOpen([string]$Hostname, [int]$Port, [int]$TimeoutMs = 4000) {
+  try {
+    $client = New-Object System.Net.Sockets.TcpClient
+    $iar = $client.BeginConnect($Hostname, $Port, $null, $null)
+    if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
+      try { $client.Close() } catch { }
+      return $false
+    }
+    $client.EndConnect($iar)
+    $client.Close()
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $RepoRoot "docker-compose.dev.yml"))) {
   Write-Error "Run from COMMAND-CENTRAL (docker-compose.dev.yml not found under $RepoRoot)"
@@ -23,9 +44,25 @@ $localPort = if ($env:CRM_TUNNEL_LOCAL_PORT) { $env:CRM_TUNNEL_LOCAL_PORT } else
 $tsHost = if ($env:CRM_DB_TAILSCALE_HOST) { $env:CRM_DB_TAILSCALE_HOST.Trim() } elseif ($env:CC_TAILSCALE_IP) { $env:CC_TAILSCALE_IP.Trim() } else { "100.74.54.12" }
 $remoteSsh = if ($env:CRM_SSH_HOST) { $env:CRM_SSH_HOST } else { $tsHost }
 
+$tsCrmOpen = Test-TcpOpen $tsHost 5432
+$useBridge = $false
+if ($UseSshTunnel) {
+  $useBridge = $false
+} elseif ($UseTailscaleBridge) {
+  $useBridge = $true
+  if (-not $tsCrmOpen) {
+    Write-Host "WARN: ${tsHost}:5432 did not respond — bridge may fail until expose-crm-db-tailscale.sh has been run on the server." -ForegroundColor Yellow
+  }
+} elseif ($tsCrmOpen) {
+  $useBridge = $true
+  Write-Host "Tailscale CRM at ${tsHost}:5432 is reachable — using TCP bridge (no SSH)." -ForegroundColor Cyan
+} else {
+  Write-Host "Tailscale CRM at ${tsHost}:5432 not reachable — using SSH tunnel (need key + droplet SSH)." -ForegroundColor Yellow
+}
+
 $already = Get-NetTCPConnection -LocalPort $localPort -State Listen -ErrorAction SilentlyContinue
 if (-not $already) {
-  if ($UseTailscaleBridge) {
+  if ($useBridge) {
     $bridgeScript = Join-Path $RepoRoot "scripts\crm-db-tailscale-bridge.mjs"
     if (-not (Test-Path -LiteralPath $bridgeScript)) {
       Write-Error "Missing $bridgeScript"
@@ -34,7 +71,7 @@ if (-not $already) {
     $node = (Get-Command node -ErrorAction Stop).Source
     $env:CRM_DB_TAILSCALE_HOST = $tsHost
     $env:CRM_TUNNEL_LOCAL_PORT = "$localPort"
-    Write-Host "Starting CRM Tailscale bridge: 0.0.0.0:${localPort} -> ${tsHost}:5432 (no SSH)"
+    Write-Host "Starting CRM Tailscale bridge: 0.0.0.0:${localPort} -> ${tsHost}:5432"
     Start-Process -FilePath $node -ArgumentList @($bridgeScript) -WorkingDirectory $RepoRoot -WindowStyle Hidden
     Start-Sleep -Seconds 2
   } else {

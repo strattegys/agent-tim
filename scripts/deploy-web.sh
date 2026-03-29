@@ -109,6 +109,11 @@ echo "  Applying idempotent punch list actions (JSONB on _punch_list)..."
 $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
   < web/scripts/migrate-punch-list-actions-jsonb.sql
 
+if [ -f tools/expose-crm-db-tailscale.sh ]; then
+  echo "  Ensuring CRM Postgres is published on Tailscale (idempotent)..."
+  bash tools/expose-crm-db-tailscale.sh || echo "  WARN: expose-crm-db-tailscale.sh failed — run manually after tailscale up"
+fi
+
 echo "  Waiting for server to start..."
 sleep 8
 

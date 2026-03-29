@@ -10,6 +10,7 @@ on:
       - 'docker-compose.yml'
       - 'docker/**'
       - 'scripts/**'
+      - 'tools/**'
       - '.dockerignore'
       - '.github/workflows/deploy-web.yml'
   workflow_dispatch:
@@ -137,6 +138,13 @@ jobs:
           echo "Applying idempotent Marni Knowledge Studio (_kb_topic, _agent_knowledge)..."
           $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-marni-kb.sql
+
+          # Re-apply Tailscale port mapping for crm-db. `docker compose -f docker-compose.yml up` alone
+          # drops the generated overlay; without this, laptop Docker dev loses host.docker.internal:5433 paths.
+          if [ -f tools/expose-crm-db-tailscale.sh ]; then
+            echo "Ensuring CRM Postgres is published on Tailscale (idempotent)..."
+            bash tools/expose-crm-db-tailscale.sh || echo "WARN: expose-crm-db-tailscale.sh failed (Tailscale down on server?). Re-run after: tailscale up"
+          fi
 
           echo "Waiting for server to start..."
           sleep 8

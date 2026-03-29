@@ -10,8 +10,10 @@ const PROBE_MS = 8000;
 function dockerDesktopTunnelHint(host: string, port: number): string {
   if (!host.toLowerCase().includes("host.docker.internal")) return "";
   return (
-    ` Docker dev: the tunnel on your PC must listen on 0.0.0.0:${port} (all interfaces), not 127.0.0.1 only, or this container cannot reach Postgres. ` +
-    `From COMMAND-CENTRAL/web run: npm run db:reconnect — or scripts/crm-db-tunnel.ps1 / dev-docker-up.ps1. ` +
+    ` Docker dev: something on your PC must listen on 0.0.0.0:${port} (Tailscale TCP bridge or SSH tunnel), not 127.0.0.1 only. ` +
+    `After a PC or droplet reboot, run from COMMAND-CENTRAL: .\\scripts\\dev-docker-up.ps1 (auto-starts bridge when tailnet :5432 is up) or cd web && npm run db:reconnect. ` +
+    `If the server was restarted before deploy re-applied Tailscale, SSH: cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh. ` +
+    `Optional: COMMAND-CENTRAL/.env with CC_DOCKER_CRM_DB_HOST (see .env.docker-dev.example) to skip the host forwarder. ` +
     `Then click Refresh again.`
   );
 }

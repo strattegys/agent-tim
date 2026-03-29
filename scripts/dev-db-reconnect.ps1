@@ -1,17 +1,39 @@
-# Reconnect CRM Postgres forwarder for local dev (fixes Data platform after idle disconnect / sleep).
+# Reconnect CRM Postgres forwarder for local dev (fixes Data platform after idle disconnect / sleep / reboot).
 # Does not start Docker — only restarts the process listening on CRM_TUNNEL_LOCAL_PORT (default 5433).
 #
 #   From COMMAND-CENTRAL:  .\scripts\dev-db-reconnect.ps1
-#   Tailscale bridge:      .\scripts\dev-db-reconnect.ps1 -UseTailscaleBridge
-#   From web/:             npm run db:reconnect   |   npm run db:reconnect:bridge
+#   From web/:             npm run db:reconnect
+#   Force bridge:           .\scripts\dev-db-reconnect.ps1 -UseTailscaleBridge   |   npm run db:reconnect:bridge
+#   Force SSH:              .\scripts\dev-db-reconnect.ps1 -UseSshTunnel
+#
+# Auto (default npm run db:reconnect): if ${tsHost}:5432 answers, restart Tailscale TCP bridge; else SSH tunnel.
+# Optional env: CC_CRM_USE_TAILSCALE_BRIDGE=1 to always use bridge path.
 #
 # Optional: CRM_TUNNEL_LOCAL_PORT, CRM_SSH_HOST, CRM_DB_TAILSCALE_HOST, CC_TAILSCALE_IP, SSH_IDENTITY_FILE
 
 param(
-  [switch]$UseTailscaleBridge
+  [switch]$UseTailscaleBridge,
+  [switch]$UseSshTunnel
 )
 
 $ErrorActionPreference = "Stop"
+
+function Test-TcpOpen([string]$Hostname, [int]$Port, [int]$TimeoutMs = 4000) {
+  try {
+    $client = New-Object System.Net.Sockets.TcpClient
+    $iar = $client.BeginConnect($Hostname, $Port, $null, $null)
+    if (-not $iar.AsyncWaitHandle.WaitOne($TimeoutMs, $false)) {
+      try { $client.Close() } catch { }
+      return $false
+    }
+    $client.EndConnect($iar)
+    $client.Close()
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 if (-not (Test-Path (Join-Path $RepoRoot "docker-compose.dev.yml"))) {
   Write-Error "Expected COMMAND-CENTRAL repo (docker-compose.dev.yml missing under $RepoRoot)"
@@ -19,9 +41,19 @@ if (-not (Test-Path (Join-Path $RepoRoot "docker-compose.dev.yml"))) {
 }
 
 $localPort = if ($env:CRM_TUNNEL_LOCAL_PORT) { $env:CRM_TUNNEL_LOCAL_PORT } else { "5433" }
-$remoteSsh = if ($env:CRM_SSH_HOST) { $env:CRM_SSH_HOST } else { "100.74.54.12" }
 $tsHost = if ($env:CRM_DB_TAILSCALE_HOST) { $env:CRM_DB_TAILSCALE_HOST.Trim() } elseif ($env:CC_TAILSCALE_IP) { $env:CC_TAILSCALE_IP.Trim() } else { "100.74.54.12" }
+$remoteSsh = if ($env:CRM_SSH_HOST) { $env:CRM_SSH_HOST } else { $tsHost }
 if ($env:CC_CRM_USE_TAILSCALE_BRIDGE -eq "1") { $UseTailscaleBridge = $true }
+
+$tsCrmOpen = Test-TcpOpen $tsHost 5432
+$useBridge = $false
+if ($UseSshTunnel) {
+  $useBridge = $false
+} elseif ($UseTailscaleBridge) {
+  $useBridge = $true
+} elseif ($tsCrmOpen) {
+  $useBridge = $true
+}
 
 function Stop-CrmForwardersOnPort([string]$Port) {
   $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
@@ -68,7 +100,7 @@ if ((Invoke-CrmDbCheck) -eq 0) {
 }
 
 Write-Host ""
-if ($UseTailscaleBridge) {
+if ($useBridge) {
   Write-Host "CRM DB unreachable - restarting Tailscale TCP bridge (port $localPort -> ${tsHost}:5432)..."
 } else {
   Write-Host "CRM DB unreachable - restarting SSH tunnel (port $localPort -> ${remoteSsh}:5432)..."
@@ -77,7 +109,7 @@ if ($UseTailscaleBridge) {
 Stop-CrmForwardersOnPort $localPort
 Start-Sleep -Seconds 1
 
-if ($UseTailscaleBridge) {
+if ($useBridge) {
   $bridgeScript = Join-Path $RepoRoot "scripts\crm-db-tailscale-bridge.mjs"
   if (-not (Test-Path -LiteralPath $bridgeScript)) {
     Write-Error "Missing $bridgeScript"
@@ -117,10 +149,13 @@ Write-Host ""
 Write-Host "Verifying..."
 if ((Invoke-CrmDbCheck) -ne 0) {
   Write-Host ""
-  if ($UseTailscaleBridge) {
-    Write-Error "Still cannot reach CRM DB. On the droplet run: cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh  (Tailscale + CRM password in web/.env.local)."
+  Write-Host "If the droplet was restarted before the latest deploy: push master so CI re-runs expose-crm-db-tailscale.sh, or SSH and run:" -ForegroundColor Yellow
+  Write-Host "  cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh" -ForegroundColor Yellow
+  Write-Host ""
+  if ($useBridge) {
+    Write-Error "Still cannot reach CRM DB via bridge. Confirm Tailscale on this PC, CRM_DB_PASSWORD in web/.env.local, and that ${tsHost}:5432 is open (diagnose: .\scripts\diagnose-crm-db-connection.ps1)."
   } else {
-    Write-Error "Still cannot reach CRM DB. Check: Tailscale, droplet up, web/.env.local CRM_DB_PASSWORD, SSH key, nothing else on port $localPort."
+    Write-Error "Still cannot reach CRM DB via SSH tunnel. Try: npm run db:reconnect:bridge if ${tsHost}:5432 is open, or fix SSH keys and droplet access."
   }
   exit 1
 }

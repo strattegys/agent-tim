@@ -94,7 +94,7 @@ Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.
 1. Add **`CRM_DB_PASSWORD`** to **`web/.env.local`** (and keep **`CRM_DB_PORT=5432`** if you share the file with production — Docker dev overrides the port). See [`web/.env.local.example`](web/.env.local.example).
 2. **[`docker-compose.dev.yml`](docker-compose.dev.yml)** defaults to **`CRM_DB_HOST=host.docker.internal`** and **`CRM_DB_PORT`** from **`CC_DOCKER_CRM_DB_PORT`** / **`CRM_TUNNEL_LOCAL_PORT`** / **5433** so the dev container hits a forwarder on the Windows host, not production’s loopback-only **5432** on the droplet.
 
-**Stable path (no SSH):** On the Command Central droplet, expose CRM Postgres on the tailnet once: **`cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh`**. On your PC (Tailscale connected), start dev with **`scripts\dev-docker-up.ps1 -UseTailscaleBridge`** — that runs a small TCP bridge (**[`scripts/crm-db-tailscale-bridge.mjs`](scripts/crm-db-tailscale-bridge.mjs)**) from **`0.0.0.0:5433`** to **`${CRM_DB_TAILSCALE_HOST:-100.74.54.12}:5432`**. Reconnect after sleep: **`cd web && npm run db:reconnect:bridge`**. Optional: **`cd web && npm run db:bridge`** in a terminal if you start Compose yourself.
+**Stable path (no SSH):** GitHub Actions (and manual **`scripts/deploy-web.sh`**) re-run **`tools/expose-crm-db-tailscale.sh`** after each deploy so a **droplet restart** does not drop Postgres on the tailnet. On your PC (Tailscale connected), run **`scripts\dev-docker-up.ps1`** — it **auto-starts the TCP bridge** when **`${CRM_DB_TAILSCALE_HOST:-100.74.54.12}:5432`** answers, otherwise it falls back to SSH. The bridge is [**`scripts/crm-db-tailscale-bridge.mjs`**](scripts/crm-db-tailscale-bridge.mjs) (**`0.0.0.0:5433`** → tailnet **:5432**). Reconnect after sleep or reboot: **`cd web && npm run db:reconnect`** (same auto logic) or **`npm run db:reconnect:bridge`** to force the bridge. **`dev-docker-up.ps1 -UseSshTunnel`** forces SSH. Optional: copy [**`.env.docker-dev.example`**](.env.docker-dev.example) to **`.env`** and set **`CC_DOCKER_CRM_DB_HOST`** / **`CC_DOCKER_CRM_DB_PORT`** if your Docker stack can reach the tailnet without a host forwarder.
 
 **SSH tunnel (alternative):** Forward **`localhost:5432` on the droplet** (production **`crm-db`** publishes **`127.0.0.1:5432`**). Local port **5433** avoids clashes:
 
@@ -110,6 +110,12 @@ Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.
 3. Verify: **`cd web && npm run check-crm-db`** (from the host). From the dev container: **`docker compose -f docker-compose.dev.yml exec web npm run check-crm-db`**.
 
 4. Recreate the dev stack after env changes: **`docker compose -f docker-compose.dev.yml up -d --force-recreate`**
+
+**Automatic startup (Windows):** To bring the bridge + Compose up after each login, register a scheduled task once:
+
+`powershell -ExecutionPolicy Bypass -File scripts\install-cc-dev-autostart-task.ps1`
+
+Logs: **`%LOCALAPPDATA%\CommandCentralDev\autostart.log`**. Remove the task: **`Unregister-ScheduledTask -TaskName CommandCentralDevAutostart -Confirm:$false`**.
 
 **Production (droplet) — CRM Postgres in Compose**
 

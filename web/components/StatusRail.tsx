@@ -235,6 +235,11 @@ export default function StatusRail({
     [services]
   );
 
+  const dataPlatformDown = useMemo(() => {
+    if (!services) return false;
+    return services.some((s) => s.id === "data_platform" && s.status === "down");
+  }, [services]);
+
   const fetchAgentOps = useCallback(() => {
     fetch("/api/status-rail-agents", { credentials: "include" })
       .then((r) => r.json())
@@ -287,10 +292,33 @@ export default function StatusRail({
 
   useEffect(() => {
     fetchStatus();
-    // Service probes are slow; 90s is enough when chat/tasks refresh via dashboard-sync.
-    const i = setInterval(fetchStatus, 90000);
+    // Poll faster while Data platform is down so the rail recovers soon after the host bridge starts.
+    const intervalMs = dataPlatformDown ? 12000 : 90000;
+    const i = setInterval(fetchStatus, intervalMs);
     return () => clearInterval(i);
-  }, [fetchStatus]);
+  }, [fetchStatus, dataPlatformDown]);
+
+  /** Localhost dev: pool reset + probe every ~20s while Data platform is down (picks up bridge without manual Refresh). */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const host = window.location.hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") return;
+    if (!dataPlatformDown) return;
+
+    const tick = () => {
+      fetch("/api/crm/reconnect-db", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      }).finally(() => fetchStatus());
+    };
+    const t0 = window.setTimeout(tick, 2500);
+    const i = window.setInterval(tick, 20000);
+    return () => {
+      window.clearTimeout(t0);
+      window.clearInterval(i);
+    };
+  }, [dataPlatformDown, fetchStatus]);
 
   useEffect(() => {
     fetchAgentOps();

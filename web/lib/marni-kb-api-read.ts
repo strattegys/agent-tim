@@ -1,10 +1,15 @@
 /**
- * Parse Marni KB API responses. Surfaces HTML (Caddy 404, login page, Next error page) as clear errors.
+ * Parse Marni KB API responses. Surfaces HTML (proxy 404, login page, Next error page) as clear errors.
  */
+
+function htmlSnippet(t: string): string {
+  return t.slice(0, 120).replace(/\s+/g, " ").trim();
+}
 
 export async function readMarniKbApiJson<T = Record<string, unknown>>(r: Response): Promise<T> {
   const text = await r.text();
   const t = text.trim();
+  const pageOrigin = typeof window !== "undefined" ? window.location.origin : "";
   if (r.status === 401) {
     let msg =
       "Sign in required — sign in on Command Central, then try again. Use the same host in the browser as NEXTAUTH_URL / AUTH_URL in web/.env.local (do not mix localhost and 127.0.0.1).";
@@ -25,19 +30,14 @@ export async function readMarniKbApiJson<T = Record<string, unknown>>(r: Respons
     if (r.redirected || r.url.includes("/login")) {
       throw new Error("Session expired or not signed in — refresh the page and log in again.");
     }
-    if (r.status === 404) {
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const ping = origin ? `${origin}/api/marni-kb/ping` : "/api/marni-kb/ping";
-      throw new Error(
-        "Marni Knowledge Base API got HTTP 404 as HTML — the request did not reach the Next.js API route (often the reverse proxy, not the app). " +
-          "Production compose + Caddy: use http://localhost, http://127.0.0.1, or the production hostname in Caddyfile; if you use another host (LAN IP, machine name, host.docker.internal), add it to Caddyfile and restart Caddy. " +
-          "Dev compose (docker-compose.dev.yml): use http://localhost:3001 only, not port 80. " +
-          "Remote server: rebuild and redeploy the web image from current master. " +
-          `Quick check (must return JSON): ${ping}`
-      );
-    }
+    const ping = pageOrigin ? `${pageOrigin}/api/marni-kb/ping` : "/api/marni-kb/ping";
     throw new Error(
-      `Server returned a web page instead of JSON (HTTP ${r.status}). Try refreshing or restarting the dev server.`
+      "Marni Knowledge Base expected JSON from the API but received an HTML page instead. " +
+        `That usually means this environment is not running a build that includes /api/marni-kb/* (deploy latest), or a reverse proxy answered before Next.js (wrong host on port 80). ` +
+        `Facts: HTTP ${r.status}, response URL after redirects: ${r.url}` +
+        (pageOrigin ? `, page origin: ${pageOrigin}` : "") +
+        `. Try ${ping} in this browser — if you do not see JSON, the app or proxy in front of it is wrong for this URL. ` +
+        `HTML starts: ${htmlSnippet(t)}`
     );
   }
   if (!t) {

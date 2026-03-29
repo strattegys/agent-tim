@@ -373,7 +373,7 @@ export const SUZI_WORK_TAB_HEADER_HINT: Record<SuziWorkSubTab, string> = {
 
 /** Class for small low-contrast “human fallback” actions in the Suzi work sub-tab header (e.g. Intake add). */
 export const SUZI_WORK_PANEL_FALLBACK_BTN_CLASS =
-  "shrink-0 text-[9px] sm:text-[10px] leading-none px-1.5 py-0.5 rounded border border-[var(--border-color)]/50 bg-transparent font-normal text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]/50 hover:border-[var(--border-color)]/70 whitespace-nowrap transition-colors";
+  "shrink-0 text-[9px] sm:text-[10px] leading-none px-1.5 py-0.5 rounded border border-[#5b8eb8]/55 bg-transparent font-normal text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--accent-blue)]/12 hover:border-[#7aa8d4]/65 whitespace-nowrap transition-colors";
 
 const GLOBAL_TOOLS =
   "Also available: web_search, memory (your long-term agent memory — not the Notes tab).";

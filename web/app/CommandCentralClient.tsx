@@ -1016,7 +1016,7 @@ export default function CommandCentralClient() {
                               {a.name}
                             </span>
                             <span
-                              className="shrink-0 flex w-[14px] items-center justify-center"
+                              className="shrink-0 flex w-[11px] items-center justify-center"
                               title={
                                 agentHasUserWorkItem(a.id, {
                                   pendingTaskCount,
@@ -1058,7 +1058,7 @@ export default function CommandCentralClient() {
                                   })
                                 }
                               >
-                                <WorkBellIcon size={11} stroke="currentColor" />
+                                <WorkBellIcon size={8} />
                               </span>
                             </span>
                           </div>

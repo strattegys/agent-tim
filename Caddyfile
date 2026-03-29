@@ -11,3 +11,8 @@ stratt-central.b2bcontentartist.com {
 http://localhost, http://127.0.0.1, http://[::1] {
 	reverse_proxy web:3001
 }
+
+# Docker Desktop: some setups open the app as http://host.docker.internal (Host header must match a site).
+http://host.docker.internal {
+	reverse_proxy web:3001
+}

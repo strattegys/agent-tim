@@ -7,44 +7,7 @@ import { HUMAN_MANUAL_ACTION_BTN_CLASS } from "@/lib/suzi-work-panel";
 import { topTermsFromChunks } from "@/lib/marni-corpus-terms";
 import { MARNI_KNOWLEDGE_TAB_HEADER_HINT } from "@/lib/marni-work-panel";
 import { panelBus } from "@/lib/events";
-
-/** `response.json()` throws on HTML login/error pages (`Unexpected token '<'`). */
-async function readApiJson<T = Record<string, unknown>>(r: Response): Promise<T> {
-  const text = await r.text();
-  const t = text.trim();
-  if (
-    t.startsWith("<!DOCTYPE") ||
-    t.startsWith("<!doctype") ||
-    t.startsWith("<html") ||
-    t.startsWith("<HTML")
-  ) {
-    if (r.redirected || r.url.includes("/login")) {
-      throw new Error("Session expired or not signed in — refresh the page and log in again.");
-    }
-    if (r.status === 404) {
-      throw new Error(
-        "Marni API routes are missing on this server (HTTP 404 HTML). " +
-          "If you use Docker production: rebuild and redeploy the web image from current master. " +
-          "If you run production compose locally behind Caddy and open http://localhost, Caddy must proxy that host (see Caddyfile http://localhost block); restart the caddy container after changing it. " +
-          "If you use local Docker dev (docker-compose.dev.yml): use http://localhost:3001 and restart web; if it persists, delete web/.next on the host and restart. " +
-          "Quick check (should return JSON): open /api/marni-kb/ping in the browser."
-      );
-    }
-    throw new Error(
-      `Server returned a web page instead of JSON (HTTP ${r.status}). Try refreshing or restarting the dev server.`
-    );
-  }
-  if (!t) {
-    throw new Error(`Empty response (HTTP ${r.status})`);
-  }
-  try {
-    return JSON.parse(t) as T;
-  } catch {
-    throw new Error(
-      t.length > 200 ? `${t.slice(0, 200)}…` : t || `Invalid JSON (HTTP ${r.status})`
-    );
-  }
-}
+import { readMarniKbApiJson } from "@/lib/marni-kb-api-read";
 
 const fetchOpts: RequestInit = { credentials: "same-origin" };
 
@@ -159,7 +122,7 @@ export default function MarniKnowledgePanel({
     setError(null);
     fetch("/api/marni-kb/topics", fetchOpts)
       .then(async (r) => {
-        const data = await readApiJson<{ error?: string; topics?: KbTopic[] }>(r);
+        const data = await readMarniKbApiJson<{ error?: string; topics?: KbTopic[] }>(r);
         if (!mounted.current) return;
         if (data.error) {
           setError(data.error);
@@ -201,7 +164,7 @@ export default function MarniKnowledgePanel({
     setLoadingRuns(true);
     fetch(`/api/marni-kb/runs?topicId=${encodeURIComponent(selTopicId)}`, fetchOpts)
       .then(async (r) => {
-        const data = await readApiJson<{ runs?: KbRun[] }>(r);
+        const data = await readMarniKbApiJson<{ runs?: KbRun[] }>(r);
         if (mounted.current) setRuns(data.runs || []);
       })
       .catch(() => {
@@ -221,7 +184,7 @@ export default function MarniKnowledgePanel({
     const q = `?topicId=${encodeURIComponent(selTopicId)}&limit=200`;
     fetch(`/api/marni-kb/chunks${q}`, fetchOpts)
       .then(async (r) => {
-        const data = await readApiJson<{ chunks?: KbChunk[] }>(r);
+        const data = await readMarniKbApiJson<{ chunks?: KbChunk[] }>(r);
         if (mounted.current) setChunks(data.chunks || []);
       })
       .catch(() => {
@@ -262,7 +225,7 @@ export default function MarniKnowledgePanel({
         ...fetchOpts,
         method: "POST",
       });
-      const data = await readApiJson<{ error?: string }>(r);
+      const data = await readMarniKbApiJson<{ error?: string }>(r);
       if (!r.ok) throw new Error(data.error || "Run failed");
       loadTopics();
       loadRuns();
@@ -282,7 +245,7 @@ export default function MarniKnowledgePanel({
         ...fetchOpts,
         method: "DELETE",
       });
-      const data = await readApiJson<{ error?: string; ok?: boolean }>(r);
+      const data = await readMarniKbApiJson<{ error?: string; ok?: boolean }>(r);
       if (!r.ok) {
         throw new Error(data.error || "Delete failed");
       }

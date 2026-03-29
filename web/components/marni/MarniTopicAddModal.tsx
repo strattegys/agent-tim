@@ -1,30 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-async function readApiJson<T = Record<string, unknown>>(r: Response): Promise<T> {
-  const text = await r.text();
-  const t = text.trim();
-  if (
-    t.startsWith("<!DOCTYPE") ||
-    t.startsWith("<!doctype") ||
-    t.startsWith("<html") ||
-    t.startsWith("<HTML")
-  ) {
-    if (r.redirected || r.url.includes("/login")) {
-      throw new Error("Session expired or not signed in — refresh the page and log in again.");
-    }
-    throw new Error(`Server returned a web page instead of JSON (HTTP ${r.status}).`);
-  }
-  if (!t) throw new Error(`Empty response (HTTP ${r.status})`);
-  try {
-    return JSON.parse(t) as T;
-  } catch {
-    throw new Error(
-      t.length > 200 ? `${t.slice(0, 200)}…` : t || `Invalid JSON (HTTP ${r.status})`
-    );
-  }
-}
+import { readMarniKbApiJson } from "@/lib/marni-kb-api-read";
 
 const fetchOpts: RequestInit = { credentials: "same-origin" };
 
@@ -110,7 +87,7 @@ export default function MarniTopicAddModal({
           enabled: true,
         }),
       });
-      const data = await readApiJson<{ error?: string; topic?: { id?: string } }>(r);
+      const data = await readMarniKbApiJson<{ error?: string; topic?: { id?: string } }>(r);
       if (!r.ok) throw new Error(data.error || "Create failed");
       const id = data.topic?.id;
       if (id) onCreated(id);

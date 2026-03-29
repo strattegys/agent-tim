@@ -76,20 +76,20 @@ function pickServiceRows(services: ServiceRow[]): ServiceRow[] {
   return out.slice(0, MAX_SERVICE_LINES);
 }
 
-/** Command Central, Data platform, Website-projects (project server), Services (Unipile, Inworld, …). */
+/** Command Central, Data Platform, Website-Projects (project server), Services (Unipile, Inworld, …). */
 function buildConsolidatedSystemRows(services: ServiceRow[] | null): ServiceRow[] {
   if (services === null) {
     return [
       { id: "web", label: "Command Central", status: "ok", ms: 0 },
       {
         id: "data_platform",
-        label: "Data platform",
+        label: "Data Platform",
         status: "skipped",
         detail: "Loading…",
       },
       {
         id: "website_projects",
-        label: "Website-projects",
+        label: "Website-Projects",
         status: "skipped",
         detail: "Loading…",
       },
@@ -112,7 +112,7 @@ function buildConsolidatedSystemRows(services: ServiceRow[] | null): ServiceRow[
     find("data_platform") ??
     ({
       id: "data_platform",
-      label: "Data platform",
+      label: "Data Platform",
       status: "skipped" as const,
       detail: "not reported",
     } satisfies ServiceRow);
@@ -139,7 +139,7 @@ function buildConsolidatedSystemRows(services: ServiceRow[] | null): ServiceRow[
   const websiteProjectParts = [strattegysRow, rainbowRow];
   const websiteProjects: ServiceRow = {
     id: "website_projects",
-    label: "Website-projects",
+    label: "Website-Projects",
     status: aggregateGroupStatus(websiteProjectParts),
     detail: linesFromRows(websiteProjectParts),
   };
@@ -359,7 +359,7 @@ export default function StatusRail({
             className="mt-2 w-full rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] disabled:opacity-50"
             title="Clears stale CRM connection pool and probes Postgres. Docker dev: tunnel must listen on 0.0.0.0:5433 on Windows — run npm run db:reconnect from COMMAND-CENTRAL/web (this button cannot start SSH)."
           >
-            {reconnectBusy ? "Checking…" : "Refresh Data platform"}
+            {reconnectBusy ? "Checking…" : "Refresh Data Platform"}
           </button>
           {reconnectNote ? (
             <p

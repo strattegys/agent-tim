@@ -146,7 +146,7 @@ if (shouldTryTailscaleFallback(host) && tsFallbackHost) {
   if (fb.ok && fb.hasVector && fb.hasMemory) {
     console.log(
       `\nOK via Tailscale — CRM Postgres at ${tsFallbackHost}:${TS_FALLBACK_PORT}.\n` +
-        `\nYour tunnel/loopback path is broken. To fix Data platform + dev app, add to web/.env.local:\n` +
+        `\nYour tunnel/loopback path is broken. To fix Data Platform + dev app, add to web/.env.local:\n` +
         `  CRM_DB_HOST=${tsFallbackHost}\n` +
         `  CRM_DB_PORT=${TS_FALLBACK_PORT}\n` +
         `\n(Or start the tunnel: COMMAND-CENTRAL\\\\scripts\\\\crm-db-tunnel.ps1)\n` +

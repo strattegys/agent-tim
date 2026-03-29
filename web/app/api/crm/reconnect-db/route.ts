@@ -18,7 +18,7 @@ function dockerDesktopTunnelHint(host: string, port: number): string {
 
 /**
  * POST /api/crm/reconnect-db — authenticated only.
- * Drops the server-side CRM connection pool and probes Postgres (same checks as Data platform).
+ * Drops the server-side CRM connection pool and probes Postgres (same checks as Data Platform).
  * Does not start an SSH tunnel (impossible from the server, especially inside Docker dev).
  */
 export async function POST() {

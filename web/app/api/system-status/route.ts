@@ -118,7 +118,7 @@ async function probeHttp(
 }
 
 const DATA_PLATFORM_ID = "data_platform";
-const DATA_PLATFORM_LABEL = "Data platform";
+const DATA_PLATFORM_LABEL = "Data Platform";
 
 /**
  * Postgres is what Kanban / human-tasks / packages use. If CRM_DB_PASSWORD is unset,
@@ -330,7 +330,7 @@ async function probeUnipile(): Promise<ProbeResult> {
 
 /**
  * GET /api/system-status — lightweight reachability checks (server-side only).
- * Website-projects: Strattegys (SITE_API_URL origin) + optional Rainbow (PROJECT_SERVER_RAINBOW_URL).
+ * Website-Projects: Strattegys (SITE_API_URL origin) + optional Rainbow (PROJECT_SERVER_RAINBOW_URL).
  */
 export async function GET() {
   const siteArticles = process.env.SITE_API_URL?.trim() || "https://strattegys.com/api/articles";

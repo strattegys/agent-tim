@@ -18,9 +18,11 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # v5 runs the action on Node 24 (avoids Node 20 deprecation on checkout/setup-node).
+      # node-version below stays 20 to match web/Dockerfile (node:20-alpine).
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: '20'
           cache: 'npm'

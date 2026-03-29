@@ -147,6 +147,8 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
     user: process.env.CRM_DB_USER || "postgres",
     password,
     connectionTimeoutMillis: pgProbeMs,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
   });
 
   const t0 = Date.now();
@@ -191,6 +193,12 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
     if (/timeout expired/i.test(msg)) {
       detail =
         `Postgres connect timed out (${pgProbeMs}ms) · ${target}. Tunnel down, slow SSH, or wrong host/port — or set CRM_DB_PROBE_TIMEOUT_MS=20000 in web/.env.local.`.slice(
+          0,
+          220
+        );
+    } else if (/terminated unexpectedly|Connection closed/i.test(msg)) {
+      detail =
+        `TCP/Postgres dropped (${msg.slice(0, 48)}) · ${target}. Docker dev: restart the host bridge (cd web && npm run db:reconnect:bridge) or pull latest crm-db-tailscale-bridge.mjs; then Refresh Data platform.`.slice(
           0,
           220
         );

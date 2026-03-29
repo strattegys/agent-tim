@@ -51,6 +51,8 @@ export async function POST() {
     user: process.env.CRM_DB_USER || "postgres",
     password,
     connectionTimeoutMillis: PROBE_MS,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
   });
 
   const t0 = Date.now();

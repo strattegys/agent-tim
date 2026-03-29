@@ -22,6 +22,7 @@ function crmPoolOptions(): {
   max: number;
   connectionTimeoutMillis: number;
   keepAlive: boolean;
+  keepAliveInitialDelayMillis: number;
   idleTimeoutMillis: number;
 } {
   const connectionTimeoutMillis = parseInt(
@@ -29,6 +30,10 @@ function crmPoolOptions(): {
     10
   );
   const max = parseInt(process.env.CRM_DB_POOL_MAX || "5", 10);
+  const keepAliveInitialDelayMillis = parseInt(
+    process.env.CRM_DB_KEEPALIVE_DELAY_MS || "10000",
+    10
+  );
   return {
     host: process.env.CRM_DB_HOST || "127.0.0.1",
     port: parseInt(process.env.CRM_DB_PORT || "5432", 10),
@@ -41,6 +46,10 @@ function crmPoolOptions(): {
         ? connectionTimeoutMillis
         : 30000,
     keepAlive: process.env.CRM_DB_KEEPALIVE === "0" ? false : true,
+    keepAliveInitialDelayMillis:
+      Number.isFinite(keepAliveInitialDelayMillis) && keepAliveInitialDelayMillis >= 0
+        ? keepAliveInitialDelayMillis
+        : 10000,
     idleTimeoutMillis: parseInt(process.env.CRM_DB_IDLE_TIMEOUT_MS || "30000", 10) || 30000,
   };
 }

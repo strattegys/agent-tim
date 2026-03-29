@@ -4,6 +4,10 @@
  * Use with Docker dev: container hits host.docker.internal:5433; this process
  * forwards to droplet CRM_DB_TAILSCALE_HOST:5432 (Tailscale must be up on PC).
  *
+ * Uses explicit byte relay (not stream.pipe) so half-close/FIN handling matches
+ * long-lived Postgres pooled connections — default duplex pipe can yield
+ * "Connection terminated unexpectedly" on the client.
+ *
  *   cd COMMAND-CENTRAL && node scripts/crm-db-tailscale-bridge.mjs
  *   # or from web/:  npm run db:bridge
  *
@@ -34,33 +38,83 @@ if (!remoteHost) {
   process.exit(1);
 }
 
-const server = net.createServer({ pauseOnConnect: true }, (client) => {
+/** Relay one socket to another; end/close/error tear down both sides once. */
+function relayPair(a, b) {
+  let done = false;
+  function finish() {
+    if (done) return;
+    done = true;
+    try {
+      a.destroy();
+    } catch {
+      /* ignore */
+    }
+    try {
+      b.destroy();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  a.on("data", (chunk) => {
+    if (!b.writableEnded && !b.destroyed) {
+      const ok = b.write(chunk);
+      if (!ok) a.pause();
+    }
+  });
+  b.on("drain", () => a.resume());
+
+  b.on("data", (chunk) => {
+    if (!a.writableEnded && !a.destroyed) {
+      const ok = a.write(chunk);
+      if (!ok) b.pause();
+    }
+  });
+  a.on("drain", () => b.resume());
+
+  a.on("end", () => {
+    if (!b.destroyed && !b.writableEnded) b.end();
+  });
+  b.on("end", () => {
+    if (!a.destroyed && !a.writableEnded) a.end();
+  });
+
+  a.on("error", finish);
+  b.on("error", finish);
+  a.on("close", finish);
+  b.on("close", finish);
+}
+
+const server = net.createServer((client) => {
   const upstream = net.connect(
     { port: remotePort, host: remoteHost, keepAlive: true },
     () => {
+      if (client.destroyed) {
+        upstream.destroy();
+        return;
+      }
       client.setNoDelay(true);
       upstream.setNoDelay(true);
-      client.resume();
-      client.pipe(upstream);
-      upstream.pipe(client);
+      client.setKeepAlive(true, 10_000);
+      upstream.setKeepAlive(true, 10_000);
+      relayPair(client, upstream);
     }
   );
-  const end = () => {
+
+  upstream.on("error", () => {
     try {
       client.destroy();
     } catch {
       /* ignore */
     }
+  });
+  client.on("error", () => {
     try {
       upstream.destroy();
     } catch {
       /* ignore */
     }
-  };
-  upstream.on("error", end);
-  client.on("error", end);
-  client.on("close", () => upstream.destroy());
-  upstream.on("close", () => client.destroy());
+  });
 });
 
 server.on("error", (err) => {

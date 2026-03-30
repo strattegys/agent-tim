@@ -82,7 +82,7 @@ export BWS_ACCESS_TOKEN=$(cat /root/.config/bws/access_token)
 cd /opt/agent-tim && docker compose --env-file web/.env.local -f docker-compose.yml up -d
 ```
 
-Project Server: same for **`/opt/project-server/scripts/bws-pull-env.sh`** and **`site/.env.local`** (copy the script onto that server or clone this repo there for the script only).
+Project Server: same pattern using this repo’s **`scripts/bws-pull-env.sh`** on the host (e.g. **`/opt/project-server/scripts/bws-pull-env.sh`**) and **`site/.env.local`** — see **`PROJECT-SERVER/docs/BITWARDEN-SECRETS.md`**.
 
 ## GitHub Actions (optional)
 

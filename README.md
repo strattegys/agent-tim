@@ -72,7 +72,7 @@ cd COMMAND-CENTRAL   # repo root containing docker-compose.dev.yml
 docker compose -f docker-compose.dev.yml up
 ```
 
-Then open **http://localhost:3001** (hot reload via mounted `web/`). Uses `web/.env.local` and `host.docker.internal` for CRM DB — see comments in [`docker-compose.dev.yml`](docker-compose.dev.yml).
+Then open **http://localhost:3001** (hot reload via mounted `web/`). Uses **`web/.env.local`** and `host.docker.internal` for CRM DB — see [`docker-compose.dev.yml`](docker-compose.dev.yml). For a **stable baseline** vs **dev-only overrides**, use **`web/.env.development.local`** (see [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md)).
 
 **Optional (Node on the host, same port as Docker):**
 

@@ -16,6 +16,9 @@
 ## Hot reload works via volume mount of web/ directory.
 # Runs on http://localhost:3001 — open that URL in the browser (not 127.0.0.1): compose overrides
 # AUTH_URL / NEXTAUTH_URL so Auth.js matches local dev even if web/.env.local was copied from prod.
+#
+# Optional: add web/.env.development.local (gitignored) — Next dev loads it over .env.local so you can
+# experiment without overwriting your stable baseline. See docs/LOCAL-ENV-LAYERS.md.
 
 services:
   web:
@@ -33,8 +36,8 @@ services:
       - ./agents:/agents
       # Same as production docker-compose.yml: uploads survive container restarts (host ./docker-data/agent-avatars)
       - ./docker-data/agent-avatars:/data/agent-avatars
-    # API keys (GEMINI_API_KEY, GROQ_API_KEY, …) must live in web/.env.local on the host.
-    # Next only reads env at process start. New/changed keys in .env.local need a recreated container (restart is not enough for env_file): docker compose -f docker-compose.dev.yml up -d --no-deps --force-recreate web
+    # Baseline secrets: web/.env.local. Optional dev overrides: web/.env.development.local (Next dev only).
+    # Next only reads env at process start. New/changed keys need a recreated container: docker compose -f docker-compose.dev.yml up -d --no-deps --force-recreate web
     env_file: ./web/.env.local
     extra_hosts:
       - "host.docker.internal:host-gateway"

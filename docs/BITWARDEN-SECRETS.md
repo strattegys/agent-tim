@@ -36,6 +36,8 @@ Each secret **key** in Bitwarden must be the **exact** env var name (`CRM_DB_PAS
 
 Use **`web/.env.local.example`** (Command Central) and **`PROJECT-SERVER/site/.env.local.example`** as checklists. Non-secret defaults (e.g. `CRM_DB_HOST` for Docker dev) can live in a gitignored fragment or as separate SM secrets.
 
+**Stable baseline vs dev play:** Pull Bitwarden into **`web/.env.local`** (or **`site/.env.local`**) and keep experimental overrides in **`web/.env.development.local`** / **`site/.env.development.local`** (Next **`next dev` only**). See **`COMMAND-CENTRAL/docs/LOCAL-ENV-LAYERS.md`**.
+
 ## Render `.env.local` (PowerShell)
 
 From **COMMAND-CENTRAL** repo root:

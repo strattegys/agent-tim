@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "next dev -p 3001",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
+    "build:local-prod": "next build && node scripts/copy-standalone-assets.mjs",
     "start": "next start",
+    "start:local-prod": "next start -p 3001",
+    "local-prod": "npm run build:local-prod && npm run start:local-prod",
     "check-tts": "node scripts/check-inworld-tts.mjs",
     "sync:inworld": "node scripts/sync-inworld-from-rainbow.mjs",
     "push:inworld:prod": "node scripts/push-inworld-production.mjs",

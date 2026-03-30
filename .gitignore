@@ -1,6 +1,8 @@
 # Environment files with secrets
 .env
 *.env.local
+bws.secret-projects.json
+.env.bws.local
 config.json
 
 # API Keys and sensitive data
@@ -8,6 +10,9 @@ config.json
 **/*_API_KEY*
 **/*TOKEN*
 **/*SECRET*
+# Allow the Bitwarden setup doc and example project map (names contain "secret")
+!docs/BITWARDEN-SECRETS.md
+!bws.secret-projects.json.example
 
 # Logs
 *.log

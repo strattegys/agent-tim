@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV next dev -p 3010",
+    "dev": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
     "build:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD next build && node scripts/copy-standalone-assets.mjs",
     "start": "next start",
-    "start:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD next start -p 3001",
+    "start:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD CC_AGENT_CHAT_PROFILE=localprod next start -p 3001",
     "local-prod": "npm run build:local-prod && npm run start:local-prod",
     "check-tts": "node scripts/check-inworld-tts.mjs",
     "sync:inworld": "node scripts/sync-inworld-from-rainbow.mjs",
@@ -22,7 +22,8 @@
     "db:vector-memory": "node scripts/db-exec.mjs scripts/migrate-vector-memory.sql",
     "db:punch-list-actions": "node scripts/db-exec.mjs scripts/migrate-punch-list-actions-jsonb.sql",
     "migrate:orphan-workflows": "node scripts/migrate-orphan-workflows-to-packages.mjs",
-    "prune:linkedin-connection-alerts": "node scripts/prune-linkedin-connection-notifications.mjs"
+    "prune:linkedin-connection-alerts": "node scripts/prune-linkedin-connection-notifications.mjs",
+    "dev:unipile-recent": "node scripts/unipile-recent-chats.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
@@ -30,6 +31,7 @@
     "next": "16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "node-cron": "^4.2.1",
+    "pdf-parse": "^1.1.1",
     "pg": "^8.20.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -40,6 +42,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",
+    "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",

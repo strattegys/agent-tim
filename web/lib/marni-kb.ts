@@ -6,6 +6,18 @@ import { embedText, toPgVector } from "./embeddings";
 import { braveWebSearch } from "./brave-search";
 import { mergeWebEnvLocalSync } from "./load-web-env-local";
 import { randomUUID } from "crypto";
+import { isKbStudioAgentId } from "./kb-studio";
+import {
+  TIM_CRM_CORPUS_SLUG,
+  TIM_PDF_CORPUS_SLUG,
+  isTimProtectedKbTopicSlug,
+} from "./kb-topic-constants";
+
+export {
+  TIM_CRM_CORPUS_SLUG,
+  TIM_PDF_CORPUS_SLUG,
+  isTimProtectedKbTopicSlug,
+} from "./kb-topic-constants";
 
 const KB_AGENT = "marni";
 const SIM_THRESHOLD = 0.32;
@@ -27,6 +39,9 @@ function slugify(name: string): string {
 
 export type KbSourceMode = "web_only" | "linkedin_only" | "both";
 
+/** `research` = Brave Knowledge Studio; `crm_mirror` = Tim CRM + Unipile corpus (no Run now). */
+export type KbTopicKind = "research" | "crm_mirror";
+
 export interface KbTopicRow {
   id: string;
   agentId: string;
@@ -41,6 +56,7 @@ export interface KbTopicRow {
   lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;
+  topicKind: KbTopicKind;
 }
 
 export interface KbRunRow {
@@ -68,6 +84,8 @@ export interface KnowledgeChunkRow {
 function rowToTopic(r: Record<string, unknown>): KbTopicRow {
   const queries = (r.queries as string[]) ?? [];
   const postUrls = (r.postUrls as string[]) ?? [];
+  const tk = r.topic_kind ?? r.topicKind;
+  const topicKind: KbTopicKind = tk === "crm_mirror" ? "crm_mirror" : "research";
   return {
     id: String(r.id),
     agentId: String(r.agentId),
@@ -85,12 +103,16 @@ function rowToTopic(r: Record<string, unknown>): KbTopicRow {
     lastRunAt: r.lastRunAt != null ? String(r.lastRunAt) : null,
     createdAt: String(r.createdAt),
     updatedAt: String(r.updatedAt),
+    topicKind,
   };
 }
 
+const KB_TOPIC_SELECT =
+  `id, "agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, "lastRunAt", "createdAt", "updatedAt", topic_kind`;
+
 export async function listKbTopics(agentId = KB_AGENT): Promise<KbTopicRow[]> {
   const rows = await query<Record<string, unknown>>(
-    `SELECT id, "agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, "lastRunAt", "createdAt", "updatedAt"
+    `SELECT ${KB_TOPIC_SELECT}
      FROM "_kb_topic" WHERE "agentId" = $1 ORDER BY name ASC`,
     [agentId]
   );
@@ -99,8 +121,7 @@ export async function listKbTopics(agentId = KB_AGENT): Promise<KbTopicRow[]> {
 
 export async function getKbTopic(id: string): Promise<KbTopicRow | null> {
   const rows = await query<Record<string, unknown>>(
-    `SELECT id, "agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, "lastRunAt", "createdAt", "updatedAt"
-     FROM "_kb_topic" WHERE id = $1`,
+    `SELECT ${KB_TOPIC_SELECT} FROM "_kb_topic" WHERE id = $1`,
     [id]
   );
   return rows[0] ? rowToTopic(rows[0]) : null;
@@ -115,8 +136,13 @@ export async function createKbTopic(input: {
   cadenceMinutes?: number | null;
   enabled?: boolean;
   agentId?: string;
+  topicKind?: KbTopicKind;
 }): Promise<KbTopicRow> {
   const agentId = input.agentId ?? KB_AGENT;
+  if (!isKbStudioAgentId(agentId)) {
+    throw new Error(`Knowledge Studio agentId must be marni or tim (got: ${agentId})`);
+  }
+  const topicKind: KbTopicKind = input.topicKind === "crm_mirror" ? "crm_mirror" : "research";
   let base = slugify(input.name);
   let slug = base;
   for (let i = 0; i < 20; i++) {
@@ -130,9 +156,9 @@ export async function createKbTopic(input: {
   const queries = JSON.stringify(input.queries ?? []);
   const postUrls = JSON.stringify(input.postUrls ?? []);
   const rows = await query<Record<string, unknown>>(
-    `INSERT INTO "_kb_topic" ("agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled)
-     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9)
-     RETURNING id, "agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, "lastRunAt", "createdAt", "updatedAt"`,
+    `INSERT INTO "_kb_topic" ("agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, topic_kind)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9,$10)
+     RETURNING ${KB_TOPIC_SELECT}`,
     [
       agentId,
       slug,
@@ -143,6 +169,7 @@ export async function createKbTopic(input: {
       input.sourceMode ?? "web_only",
       input.cadenceMinutes ?? null,
       input.enabled !== false,
+      topicKind,
     ]
   );
   return rowToTopic(rows[0]);
@@ -158,6 +185,7 @@ export async function updateKbTopic(
     sourceMode: KbSourceMode;
     cadenceMinutes: number | null;
     enabled: boolean;
+    topicKind?: KbTopicKind;
   }>
 ): Promise<KbTopicRow | null> {
   const cur = await getKbTopic(id);
@@ -171,12 +199,13 @@ export async function updateKbTopic(
   const cadenceMinutes =
     patch.cadenceMinutes !== undefined ? patch.cadenceMinutes : cur.cadenceMinutes;
   const enabled = patch.enabled ?? cur.enabled;
+  const topicKind = patch.topicKind ?? cur.topicKind;
   const rows = await query<Record<string, unknown>>(
     `UPDATE "_kb_topic" SET name = $2, description = $3, queries = $4::jsonb, "postUrls" = $5::jsonb,
-     "sourceMode" = $6, "cadenceMinutes" = $7, enabled = $8, "updatedAt" = NOW()
+     "sourceMode" = $6, "cadenceMinutes" = $7, enabled = $8, topic_kind = $9, "updatedAt" = NOW()
      WHERE id = $1
-     RETURNING id, "agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, "lastRunAt", "createdAt", "updatedAt"`,
-    [id, name, description, queries, postUrls, sourceMode, cadenceMinutes, enabled]
+     RETURNING ${KB_TOPIC_SELECT}`,
+    [id, name, description, queries, postUrls, sourceMode, cadenceMinutes, enabled, topicKind]
   );
   return rows[0] ? rowToTopic(rows[0]) : null;
 }
@@ -245,6 +274,11 @@ export async function listKnowledgeChunks(
   }));
 }
 
+/** Split long text for embedding (Marni Brave ingest, Tim PDF ingest, etc.). */
+export function splitKnowledgeText(text: string, maxLen = 1100): string[] {
+  return splitIntoChunks(text, maxLen);
+}
+
 function splitIntoChunks(text: string, maxLen = 1100): string[] {
   const t = text.replace(/\r\n/g, "\n").trim();
   if (!t) return [];
@@ -270,16 +304,112 @@ async function insertChunk(
   content: string,
   metadata: Record<string, unknown>
 ): Promise<void> {
-  const vec = await embedText(content.slice(0, 8000), {
+  await insertAgentKnowledgeChunk({
     agentId,
-    purpose: "marni_kb_ingest",
+    topicId,
+    content,
+    metadata,
+    embedPurpose: "marni_kb_ingest",
+  });
+}
+
+/** Insert one vector chunk (Tim CRM sync, Marni research, etc.). */
+export async function insertAgentKnowledgeChunk(input: {
+  agentId: string;
+  topicId: string | null;
+  content: string;
+  metadata: Record<string, unknown>;
+  embedPurpose?: string;
+}): Promise<void> {
+  const vec = await embedText(input.content.slice(0, 8000), {
+    agentId: input.agentId,
+    purpose: input.embedPurpose ?? "marni_kb_ingest",
   });
   const pgVec = toPgVector(vec);
   await query(
     `INSERT INTO "_agent_knowledge" ("agentId", "topicId", content, embedding, metadata)
      VALUES ($1, $2, $3, $4::vector, $5::jsonb)`,
-    [agentId, topicId, content, pgVec, JSON.stringify(metadata)]
+    [
+      input.agentId,
+      input.topicId,
+      input.content,
+      pgVec,
+      JSON.stringify(input.metadata),
+    ]
   );
+}
+
+export async function knowledgeChunkExistsByExternalRef(
+  agentId: string,
+  externalRef: string
+): Promise<boolean> {
+  const rows = await query<{ one: number }>(
+    `SELECT 1 AS one FROM "_agent_knowledge"
+     WHERE "agentId" = $1 AND "deletedAt" IS NULL AND metadata->>'externalRef' = $2 LIMIT 1`,
+    [agentId, externalRef]
+  );
+  return rows.length > 0;
+}
+
+export async function countKnowledgeChunksByTopic(topicId: string): Promise<number> {
+  const rows = await query<{ c: string }>(
+    `SELECT COUNT(*)::text AS c FROM "_agent_knowledge"
+     WHERE "topicId" = $1 AND "deletedAt" IS NULL`,
+    [topicId]
+  );
+  return Number(rows[0]?.c ?? 0);
+}
+
+export async function touchKbTopicLastSync(topicId: string): Promise<void> {
+  await query(`UPDATE "_kb_topic" SET "lastRunAt" = NOW(), "updatedAt" = NOW() WHERE id = $1`, [
+    topicId,
+  ]);
+}
+
+export async function ensureTimCrmMirrorKbTopic(): Promise<KbTopicRow> {
+  const existing = await query<Record<string, unknown>>(
+    `SELECT ${KB_TOPIC_SELECT} FROM "_kb_topic" WHERE "agentId" = 'tim' AND slug = $1`,
+    [TIM_CRM_CORPUS_SLUG]
+  );
+  if (existing[0]) return rowToTopic(existing[0]);
+  const desc =
+    "LinkedIn threads via Unipile (inbound + outbound) and Twenty CRM notes. Use “Sync CRM corpus” in the Knowledge panel — not Brave research.";
+  const rows = await query<Record<string, unknown>>(
+    `INSERT INTO "_kb_topic" ("agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, topic_kind)
+     VALUES ('tim', $1, 'CRM & LinkedIn history', $2, '[]'::jsonb, '[]'::jsonb, 'web_only', NULL, false, 'crm_mirror')
+     RETURNING ${KB_TOPIC_SELECT}`,
+    [TIM_CRM_CORPUS_SLUG, desc]
+  );
+  return rowToTopic(rows[0]!);
+}
+
+export async function ensureTimPdfKbTopic(): Promise<KbTopicRow> {
+  const existing = await query<Record<string, unknown>>(
+    `SELECT ${KB_TOPIC_SELECT} FROM "_kb_topic" WHERE "agentId" = 'tim' AND slug = $1`,
+    [TIM_PDF_CORPUS_SLUG]
+  );
+  if (existing[0]) return rowToTopic(existing[0]);
+  const desc =
+    "Reference PDFs uploaded from the Knowledge panel. Chunks are embedded for RAG alongside CRM and research topics.";
+  const rows = await query<Record<string, unknown>>(
+    `INSERT INTO "_kb_topic" ("agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, topic_kind)
+     VALUES ('tim', $1, 'Reference PDFs', $2, '[]'::jsonb, '[]'::jsonb, 'web_only', NULL, false, 'crm_mirror')
+     RETURNING ${KB_TOPIC_SELECT}`,
+    [TIM_PDF_CORPUS_SLUG, desc]
+  );
+  return rowToTopic(rows[0]!);
+}
+
+/** True if this PDF (sha256 of file bytes) was already ingested for Tim on the given topic. */
+export async function timPdfDocumentAlreadyIngested(topicId: string, sha256Hex: string): Promise<boolean> {
+  const rows = await query<{ one: number }>(
+    `SELECT 1 AS one FROM "_agent_knowledge"
+     WHERE "agentId" = 'tim' AND "topicId" = $1::uuid AND "deletedAt" IS NULL
+       AND metadata->>'pdfSha256' = $2
+     LIMIT 1`,
+    [topicId, sha256Hex]
+  );
+  return rows.length > 0;
 }
 
 async function hasRunningRun(topicId: string): Promise<boolean> {
@@ -293,6 +423,11 @@ async function hasRunningRun(topicId: string): Promise<boolean> {
 export async function runKbResearch(topicId: string): Promise<KbRunRow> {
   const topic = await getKbTopic(topicId);
   if (!topic) throw new Error("Topic not found");
+  if (topic.topicKind === "crm_mirror") {
+    throw new Error(
+      "This topic is a fixed corpus (CRM / LinkedIn sync or uploaded PDFs). Use “Sync CRM corpus” or “Upload PDF” in Tim’s Knowledge panel — not Run now."
+    );
+  }
   if (await hasRunningRun(topicId)) {
     throw new Error("A research run is already in progress for this topic");
   }
@@ -473,7 +608,7 @@ function mapRunRow(r: Record<string, unknown> | undefined): KbRunRow {
 export async function searchAgentKnowledge(
   agentId: string,
   queryText: string,
-  opts?: { topK?: number; topicId?: string | null }
+  opts?: { topK?: number; topicId?: string | null; personId?: string | null }
 ): Promise<KnowledgeChunkRow[]> {
   const vec = await embedText(queryText.slice(0, 4000), {
     agentId,
@@ -482,8 +617,21 @@ export async function searchAgentKnowledge(
   const pgVec = toPgVector(vec);
   const k = Math.min(24, Math.max(1, opts?.topK ?? DEFAULT_TOP_K));
   const topicId = opts?.topicId;
+  const personId = opts?.personId?.trim() || null;
   let rows: Record<string, unknown>[];
-  if (topicId) {
+  if (topicId && personId) {
+    rows = await query<Record<string, unknown>>(
+      `SELECT id, "agentId", "topicId", content, metadata, "createdAt",
+              1 - (embedding <=> $1::vector) AS similarity
+       FROM "_agent_knowledge"
+       WHERE "agentId" = $2 AND "deletedAt" IS NULL AND "topicId" = $3
+         AND metadata->>'personId' = $6
+         AND 1 - (embedding <=> $1::vector) > $4
+       ORDER BY embedding <=> $1::vector ASC
+       LIMIT $5`,
+      [pgVec, agentId, topicId, SIM_THRESHOLD, k, personId]
+    );
+  } else if (topicId) {
     rows = await query<Record<string, unknown>>(
       `SELECT id, "agentId", "topicId", content, metadata, "createdAt",
               1 - (embedding <=> $1::vector) AS similarity
@@ -493,6 +641,18 @@ export async function searchAgentKnowledge(
        ORDER BY embedding <=> $1::vector ASC
        LIMIT $5`,
       [pgVec, agentId, topicId, SIM_THRESHOLD, k]
+    );
+  } else if (personId) {
+    rows = await query<Record<string, unknown>>(
+      `SELECT id, "agentId", "topicId", content, metadata, "createdAt",
+              1 - (embedding <=> $1::vector) AS similarity
+       FROM "_agent_knowledge"
+       WHERE "agentId" = $2 AND "deletedAt" IS NULL
+         AND metadata->>'personId' = $5
+         AND 1 - (embedding <=> $1::vector) > $3
+       ORDER BY embedding <=> $1::vector ASC
+       LIMIT $4`,
+      [pgVec, agentId, SIM_THRESHOLD, k, personId]
     );
   } else {
     rows = await query<Record<string, unknown>>(
@@ -606,6 +766,7 @@ export async function processDueKbTopicsCron(agentId = KB_AGENT): Promise<number
   const rows = await query<{ id: string }>(
     `SELECT id FROM "_kb_topic"
      WHERE enabled = TRUE AND "agentId" = $1
+       AND COALESCE(topic_kind, 'research') = 'research'
        AND "cadenceMinutes" IS NOT NULL AND "cadenceMinutes" > 0
        AND (
          "lastRunAt" IS NULL

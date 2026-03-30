@@ -5,9 +5,15 @@ import MarniTopicAddModal from "./MarniTopicAddModal";
 import MarniCorpusWordCloud from "./MarniCorpusWordCloud";
 import { HUMAN_MANUAL_ACTION_BTN_CLASS } from "@/lib/suzi-work-panel";
 import { topTermsFromChunks } from "@/lib/marni-corpus-terms";
-import { MARNI_KNOWLEDGE_TAB_HEADER_HINT } from "@/lib/marni-work-panel";
+import { MARNI_KNOWLEDGE_TAB_HEADER_HINT, TIM_KNOWLEDGE_BOOK_HINT } from "@/lib/marni-work-panel";
 import { panelBus } from "@/lib/events";
 import { readMarniKbApiJson } from "@/lib/marni-kb-api-read";
+import type { KbStudioAgentId } from "@/lib/kb-studio";
+import {
+  isTimProtectedKbTopicSlug,
+  TIM_CRM_CORPUS_SLUG,
+  TIM_PDF_CORPUS_SLUG,
+} from "@/lib/kb-topic-constants";
 
 const fetchOpts: RequestInit = { credentials: "same-origin" };
 
@@ -50,6 +56,8 @@ interface KbTopic {
   cadenceMinutes: number | null;
   enabled: boolean;
   lastRunAt: string | null;
+  /** Absent from older API builds — treat as research. */
+  topicKind?: "research" | "crm_mirror";
 }
 
 interface KbRun {
@@ -77,6 +85,8 @@ interface MarniKnowledgePanelProps {
   onClose: () => void;
   /** Hide title bar + close (used inside Marni work panel second tab). */
   embedded?: boolean;
+  /** Knowledge Studio corpus namespace (Marni vs Tim). */
+  kbAgentId?: KbStudioAgentId;
   /** Lifted to chat: selected topic while this panel is open (Knowledge Base tab). */
   onKnowledgeFocusChange?: (focus: MarniKnowledgeFocus | null) => void;
   /** Controlled from Marni work panel tab header — Add topic + modal. */
@@ -87,6 +97,7 @@ interface MarniKnowledgePanelProps {
 export default function MarniKnowledgePanel({
   onClose,
   embedded = false,
+  kbAgentId = "marni",
   onKnowledgeFocusChange,
   addTopicOpen: addTopicOpenProp,
   onAddTopicOpenChange,
@@ -108,6 +119,22 @@ export default function MarniKnowledgePanel({
   const [loadingRuns, setLoadingRuns] = useState(false);
   const [chunks, setChunks] = useState<KbChunk[]>([]);
   const [loadingChunks, setLoadingChunks] = useState(false);
+  const [crmStatus, setCrmStatus] = useState<{
+    chunkCount: number;
+    topic: KbTopic;
+    unipileConfigured: boolean;
+    geminiConfigured: boolean;
+  } | null>(null);
+  const [crmSyncBusy, setCrmSyncBusy] = useState(false);
+  const [crmSyncNote, setCrmSyncNote] = useState<string | null>(null);
+  const [pdfStatus, setPdfStatus] = useState<{
+    chunkCount: number;
+    topic: KbTopic;
+    geminiConfigured: boolean;
+  } | null>(null);
+  const [pdfUploadBusy, setPdfUploadBusy] = useState(false);
+  const [pdfNote, setPdfNote] = useState<string | null>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const mounted = useRef(true);
   useEffect(() => {
@@ -120,7 +147,7 @@ export default function MarniKnowledgePanel({
   const loadTopics = useCallback(() => {
     setLoadingTopics(true);
     setError(null);
-    fetch("/api/marni-kb/topics", fetchOpts)
+    fetch(`/api/marni-kb/topics?agentId=${encodeURIComponent(kbAgentId)}`, fetchOpts)
       .then(async (r) => {
         const data = await readMarniKbApiJson<{ error?: string; topics?: KbTopic[] }>(r);
         if (!mounted.current) return;
@@ -140,11 +167,79 @@ export default function MarniKnowledgePanel({
       .finally(() => {
         if (mounted.current) setLoadingTopics(false);
       });
-  }, []);
+  }, [kbAgentId]);
+
+  const researchTopics = useMemo(
+    () => topics.filter((t) => t.topicKind !== "crm_mirror"),
+    [topics]
+  );
+  const crmMirrorTopics = useMemo(
+    () => topics.filter((t) => t.topicKind === "crm_mirror"),
+    [topics]
+  );
+
+  const loadPdfStatus = useCallback(() => {
+    if (kbAgentId !== "tim") return;
+    fetch("/api/tim-kb/pdf", fetchOpts)
+      .then(async (r) => {
+        const data = await readMarniKbApiJson<{
+          error?: string;
+          chunkCount?: number;
+          topic?: KbTopic;
+          geminiConfigured?: boolean;
+        }>(r);
+        if (!mounted.current) return;
+        if (data.error || !data.topic) setPdfStatus(null);
+        else {
+          setPdfStatus({
+            chunkCount: Number(data.chunkCount ?? 0),
+            topic: data.topic,
+            geminiConfigured: Boolean(data.geminiConfigured),
+          });
+        }
+      })
+      .catch(() => {
+        if (mounted.current) setPdfStatus(null);
+      });
+  }, [kbAgentId]);
+
+  const loadCrmStatus = useCallback(() => {
+    if (kbAgentId !== "tim") return;
+    fetch("/api/tim-kb/sync-crm", fetchOpts)
+      .then(async (r) => {
+        const data = await readMarniKbApiJson<{
+          error?: string;
+          chunkCount?: number;
+          topic?: KbTopic;
+          unipileConfigured?: boolean;
+          geminiConfigured?: boolean;
+        }>(r);
+        if (!mounted.current) return;
+        if (data.error || !data.topic) setCrmStatus(null);
+        else {
+          setCrmStatus({
+            chunkCount: Number(data.chunkCount ?? 0),
+            topic: data.topic,
+            unipileConfigured: Boolean(data.unipileConfigured),
+            geminiConfigured: Boolean(data.geminiConfigured),
+          });
+        }
+      })
+      .catch(() => {
+        if (mounted.current) setCrmStatus(null);
+      });
+  }, [kbAgentId]);
 
   useEffect(() => {
     loadTopics();
   }, [loadTopics]);
+
+  useEffect(() => {
+    if (kbAgentId === "tim") {
+      loadCrmStatus();
+      loadPdfStatus();
+    }
+  }, [kbAgentId, loadCrmStatus, loadPdfStatus]);
 
   /** Chat invokes `knowledge_topic_create`; stream emits panelBus with that tool name — refetch so the list stays in sync without closing the panel. */
   useEffect(() => {
@@ -162,7 +257,10 @@ export default function MarniKnowledgePanel({
       return;
     }
     setLoadingRuns(true);
-    fetch(`/api/marni-kb/runs?topicId=${encodeURIComponent(selTopicId)}`, fetchOpts)
+    fetch(
+      `/api/marni-kb/runs?topicId=${encodeURIComponent(selTopicId)}&agentId=${encodeURIComponent(kbAgentId)}`,
+      fetchOpts
+    )
       .then(async (r) => {
         const data = await readMarniKbApiJson<{ runs?: KbRun[] }>(r);
         if (mounted.current) setRuns(data.runs || []);
@@ -173,7 +271,7 @@ export default function MarniKnowledgePanel({
       .finally(() => {
         if (mounted.current) setLoadingRuns(false);
       });
-  }, [selTopicId]);
+  }, [selTopicId, kbAgentId]);
 
   const loadChunks = useCallback(() => {
     if (!selTopicId) {
@@ -181,7 +279,7 @@ export default function MarniKnowledgePanel({
       return;
     }
     setLoadingChunks(true);
-    const q = `?topicId=${encodeURIComponent(selTopicId)}&limit=200`;
+    const q = `?topicId=${encodeURIComponent(selTopicId)}&limit=200&agentId=${encodeURIComponent(kbAgentId)}`;
     fetch(`/api/marni-kb/chunks${q}`, fetchOpts)
       .then(async (r) => {
         const data = await readMarniKbApiJson<{ chunks?: KbChunk[] }>(r);
@@ -193,7 +291,7 @@ export default function MarniKnowledgePanel({
       .finally(() => {
         if (mounted.current) setLoadingChunks(false);
       });
-  }, [selTopicId]);
+  }, [selTopicId, kbAgentId]);
 
   useEffect(() => {
     if (selTopicId) loadRuns();
@@ -225,7 +323,7 @@ export default function MarniKnowledgePanel({
         ...fetchOpts,
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topicId: id }),
+        body: JSON.stringify({ topicId: id, agentId: kbAgentId }),
       });
       const data = await readMarniKbApiJson<{ error?: string }>(r);
       if (!r.ok) throw new Error(data.error || "Run failed");
@@ -240,13 +338,21 @@ export default function MarniKnowledgePanel({
   }
 
   async function deleteTopic(id: string) {
+    const t = topics.find((x) => x.id === id);
+    if (t && isTimProtectedKbTopicSlug(t.slug)) {
+      setError("Built-in corpus topics cannot be deleted (CRM & LinkedIn history and reference PDFs).");
+      return;
+    }
     if (!confirm("Delete this topic? Research runs are removed; knowledge chunks remain with topic unlinked.")) return;
     setError(null);
     try {
-      const r = await fetch(`/api/marni-kb/topics/${id}`, {
-        ...fetchOpts,
-        method: "DELETE",
-      });
+      const r = await fetch(
+        `/api/marni-kb/topics/${encodeURIComponent(id)}?agentId=${encodeURIComponent(kbAgentId)}`,
+        {
+          ...fetchOpts,
+          method: "DELETE",
+        }
+      );
       const data = await readMarniKbApiJson<{ error?: string; ok?: boolean }>(r);
       if (!r.ok) {
         throw new Error(data.error || "Delete failed");
@@ -255,6 +361,88 @@ export default function MarniKnowledgePanel({
       loadTopics();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function syncTimCrmCorpus(dryRun: boolean) {
+    if (kbAgentId !== "tim") return;
+    setCrmSyncBusy(true);
+    setCrmSyncNote(null);
+    setError(null);
+    try {
+      const r = await fetch("/api/tim-kb/sync-crm", {
+        ...fetchOpts,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chatLimit: 25,
+          messagesPerChat: 40,
+          includeNotes: true,
+          dryRun,
+          maxNewChunks: 400,
+        }),
+      });
+      const data = await readMarniKbApiJson<{
+        error?: string;
+        ok?: boolean;
+        messagesInserted?: number;
+        messagesSkippedDuplicate?: number;
+        messagesSkippedNoPerson?: number;
+        unmatchedChats?: number;
+        notesInserted?: number;
+        stoppedByCap?: boolean;
+        errors?: string[];
+      }>(r);
+      if (!r.ok) throw new Error(data.error || "Sync failed");
+      const errs = Array.isArray(data.errors) ? data.errors.filter(Boolean) : [];
+      const parts = [
+        dryRun ? "Dry run — no writes." : `Inserted ${data.messagesInserted ?? 0} message chunk(s), ${data.notesInserted ?? 0} note chunk(s).`,
+        `Skipped dup ${data.messagesSkippedDuplicate ?? 0}, no CRM match ${data.messagesSkippedNoPerson ?? 0}, unmatched chats ${data.unmatchedChats ?? 0}.`,
+      ];
+      if (data.stoppedByCap) parts.push("Stopped: hit max new chunks cap (raise maxNewChunks in API body if needed).");
+      if (errs.length) parts.push(`Warnings: ${errs.join("; ")}`);
+      setCrmSyncNote(parts.join(" "));
+      loadTopics();
+      loadCrmStatus();
+      loadChunks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCrmSyncBusy(false);
+    }
+  }
+
+  async function uploadTimPdf(file: File) {
+    if (kbAgentId !== "tim") return;
+    setPdfUploadBusy(true);
+    setPdfNote(null);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/api/tim-kb/pdf", {
+        method: "POST",
+        body: fd,
+        credentials: "same-origin",
+      });
+      const data = await readMarniKbApiJson<{
+        error?: string;
+        ok?: boolean;
+        chunksInserted?: number;
+        fileName?: string;
+      }>(r);
+      if (!r.ok) throw new Error(data.error || "Upload failed");
+      setPdfNote(
+        `Ingested ${data.chunksInserted ?? 0} chunk(s) from “${data.fileName ?? file.name}”. Same file will be rejected if uploaded again.`
+      );
+      loadPdfStatus();
+      loadTopics();
+      loadChunks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPdfUploadBusy(false);
+      if (pdfInputRef.current) pdfInputRef.current.value = "";
     }
   }
 
@@ -267,6 +455,7 @@ export default function MarniKnowledgePanel({
       <MarniTopicAddModal
         open={addTopicOpen}
         onClose={() => setAddTopicOpen(false)}
+        kbAgentId={kbAgentId}
         onCreated={(id) => {
           loadTopics();
           setSelTopicId(id);
@@ -301,10 +490,10 @@ export default function MarniKnowledgePanel({
           <div
             className="shrink-0 rounded-md border border-[var(--border-color)]/35 bg-[var(--bg-primary)]/25 px-2 py-1 mr-auto"
             role="note"
-            aria-label={MARNI_KNOWLEDGE_TAB_HEADER_HINT}
+            aria-label={kbAgentId === "tim" ? TIM_KNOWLEDGE_BOOK_HINT : MARNI_KNOWLEDGE_TAB_HEADER_HINT}
           >
             <p className="text-[10px] sm:text-[11px] font-normal text-[var(--text-tertiary)]/90 leading-none whitespace-nowrap">
-              {MARNI_KNOWLEDGE_TAB_HEADER_HINT}
+              {kbAgentId === "tim" ? TIM_KNOWLEDGE_BOOK_HINT : MARNI_KNOWLEDGE_TAB_HEADER_HINT}
             </p>
           </div>
           <button
@@ -323,86 +512,251 @@ export default function MarniKnowledgePanel({
           {error}
         </div>
       )}
+      {crmSyncNote && (
+        <div className="shrink-0 mx-2 mt-2 text-[11px] text-emerald-200/95 bg-emerald-950/35 border border-emerald-600/35 rounded px-2 py-1.5">
+          {crmSyncNote}
+        </div>
+      )}
+      {pdfNote && (
+        <div className="shrink-0 mx-2 mt-2 text-[11px] text-amber-100/95 bg-amber-950/40 border border-amber-600/40 rounded px-2 py-1.5">
+          {pdfNote}
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden text-[11px] text-[var(--text-secondary)]">
         <div className="shrink-0 flex flex-col lg:flex-row border-b border-[var(--border-color)]">
           <div className="lg:flex-[3] min-w-0 w-full max-h-[min(42vh,22rem)] min-h-[160px] lg:min-h-[200px] overflow-y-auto p-2 sm:p-3 border-b lg:border-b-0 lg:border-r border-[var(--border-color)]">
             {loadingTopics ? (
               <p className="text-[var(--text-tertiary)] p-2">Loading topics…</p>
-            ) : topics.length === 0 ? (
-              <div className="flex flex-col items-center justify-center min-h-[8rem] text-center px-4">
-                <p className="text-[var(--text-tertiary)] text-sm">No topics yet.</p>
-                <p className="text-[var(--text-tertiary)] text-xs mt-1">
-                  Use Add topic above to create your first research topic.
-                </p>
-              </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0">
-                {topics.map((t) => {
-                  const isSelected = selTopicId === t.id;
-                  const isRunning = runningTopicId === t.id;
-                  return (
-                    <div
-                      key={t.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setSelTopicId(t.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault();
-                          setSelTopicId(t.id);
-                        }
-                      }}
-                      className={`rounded-lg border bg-[var(--bg-primary)] p-2.5 text-left cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#D4A017]/50 ${
-                        isSelected
-                          ? "border-[#D4A017]/55 ring-2 ring-[#D4A017]/35"
-                          : "border-[var(--border-color)] hover:border-[var(--border-color)]/80"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-[var(--text-primary)] truncate">{t.name}</div>
-                          <div className="text-[10px] text-[var(--text-tertiary)] font-mono truncate">{t.slug}</div>
-                          {t.description && (
-                            <p className="mt-1 text-[10px] text-[var(--text-secondary)] line-clamp-2">
-                              {t.description}
-                            </p>
+              <div className="flex flex-col gap-3 min-w-0">
+                {kbAgentId === "tim" && (
+                  <div
+                    className={`rounded-lg border p-2.5 bg-[var(--bg-primary)] ${
+                      crmStatus?.topic?.id === selTopicId ||
+                      crmMirrorTopics.some((c) => c.id === selTopicId && c.slug === TIM_CRM_CORPUS_SLUG)
+                        ? "border-[#1D9E75]/55 ring-2 ring-[#1D9E75]/25"
+                        : "border-[#1D9E75]/35"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-[#1D9E75]">
+                          CRM knowledge
+                        </div>
+                        <div className="font-semibold text-[var(--text-primary)] mt-0.5">
+                          CRM &amp; LinkedIn history
+                        </div>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-snug">
+                          Unipile threads (inbound + outbound) and Twenty notes → vector chunks. Match people via{" "}
+                          <code className="font-mono text-[9px]">linkedinProviderId</code> on person records.
+                        </p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5 tabular-nums">
+                          {crmStatus != null ? (
+                            <>
+                              {crmStatus.chunkCount} chunks
+                              {crmStatus.topic.lastRunAt
+                                ? ` · last sync ${crmStatus.topic.lastRunAt.slice(0, 16)}`
+                                : ""}
+                              {" · "}
+                              Unipile {crmStatus.unipileConfigured ? "OK" : "off"} · Gemini{" "}
+                              {crmStatus.geminiConfigured ? "OK" : "off"}
+                            </>
+                          ) : (
+                            "Loading status…"
                           )}
-                          <p className="mt-1.5 text-[10px] text-[var(--text-tertiary)]">
-                            {t.sourceMode} · {t.queries.length} quer{t.queries.length === 1 ? "y" : "ies"} ·{" "}
-                            {t.cadenceMinutes ? `${t.cadenceMinutes}m cadence` : "manual"}
-                            {t.lastRunAt && ` · last ${t.lastRunAt.slice(0, 16)}`}
-                          </p>
-                        </div>
-                        <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            disabled={isRunning}
-                            onClick={() => runTopic(t.id)}
-                            className="inline-flex items-center justify-center gap-1.5 min-w-[5.5rem] px-2 py-1 rounded bg-[#D4A017]/20 text-[#D4A017] text-[10px] font-semibold hover:bg-[#D4A017]/30 disabled:opacity-45 disabled:pointer-events-none"
-                          >
-                            {isRunning ? (
-                              <>
-                                <RunSpinner className="text-[#D4A017]" />
-                                <span>Running</span>
-                              </>
-                            ) : (
-                              "Run now"
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={isRunning}
-                            onClick={() => deleteTopic(t.id)}
-                            className="px-2 py-0.5 rounded text-red-400/90 text-[10px] hover:bg-red-950/40 disabled:opacity-40"
-                          >
-                            Delete
-                          </button>
-                        </div>
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          disabled={crmSyncBusy}
+                          onClick={() => {
+                            const id = crmStatus?.topic?.id ?? crmMirrorTopics[0]?.id;
+                            if (id) setSelTopicId(id);
+                          }}
+                          className="px-2 py-1 rounded border border-[var(--border-color)] text-[10px] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+                        >
+                          View corpus
+                        </button>
+                        <button
+                          type="button"
+                          disabled={crmSyncBusy}
+                          onClick={() => syncTimCrmCorpus(false)}
+                          className="inline-flex items-center justify-center gap-1.5 min-w-[5.5rem] px-2 py-1 rounded bg-[#1D9E75]/20 text-[#1D9E75] text-[10px] font-semibold hover:bg-[#1D9E75]/30 disabled:opacity-45"
+                        >
+                          {crmSyncBusy ? (
+                            <>
+                              <RunSpinner className="text-[#1D9E75]" />
+                              <span>Syncing…</span>
+                            </>
+                          ) : (
+                            "Sync CRM corpus"
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={crmSyncBusy}
+                          onClick={() => syncTimCrmCorpus(true)}
+                          className="px-2 py-0.5 rounded text-[10px] text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)]"
+                        >
+                          Dry run
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
+                  </div>
+                )}
+                {kbAgentId === "tim" && (
+                  <div
+                    className={`rounded-lg border p-2.5 bg-[var(--bg-primary)] ${
+                      pdfStatus?.topic?.id === selTopicId
+                        ? "border-amber-500/55 ring-2 ring-amber-500/25"
+                        : "border-amber-600/35"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-500/90">
+                          Reference PDFs
+                        </div>
+                        <div className="font-semibold text-[var(--text-primary)] mt-0.5">Uploaded documents</div>
+                        <p className="text-[10px] text-[var(--text-secondary)] mt-1 leading-snug">
+                          Standard format: <span className="font-mono text-[9px]">.pdf</span> only (max ~12&nbsp;MB).
+                          Text is extracted, chunked, and embedded into Tim’s RAG corpus (same search as CRM and
+                          research topics). Scanned PDFs without a text layer may fail.
+                        </p>
+                        <p className="text-[10px] text-[var(--text-tertiary)] mt-1.5 tabular-nums">
+                          {pdfStatus != null ? (
+                            <>
+                              {pdfStatus.chunkCount} chunks
+                              {pdfStatus.topic.lastRunAt
+                                ? ` · last upload ${pdfStatus.topic.lastRunAt.slice(0, 16)}`
+                                : ""}
+                              {" · Gemini "}
+                              {pdfStatus.geminiConfigured ? "OK" : "off"}
+                            </>
+                          ) : (
+                            "Loading status…"
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          ref={pdfInputRef}
+                          type="file"
+                          accept="application/pdf,.pdf"
+                          className="hidden"
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void uploadTimPdf(f);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={pdfUploadBusy}
+                          onClick={() => {
+                            const id = pdfStatus?.topic?.id ?? crmMirrorTopics.find((c) => c.slug === TIM_PDF_CORPUS_SLUG)?.id;
+                            if (id) setSelTopicId(id);
+                          }}
+                          className="px-2 py-1 rounded border border-[var(--border-color)] text-[10px] text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)]"
+                        >
+                          View chunks
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pdfUploadBusy}
+                          onClick={() => pdfInputRef.current?.click()}
+                          className="inline-flex items-center justify-center gap-1.5 min-w-[5.5rem] px-2 py-1 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-semibold hover:bg-amber-500/30 disabled:opacity-45"
+                        >
+                          {pdfUploadBusy ? (
+                            <>
+                              <RunSpinner className="text-amber-500" />
+                              <span>Uploading…</span>
+                            </>
+                          ) : (
+                            "Upload PDF"
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {researchTopics.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center min-h-[6rem] text-center px-4">
+                    <p className="text-[var(--text-tertiary)] text-sm">No research topics yet.</p>
+                    <p className="text-[var(--text-tertiary)] text-xs mt-1">
+                      Use Add topic for Brave research. CRM corpus uses the card above.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0">
+                    {researchTopics.map((t) => {
+                      const isSelected = selTopicId === t.id;
+                      const isRunning = runningTopicId === t.id;
+                      return (
+                        <div
+                          key={t.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setSelTopicId(t.id)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setSelTopicId(t.id);
+                            }
+                          }}
+                          className={`rounded-lg border bg-[var(--bg-primary)] p-2.5 text-left cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#D4A017]/50 ${
+                            isSelected
+                              ? "border-[#D4A017]/55 ring-2 ring-[#D4A017]/35"
+                              : "border-[var(--border-color)] hover:border-[var(--border-color)]/80"
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="font-semibold text-[var(--text-primary)] truncate">{t.name}</div>
+                              <div className="text-[10px] text-[var(--text-tertiary)] font-mono truncate">{t.slug}</div>
+                              {t.description && (
+                                <p className="mt-1 text-[10px] text-[var(--text-secondary)] line-clamp-2">
+                                  {t.description}
+                                </p>
+                              )}
+                              <p className="mt-1.5 text-[10px] text-[var(--text-tertiary)]">
+                                {t.sourceMode} · {t.queries.length} quer{t.queries.length === 1 ? "y" : "ies"} ·{" "}
+                                {t.cadenceMinutes ? `${t.cadenceMinutes}m cadence` : "manual"}
+                                {t.lastRunAt && ` · last ${t.lastRunAt.slice(0, 16)}`}
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                disabled={isRunning}
+                                onClick={() => runTopic(t.id)}
+                                className="inline-flex items-center justify-center gap-1.5 min-w-[5.5rem] px-2 py-1 rounded bg-[#D4A017]/20 text-[#D4A017] text-[10px] font-semibold hover:bg-[#D4A017]/30 disabled:opacity-45 disabled:pointer-events-none"
+                              >
+                                {isRunning ? (
+                                  <>
+                                    <RunSpinner className="text-[#D4A017]" />
+                                    <span>Running</span>
+                                  </>
+                                ) : (
+                                  "Run now"
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isRunning}
+                                onClick={() => deleteTopic(t.id)}
+                                className="px-2 py-0.5 rounded text-red-400/90 text-[10px] hover:bg-red-950/40 disabled:opacity-40"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -435,7 +789,9 @@ export default function MarniKnowledgePanel({
                 </div>
               ) : corpusTerms.length === 0 ? (
                 <p className="text-[10px] text-[var(--text-tertiary)] text-center px-2 pt-4">
-                  No terms yet. Run research, then refresh.
+                  {selectedTopic?.topicKind === "crm_mirror"
+                    ? "No terms yet. Run Sync CRM corpus, then refresh."
+                    : "No terms yet. Run research, then refresh."}
                 </p>
               ) : (
                 <MarniCorpusWordCloud terms={corpusTerms} className="absolute inset-2 min-h-[140px]" />
@@ -469,7 +825,11 @@ export default function MarniKnowledgePanel({
             ) : loadingRuns && runs.length === 0 ? (
               <p className="text-[var(--text-tertiary)] text-[10px]">Loading runs…</p>
             ) : runs.length === 0 ? (
-              <p className="text-[var(--text-tertiary)] text-[10px]">No runs for this topic yet.</p>
+              <p className="text-[var(--text-tertiary)] text-[10px]">
+                {selectedTopic?.topicKind === "crm_mirror"
+                  ? "CRM corpus — no Brave research runs. History is from Unipile + CRM sync only."
+                  : "No runs for this topic yet."}
+              </p>
             ) : (
               runs.map((r) => (
                 <div

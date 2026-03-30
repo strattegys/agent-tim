@@ -5,6 +5,7 @@ import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { SIDEBAR_HEADER_TITLE } from "@/lib/app-brand";
 import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
+import { signOut } from "next-auth/react";
 import AgentAvatar from "./AgentAvatar";
 
 const TEAM_CATEGORIES = AGENT_CATEGORIES.filter((c) => c !== "Toys");
@@ -126,7 +127,10 @@ export default function AgentSidebar({
       {/* Logout */}
       <div className="shrink-0 border-t border-[var(--border-color)] p-2">
         <button
-          onClick={() => { window.location.href = "/api/auth/logout"; }}
+          type="button"
+          onClick={() => {
+            void signOut({ callbackUrl: "/login" });
+          }}
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[var(--text-tertiary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] transition-colors text-xs"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

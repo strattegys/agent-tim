@@ -26,7 +26,7 @@ Set **`BWS_ACCESS_TOKEN`** (or **`bws ... --access-token`**). See [Access tokens
 | `command-central-local` | CC laptop / Docker dev | `web\.env.local` (from this repo root) |
 | `command-central-production` | CC droplet `/opt/agent-tim` | `/opt/agent-tim/web/.env.local` |
 | `project-server-local` | PS laptop | `..\PROJECT-SERVER\site\.env.local` (sibling folder) or absolute path |
-| `project-server-production` | PS droplet | `/opt/project-server/site/.env.local` |
+| `project-server-production` | PS droplet | **`/opt/project-server/.env`** (root — see **PROJECT-SERVER/docs/BITWARDEN-SECRETS.md**; prod Compose does not use `site/.env.local`) |
 
 Store UUIDs in **`bws.secret-projects.json`** on each machine (see **`bws.secret-projects.json.example`** in this repo). Copy to **`bws.secret-projects.json`** and gitignore it (already ignored here).
 
@@ -82,7 +82,7 @@ export BWS_ACCESS_TOKEN=$(cat /root/.config/bws/access_token)
 cd /opt/agent-tim && docker compose --env-file web/.env.local -f docker-compose.yml up -d
 ```
 
-Project Server: same pattern using this repo’s **`scripts/bws-pull-env.sh`** on the host (e.g. **`/opt/project-server/scripts/bws-pull-env.sh`**) and **`site/.env.local`** — see **`PROJECT-SERVER/docs/BITWARDEN-SECRETS.md`**.
+Project Server: use **`/opt/project-server/scripts/bws-pull-env.sh`** and target **repo-root** **`/opt/project-server/.env`** on the droplet (production Compose + Postgres substitution). See **`PROJECT-SERVER/docs/BITWARDEN-SECRETS.md`**.
 
 ## GitHub Actions (optional)
 

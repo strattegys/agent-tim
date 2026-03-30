@@ -1,6 +1,6 @@
 # Bitwarden Secrets Manager
 
-Use [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) as the **source of truth** for secrets. Apps still read **`web/.env.local`** (Command Central) or **`site/.env.local`** (Project Server) on disk; BWS **renders** those files from SM projects.
+Use [Bitwarden Secrets Manager](https://bitwarden.com/products/secrets-manager/) as the **source of truth** for secrets. Command Central reads **`web/.env.local`**. Project Server **local dev** uses **`site/.env.local`**; **production** uses repo-root **`.env`** on the droplet (see **PROJECT-SERVER/docs/BITWARDEN-SECRETS.md**). BWS **renders** those files from SM projects.
 
 **Do not** commit tokens, rendered env files, or secret values. Variable **names** only in git.
 
@@ -73,20 +73,24 @@ On Windows, `bws run` defaults to PowerShell.
 ## Droplets
 
 1. Install **`bws`** on the host.
-2. Store token in e.g. **`/root/.config/bws/access_token`** mode **600**.
-3. Before or after deploy, render env and restart:
+2. Store the machine token in **`/root/.config/bws/access_token`** (mode **600**, one line, no quotes).
+3. Store the SM **project UUID** in **`/root/.config/bws/project_id`** (mode **600**, one line — same UUID you pass to **`bws-pull-env`**). Deploy workflows read this file; no project id in GitHub.
+4. **GitHub Actions** ( **`deploy-web.yml`** / Project Server **`deploy.yml`** ) SSH to the server, extract the new code, then run **`scripts/bws-pull-env.sh`** with that UUID into **`web/.env.local`** (CC) or **`.env`** (PS). You do **not** need **`INWORLD_TTS_KEY`** (or similar) as GitHub Actions secrets for Project Server anymore if those keys live in Bitwarden.
+
+Manual pull (same as what deploy does before **`docker compose up`**):
 
 ```bash
 export BWS_ACCESS_TOKEN=$(cat /root/.config/bws/access_token)
-/opt/agent-tim/scripts/bws-pull-env.sh '<uuid>' /opt/agent-tim/web/.env.local
+BWS_PID=$(tr -d '[:space:]' < /root/.config/bws/project_id)
+bash /opt/agent-tim/scripts/bws-pull-env.sh "$BWS_PID" /opt/agent-tim/web/.env.local
 cd /opt/agent-tim && docker compose --env-file web/.env.local -f docker-compose.yml up -d
 ```
 
-Project Server: use **`/opt/project-server/scripts/bws-pull-env.sh`** and target **repo-root** **`/opt/project-server/.env`** on the droplet (production Compose + Postgres substitution). See **`PROJECT-SERVER/docs/BITWARDEN-SECRETS.md`**.
+Project Server: **`/opt/project-server/scripts/bws-pull-env.sh`** → **`/opt/project-server/.env`**. See **`PROJECT-SERVER/docs/BITWARDEN-SECRETS.md`**.
 
-## GitHub Actions (optional)
+## GitHub Actions (CI builds only)
 
-Add **`BWS_ACCESS_TOKEN`** as a GitHub Actions secret and run **`bws-pull-env`** before build, using a **narrow** machine account. Prefer placeholders for pure `tsc`/`next build` unless you need real keys in CI.
+**Deploy** does not store app secrets in GitHub: the runner only uses **`SSH_PRIVATE_KEY`** / **`DEPLOY_SSH_KEY`** (and host). **`next build`** in **Command Central** still uses a dummy **`AUTH_SECRET`** in the workflow for compile-time checks only — not production values.
 
 ## Rotation
 

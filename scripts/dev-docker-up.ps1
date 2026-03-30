@@ -93,5 +93,5 @@ if (-not $already) {
 }
 
 docker compose -f docker-compose.dev.yml up -d
-Write-Host 'Dev web: http://localhost:3001  — use this host in the browser (compose forces AUTH_URL/NEXTAUTH_URL to localhost:3001).'
+Write-Host 'LOCALDEV (Docker): http://localhost:3010  — use this host in the browser (compose sets AUTH_URL/NEXTAUTH_URL to localhost:3010).'
 Write-Host 'Logs: docker compose -f docker-compose.dev.yml logs --follow web'

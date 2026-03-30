@@ -1,5 +1,19 @@
-/** Text in the sidebar / mobile agent-list header box only (document title unchanged). */
+/** @deprecated Use getSidebarHeaderTitle() — label comes from NEXT_PUBLIC_CC_RUNTIME_LABEL. */
 export const SIDEBAR_HEADER_TITLE = "Agent Team";
+
+export type LocalRuntimeLabel = "LOCALDEV" | "LOCALPROD";
+
+/** Set by npm scripts / Docker dev: LOCALDEV (port 3010) or LOCALPROD (port 3001). */
+export function getLocalRuntimeLabel(): LocalRuntimeLabel | null {
+  const v = process.env.NEXT_PUBLIC_CC_RUNTIME_LABEL?.trim().toUpperCase();
+  if (v === "LOCALDEV" || v === "LOCALPROD") return v;
+  return null;
+}
+
+/** Sidebar / mobile agent-list header: LOCALDEV · LOCALPROD, or Agent Team in production. */
+export function getSidebarHeaderTitle(): string {
+  return getLocalRuntimeLabel() ?? "Agent Team";
+}
 
 /** Short tagline (metadata description, login subtitle). */
 export function getAppHeadline(): string {
@@ -8,9 +22,13 @@ export function getAppHeadline(): string {
 
 /**
  * Visible app name (document title, login heading).
- * DEV: local `next dev` (NODE_ENV=development), or set NEXT_PUBLIC_COMMAND_CENTRAL_DEV=1 on a hosted dev instance.
+ * Production droplet: no NEXT_PUBLIC_CC_RUNTIME_LABEL → "Strattegys Command Central".
  */
 export function getAppBrandTitle(): string {
+  const label = getLocalRuntimeLabel();
+  if (label) {
+    return `Strattegys Command Central · ${label}`;
+  }
   if (process.env.NEXT_PUBLIC_COMMAND_CENTRAL_DEV === "1") {
     return "Strattegys Command Central · Local";
   }
@@ -20,10 +38,18 @@ export function getAppBrandTitle(): string {
   return "Strattegys Command Central";
 }
 
+/** True for LOCALDEV or legacy dev heuristics (PWA / tooling). LOCALPROD uses production NODE_ENV. */
 export function isDevAppBranding(): boolean {
   return (
+    getLocalRuntimeLabel() === "LOCALDEV" ||
     process.env.NEXT_PUBLIC_COMMAND_CENTRAL_DEV === "1" ||
     process.env.NODE_ENV === "development"
   );
 }
 
+export function getAppleWebAppShortName(): string {
+  const label = getLocalRuntimeLabel();
+  if (label) return `CC · ${label}`;
+  if (isDevAppBranding()) return "Command Central · Local";
+  return "Command Central";
+}

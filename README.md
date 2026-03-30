@@ -15,7 +15,7 @@ Multi-agent web platform for business operations. Each agent has a specialized r
 ## Architecture
 
 ```
-Next.js (port 3001)          <- Command Central web UI (sole interface)
+Next.js (LOCALDEV **3010** / LOCALPROD **3001**)  <- Command Central web UI (sole interface)
   |-- Chat with all agents
   |-- Kanban workflow boards
   |-- Reminders panel
@@ -65,14 +65,14 @@ Auto-deploys via GitHub Actions on push to `master` (web/ changes only).
 
 ## Local Development
 
-**Recommended (Docker, matches production-style env and port 3001):**
+**Recommended (Docker LOCALDEV, hot reload on port 3010):**
 
 ```bash
 cd COMMAND-CENTRAL   # repo root containing docker-compose.dev.yml
 docker compose -f docker-compose.dev.yml up
 ```
 
-Then open **http://localhost:3001** (hot reload via mounted `web/`). Uses **`web/.env.local`** and `host.docker.internal` for CRM DB — see [`docker-compose.dev.yml`](docker-compose.dev.yml). For a **stable baseline** vs **dev-only overrides**, use **`web/.env.development.local`** (see [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md)).
+Then open **http://localhost:3010** (LOCALDEV; hot reload via mounted `web/`). Uses **`web/.env.local`** + optional **`web/.env.development.local`** and `host.docker.internal` for CRM DB — see [`docker-compose.dev.yml`](docker-compose.dev.yml). **LOCALPROD** (production-mode check on **3001**): from **`web/`** run **`npm run local-prod`**. See [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md).
 
 **Optional (Node on the host, same port as Docker):**
 
@@ -80,10 +80,11 @@ Then open **http://localhost:3001** (hot reload via mounted `web/`). Uses **`web
 cd web
 npm install
 cp .env.local.example .env.local  # Fill in API keys
-npm run dev                        # http://localhost:3001 (see package.json)
+npm run dev                        # LOCALDEV http://localhost:3010
+npm run local-prod                 # LOCALPROD http://localhost:3001 (build + start)
 ```
 
-Do **not** run both Docker and `npm run dev` on **3001** at the same time — pick one.
+Do **not** run two servers on the **same** port (e.g. LOCALPROD on 3001 vs anything else on 3001). LOCALDEV uses **3010** so it can run alongside LOCALPROD on **3001** if needed.
 
 ### CRM Postgres (Kanban, workflow builder, real CRM data)
 

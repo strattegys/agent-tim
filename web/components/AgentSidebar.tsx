@@ -2,7 +2,7 @@
 
 import type { AgentConfig } from "@/lib/agent-frontend";
 import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
-import { SIDEBAR_HEADER_TITLE } from "@/lib/app-brand";
+import { getSidebarHeaderTitle } from "@/lib/app-brand";
 import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
 import { signOut } from "next-auth/react";
@@ -42,9 +42,9 @@ export default function AgentSidebar({
       <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
         <p
           className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
-          title={SIDEBAR_HEADER_TITLE}
+          title={getSidebarHeaderTitle()}
         >
-          {SIDEBAR_HEADER_TITLE}
+          {getSidebarHeaderTitle()}
         </p>
       </div>
       <div className="flex-1 overflow-y-auto p-2">

@@ -1,43 +1,33 @@
-# Local “dev” vs “local prod” (Command Central)
+# Local LOCALDEV vs LOCALPROD (Command Central)
 
-Use two files under **`web/`** so day-to-day work does not fight a stable baseline you pull from Bitwarden or copy from production.
+Two **ports** and **labels** (sidebar + document title):
 
-## How it works (Next.js)
+| Mode | Port | UI label | How to run |
+|------|------|----------|------------|
+| **LOCALDEV** | **3010** | `LOCALDEV` (sidebar + title) | `npm run dev` or **`docker-compose.dev.yml`** → **http://localhost:3010** |
+| **LOCALPROD** | **3001** | `LOCALPROD` | `npm run local-prod` (build + `next start`) → **http://localhost:3001** |
 
-| File | When it loads | Role |
-|------|----------------|------|
-| **`web/.env.local`** | All modes | **Baseline** — shared keys, BWS pull target, parity with droplet-ish values. Treat as “do not break my demo / partner test.” |
-| **`web/.env.development.local`** | **`next dev` only** | **Playground** — overrides **`.env.local`** for the same variable names. Not loaded by **`next build`** / **`next start`** (production mode). Gitignored. |
+Set by **`NEXT_PUBLIC_CC_RUNTIME_LABEL`** (`cross-env` in **`package.json`** scripts, or Docker dev compose). Production droplet **does not** set it — branding stays **Strattegys Command Central** / **Agent Team**.
 
-Next merges env files so **`development.local` wins over `.local` in dev**. See [Next.js environment variables](https://nextjs.org/docs/app/building-your-application/configuring/environment-variables).
+## Env files
 
-## Typical workflow
+| File | Role |
+|------|------|
+| **`web/.env.local`** | Baseline secrets (e.g. Bitwarden pull). For **LOCALPROD** on the host, keep **`NEXTAUTH_URL` / `AUTH_URL`** as **`http://localhost:3001`**. |
+| **`web/.env.development.local`** | Overrides for **`next dev` only**. For **LOCALDEV** on the host, set **`NEXTAUTH_URL`** and **`AUTH_URL`** to **`http://localhost:3010`** so cookies match the dev port. Docker dev overrides those via compose. |
 
-1. Keep **`web/.env.local`** as your **stable** file (`bws-pull-env` → here, or one good manual copy).
-2. Create **`web/.env.development.local`** (start from **`web/.env.development.local.example`**) only for things you want **different while coding**: experimental model IDs, temporary feature flags, a separate CRM tunnel port, `CHAT_EPHEMERAL_AGENTS`, etc.
-3. When **`web/`** is bind-mounted (**`docker-compose.dev.yml`**), both files are visible to **`next dev`** inside the container — no compose change required.
+## Docker dev
 
-## “Local prod” (sanity check)
+**`docker-compose.dev.yml`** publishes **3010**, sets **`AUTH_URL` / `NEXTAUTH_URL`** to **`http://localhost:3010`**, and **`NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV`**.
 
-**Production mode on your PC** (no `.env.development.local`):
+## Full stack locally
 
-```bash
-cd web
-npm run build:local-prod
-npm run start:local-prod
-```
-
-Open **http://localhost:3001**. This approximates a production Node process; it is **not** identical to the full Docker stack (**`docker-compose.yml`** + Caddy + **`crm-db`**). For the closest match to the droplet, run compose locally with **`docker compose --env-file web/.env.local -f docker-compose.yml up`** when you need it.
+**`docker compose --env-file web/.env.local -f docker-compose.yml up`** still matches the droplet (Caddy + **`crm-db`**, internal port **3001**). That is not the same as **LOCALPROD** `npm run local-prod` (no Caddy in that command).
 
 ## Bitwarden
 
-- Pull **baseline** secrets into **`web/.env.local`**.
-- Optional second SM project for dev-only keys → pull into **`web/.env.development.local`**:
-
-```powershell
-.\scripts\bws-pull-env.ps1 -ProjectId '<dev-project-uuid>' -OutFile 'web\.env.development.local'
-```
+Pull baseline into **`web/.env.local`**. Optional dev-only SM project → **`web/.env.development.local`**.
 
 ## Project Server
 
-Same idea under **`site/`**: **`site/.env.local`** + **`site/.env.development.local`** (see **`site/.env.development.local.example`**).
+Strattegys **site** is unchanged (still **3002** for dev). This doc is Command Central only.

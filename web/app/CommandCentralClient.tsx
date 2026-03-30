@@ -19,7 +19,7 @@ import StatusRail from "@/components/StatusRail";
 import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
 
 import AgentAvatar from "@/components/AgentAvatar";
-import { SIDEBAR_HEADER_TITLE } from "@/lib/app-brand";
+import { getSidebarHeaderTitle } from "@/lib/app-brand";
 import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
 import { getFrontendAgents, agentHasKanban, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
@@ -297,7 +297,7 @@ export default function CommandCentralClient() {
 
   const [timWorkSelection, setTimWorkSelection] = useState<TimWorkQueueSelection | null>(null);
   const [ghostWorkSelection, setGhostWorkSelection] = useState<GhostWorkQueueSelection | null>(null);
-  const [suziWorkSubTab, setSuziWorkSubTab] = useState<SuziWorkSubTab>("intake");
+  const [suziWorkSubTab, setSuziWorkSubTab] = useState<SuziWorkSubTab>("punchlist");
   const [suziFocusedIntake, setSuziFocusedIntake] = useState<SuziFocusedIntake | null>(null);
   const [suziFocusedPunchList, setSuziFocusedPunchList] = useState<SuziFocusedPunchList | null>(null);
   const [suziFocusedReminder, setSuziFocusedReminder] = useState<SuziFocusedReminder | null>(null);
@@ -998,9 +998,9 @@ export default function CommandCentralClient() {
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
           <p
             className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
-            title={SIDEBAR_HEADER_TITLE}
+            title={getSidebarHeaderTitle()}
           >
-            {SIDEBAR_HEADER_TITLE}
+            {getSidebarHeaderTitle()}
           </p>
         </div>
         <div className="flex-1 overflow-y-auto">

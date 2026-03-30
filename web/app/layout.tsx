@@ -1,10 +1,13 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { CronWarmup } from "@/components/CronWarmup";
-import { getAppBrandTitle, getAppHeadline, isDevAppBranding } from "@/lib/app-brand";
+import {
+  getAppBrandTitle,
+  getAppleWebAppShortName,
+  getAppHeadline,
+} from "@/lib/app-brand";
 
-const appleWebAppTitle = () =>
-  isDevAppBranding() ? "Command Central · Local" : "Command Central";
+const appleWebAppTitle = () => getAppleWebAppShortName();
 
 export function generateMetadata(): Metadata {
   const title = getAppBrandTitle();

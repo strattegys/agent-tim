@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
+    "dev": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV next dev -p 3010",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
-    "build:local-prod": "next build && node scripts/copy-standalone-assets.mjs",
+    "build:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD next build && node scripts/copy-standalone-assets.mjs",
     "start": "next start",
-    "start:local-prod": "next start -p 3001",
+    "start:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD next start -p 3001",
     "local-prod": "npm run build:local-prod && npm run start:local-prod",
     "check-tts": "node scripts/check-inworld-tts.mjs",
     "sync:inworld": "node scripts/sync-inworld-from-rainbow.mjs",
@@ -43,6 +43,7 @@
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^7.0.3",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

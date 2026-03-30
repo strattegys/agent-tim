@@ -93,5 +93,6 @@ if (-not $already) {
 }
 
 docker compose -f docker-compose.dev.yml up -d
-Write-Host 'LOCALDEV (Docker): http://localhost:3010  — use this host in the browser (compose sets AUTH_URL/NEXTAUTH_URL to localhost:3010).'
+Write-Host 'LOCALDEV (Docker Desktop project cc-localdev, container cc-localdev-web): http://localhost:3010'
+Write-Host 'If an old stack still appears (e.g. command-central), run: docker compose -f docker-compose.dev.yml down  then up again.'
 Write-Host 'Logs: docker compose -f docker-compose.dev.yml logs --follow web'

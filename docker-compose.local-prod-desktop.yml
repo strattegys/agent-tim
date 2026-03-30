@@ -1,0 +1,26 @@
+# Local-only overlay: use on your PC so Docker Desktop shows project **cc-localprod** and friendly container names.
+# Do NOT use on the droplet — production keeps the default Compose project name from the server directory.
+#
+#   docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml up -d --build
+#
+# Stop:
+#   docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml down
+#
+# For LOCALDEV hot reload use docker-compose.dev.yml (project **cc-localdev**, container **cc-localdev-web**).
+
+name: cc-localprod
+
+services:
+  web:
+    container_name: cc-localprod-web
+    build:
+      args:
+        NEXT_PUBLIC_CC_RUNTIME_LABEL: LOCALPROD
+    environment:
+      # Local browser origin (overrides production Caddy URLs from base compose).
+      - AUTH_URL=http://localhost:3001
+      - NEXTAUTH_URL=http://localhost:3001
+  crm-db:
+    container_name: cc-localprod-crm-db
+  caddy:
+    container_name: cc-localprod-caddy

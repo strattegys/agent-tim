@@ -16,13 +16,28 @@ Set by **`NEXT_PUBLIC_CC_RUNTIME_LABEL`** (`cross-env` in **`package.json`** scr
 | **`web/.env.local`** | Baseline secrets (e.g. Bitwarden pull). For **LOCALPROD** on the host, keep **`NEXTAUTH_URL` / `AUTH_URL`** as **`http://localhost:3001`**. |
 | **`web/.env.development.local`** | Overrides for **`next dev` only**. For **LOCALDEV** on the host, set **`NEXTAUTH_URL`** and **`AUTH_URL`** to **`http://localhost:3010`** so cookies match the dev port. Docker dev overrides those via compose. |
 
-## Docker dev
+## Docker dev (LOCALDEV in Docker Desktop)
 
-**`docker-compose.dev.yml`** publishes **3010**, sets **`AUTH_URL` / `NEXTAUTH_URL`** to **`http://localhost:3010`**, and **`NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV`**.
+**`docker-compose.dev.yml`** sets Compose project name **`cc-localdev`** and container **`cc-localdev-web`**. It publishes **3010**, sets auth URLs to **`http://localhost:3010`**, and **`NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV`**.
 
-## Full stack locally
+## Full stack locally (LOCALPROD in Docker Desktop)
 
-**`docker compose --env-file web/.env.local -f docker-compose.yml up`** still matches the droplet (Caddy + **`crm-db`**, internal port **3001**). That is not the same as **LOCALPROD** `npm run local-prod` (no Caddy in that command).
+On your **PC only**, add the overlay so Docker Desktop shows project **`cc-localprod`** and containers **`cc-localprod-web`**, **`cc-localprod-crm-db`**, **`cc-localprod-caddy`**:
+
+```powershell
+cd COMMAND-CENTRAL
+.\scripts\docker-local-prod-desktop-up.ps1
+```
+
+Or manually:
+
+```bash
+docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml up -d --build
+```
+
+The overlay sets **localhost** auth URLs and bakes **LOCALPROD** into the **web** image. **Do not** copy **`docker-compose.local-prod-desktop.yml`** to the droplet — production uses **`docker-compose.yml`** only.
+
+**`npm run local-prod`** (no Docker) is still valid for a quick production-mode check without Caddy.
 
 ## Bitwarden
 

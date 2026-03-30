@@ -1,4 +1,4 @@
-# Local development stack
+# Local development stack — Docker Desktop shows project **cc-localdev** and container **cc-localdev-web**.
 # Local data platform (CRM Postgres on droplet) — pick one path on the host:
 #
 #   A) Stable / no SSH — Tailscale TCP bridge (droplet must expose 5432 on tailnet):
@@ -12,24 +12,27 @@
 #        export CC_DOCKER_CRM_DB_HOST=100.x.y.z  CC_DOCKER_CRM_DB_PORT=5432
 #        docker compose -f docker-compose.dev.yml up
 #
-# Verify:  docker compose -f docker-compose.dev.yml exec web npm run check-crm-db
+# Verify:  docker compose -f docker-compose.dev.yml exec cc-localdev-web npm run check-crm-db
 ## Hot reload works via volume mount of web/ directory.
 # LOCALDEV: http://localhost:3010 — use this host in the browser (not 127.0.0.1). Compose sets AUTH_URL /
-# NEXTAUTH_URL and NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV. For LOCALPROD (port 3001) use npm run local-prod on the host.
+# NEXTAUTH_URL and NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV. For LOCALPROD in Docker see docker-compose.local-prod-desktop.yml.
 #
 # Optional: add web/.env.development.local (gitignored) — Next dev loads it over .env.local so you can
 # experiment without overwriting your stable baseline. See docs/LOCAL-ENV-LAYERS.md.
 
+name: cc-localdev
+
 services:
   web:
+    container_name: cc-localdev-web
     image: node:20-alpine
     working_dir: /app
     # --webpack: Turbopack (Next 16 default) often misses file changes on Windows + bind mounts; webpack + polling below is reliable
     # Do not chain `rm -rf .next &&` here: on Windows + bind mounts, deleting .next often fails (EPERM/EBUSY) and then next dev never starts.
     # Clear cache when needed: stop the container, delete web/.next on the host, or: docker compose -f docker-compose.dev.yml run --rm web sh -c "rm -rf .next"
-    command: sh -c "npm install && npx next dev --hostname 0.0.0.0 --port 3001 --webpack"
+    command: sh -c "npm install && npx next dev --hostname 0.0.0.0 --port 3010 --webpack"
     ports:
-      - "3001:3001"
+      - "3010:3010"
     volumes:
       - ./web:/app
       - web_node_modules:/app/node_modules

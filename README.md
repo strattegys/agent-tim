@@ -72,7 +72,7 @@ cd COMMAND-CENTRAL   # repo root containing docker-compose.dev.yml
 docker compose -f docker-compose.dev.yml up
 ```
 
-Then open **http://localhost:3010** (LOCALDEV; hot reload via mounted `web/`). Uses **`web/.env.local`** + optional **`web/.env.development.local`** and `host.docker.internal` for CRM DB — see [`docker-compose.dev.yml`](docker-compose.dev.yml). **LOCALPROD** (production-mode check on **3001**): from **`web/`** run **`npm run local-prod`**. See [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md).
+Then open **http://localhost:3010** (LOCALDEV; hot reload via mounted `web/`). Docker Desktop shows project **`cc-localdev`** and container **`cc-localdev-web`**. Uses **`web/.env.local`** + optional **`web/.env.development.local`** and `host.docker.internal` for CRM DB — see [`docker-compose.dev.yml`](docker-compose.dev.yml). **LOCALPROD:** from **`web/`** run **`npm run local-prod`** (Node on **3001**), or full stack in Docker with friendly names: **`.\scripts\docker-local-prod-desktop-up.ps1`** (project **`cc-localprod`**). See [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md).
 
 **Optional (Node on the host, same port as Docker):**
 

@@ -49,6 +49,8 @@ services:
       args:
         AUTH_SECRET: ${AUTH_SECRET:-}
         NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-}
+        # Empty on droplet; set LOCALPROD in docker-compose.local-prod-desktop.yml for laptop Docker only.
+        NEXT_PUBLIC_CC_RUNTIME_LABEL: ${NEXT_PUBLIC_CC_RUNTIME_LABEL:-}
     restart: unless-stopped
     # Must include INWORLD_TTS_KEY for Suzi/Tim read-aloud (same as Rainbow Bot). On droplet: /opt/agent-tim/web/.env.local
     env_file: ./web/.env.local

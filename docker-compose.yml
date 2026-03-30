@@ -65,7 +65,10 @@ services:
       - AGENT_ROOT=/agents
       # Writable uploads; bind mount below survives rebuilds (named volumes were empty on fresh compose projects)
       - AVATAR_DIR=/data/agent-avatars
-      # Auth.js v5: set in web/.env.local — AUTH_SECRET (or NEXTAUTH_SECRET) and AUTH_URL=https://your-domain (see .env.local.example)
+      # Auth.js v5: secrets from web/.env.local. These override .env.local so a shared BWS pull (localhost URLs for
+      # laptop dev) does not break production cookies/redirects. Keep in sync with Caddyfile server_name.
+      - AUTH_URL=https://stratt-central.b2bcontentartist.com
+      - NEXTAUTH_URL=https://stratt-central.b2bcontentartist.com
       # Always reach Postgres on the compose network (overrides CRM_DB_HOST in .env.local for production).
       - CRM_DB_HOST=crm-db
       - CRM_DB_PORT=5432

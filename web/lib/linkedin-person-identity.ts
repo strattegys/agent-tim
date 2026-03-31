@@ -116,6 +116,24 @@ export function extractLinkedInHintFromArtifactOrNotes(text: string): string | n
 }
 
 /**
+ * Unipile internal chat id from Tim inbound snapshot (`**Chat ID:**` in `recordGeneralLinkedInInbound`).
+ * Used to load the exact thread without attendee-list / scan heuristics.
+ */
+export function extractUnipileInboundChatIdFromNotes(text: string): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  const chatLine = /^\s*\*{0,2}\s*Chat ID:\s*\*{0,2}\s*(\S+)/i;
+  for (const line of t.split(/\r?\n/)) {
+    const m = line.match(chatLine);
+    const raw = m?.[1]?.trim();
+    if (!raw) continue;
+    const id = raw.replace(/[\s>*`.,;:!?)]+$/, "");
+    if (/^[A-Za-z0-9_-]{4,240}$/.test(id)) return id;
+  }
+  return null;
+}
+
+/**
  * Best identifier to pass to Unipile `GET /users/{id}` / send — prefers stable member id when present.
  */
 export function resolveUnipilePersonIdentifier(args: {

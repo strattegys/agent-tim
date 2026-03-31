@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import {
+  extractLinkedInHintFromArtifactOrNotes,
+  extractUnipileInboundChatIdFromNotes,
   isLinkedInProviderMemberId,
   linkedinUrlJsonCoalesceUnsupported,
   postgresMissingColumn,
@@ -8,9 +10,31 @@ import {
   sqlPersonLinkedinUrlCoalesce,
 } from "@/lib/linkedin-person-identity";
 import { applyUnipileResearchToPerson } from "@/lib/warm-contact-intake-apply";
-import { fetchLinkedInThreadForProviderMemberId } from "@/lib/unipile-person-chat-thread";
+import {
+  fetchLinkedInThreadForProviderMemberId,
+  tryFetchLinkedInThreadViaInboundChatId,
+} from "@/lib/unipile-person-chat-thread";
 import { fetchUnipileLinkedInProfile } from "@/lib/unipile-profile";
 import { resolveUnipileLinkedInProviderId } from "@/lib/unipile-send";
+
+/** Some DB layers store artifact `content` as JSON — unwrap so Provider id / Chat ID lines are visible. */
+function coalesceArtifactBody(raw: string | null | undefined): string {
+  if (raw == null) return "";
+  const s = String(raw).trim();
+  if (!s) return "";
+  if (s.startsWith("{") && s.endsWith("}")) {
+    try {
+      const o = JSON.parse(s) as Record<string, unknown>;
+      for (const k of ["markdown", "text", "body", "content", "value"]) {
+        const v = o[k];
+        if (typeof v === "string" && v.trim()) return v;
+      }
+    } catch {
+      /* treat as plain text */
+    }
+  }
+  return s;
+}
 
 async function bumpWorkflowItemsForPerson(personId: string): Promise<void> {
   await query(
@@ -61,7 +85,7 @@ async function loadArtifactNotesFallbackForPerson(
       [personId, wid]
     );
     for (const r of onPerson) {
-      const c = r.content?.trim();
+      const c = coalesceArtifactBody(r.content).trim();
       if (c) chunks.push(c);
     }
   } catch (e) {
@@ -148,6 +172,42 @@ export async function GET(req: NextRequest) {
   }
 
   const artifactNotes = await loadArtifactNotesFallbackForPerson(personId, workflowItemId);
+
+  /** Prefer exact Unipile chat id from the inbound webhook artifact — works even when CRM has no LinkedIn fields or slug→ACoA resolution fails. */
+  const inboundChatId = extractUnipileInboundChatIdFromNotes(artifactNotes);
+  if (inboundChatId) {
+    const direct = await tryFetchLinkedInThreadViaInboundChatId(inboundChatId);
+    if (direct.ok) {
+      let personCrmSynced = false;
+      const personSyncLogs: string[] = [];
+      const memberFromArt = extractLinkedInHintFromArtifactOrNotes(artifactNotes);
+      if (memberFromArt && isLinkedInProviderMemberId(memberFromArt)) {
+        try {
+          const rawProfile = await fetchUnipileLinkedInProfile(memberFromArt);
+          personCrmSynced = await applyUnipileResearchToPerson(personId, rawProfile, personSyncLogs);
+          if (personCrmSynced) {
+            await bumpWorkflowItemsForPerson(personId);
+          }
+        } catch (e) {
+          console.warn("[person/linkedin-thread] Unipile profile → CRM sync (webhook chat path):", e);
+        }
+      }
+      return NextResponse.json({
+        ok: true,
+        chatId: inboundChatId,
+        messages: direct.messages,
+        scannedChats: 0,
+        resolution: "inbound_webhook_chat",
+        resolvedProviderIdPrefix:
+          memberFromArt && isLinkedInProviderMemberId(memberFromArt)
+            ? `${memberFromArt.slice(0, 10)}…`
+            : null,
+        personCrmSynced,
+        personSyncLogs: personSyncLogs.slice(-6),
+      });
+    }
+  }
+
   const hint = resolveUnipilePersonIdentifier({
     linkedinLinkPrimaryLinkUrl: linkedinUrl,
     linkedinProviderId,

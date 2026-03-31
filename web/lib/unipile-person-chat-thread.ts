@@ -239,11 +239,53 @@ export type FetchLinkedInThreadForPersonResult =
       ok: true;
       chatId: string | null;
       messages: UnipileThreadLine[];
-      /** How Unipile was queried: direct attendee lookup vs scanning all recent chats (fallback). */
-      resolution: "attendee_chats" | "full_scan";
+      /** How Unipile was queried: webhook chat id, attendee API, or full scan. */
+      resolution: "inbound_webhook_chat" | "attendee_chats" | "full_scan";
       scannedChats: number;
     }
   | { ok: false; error: string; scannedChats?: number };
+
+/**
+ * Load messages for the chat id Unipile attached to the inbound webhook artifact.
+ * Prefer this over provider-id scan when available — avoids false negatives on connection notes / attendee metadata.
+ */
+export async function tryFetchLinkedInThreadViaInboundChatId(
+  chatId: string,
+  opts?: { messagesLimit?: number }
+): Promise<
+  | { ok: true; messages: UnipileThreadLine[] }
+  | { ok: false; httpStatus: number }
+> {
+  const trimmed = chatId.trim();
+  if (!trimmed) return { ok: false, httpStatus: 0 };
+
+  if (
+    !process.env.UNIPILE_ACCOUNT_ID?.trim() ||
+    !process.env.UNIPILE_API_KEY?.trim() ||
+    !normalizeUnipileDsn(process.env.UNIPILE_DSN)
+  ) {
+    return { ok: false, httpStatus: 0 };
+  }
+
+  const messagesLimit = Math.min(100, Math.max(10, opts?.messagesLimit ?? 80));
+  const selfId = SELF_PROVIDER_ID;
+
+  try {
+    const msgRes = await unipileGet(
+      `/chats/${encodeURIComponent(trimmed)}/messages?limit=${messagesLimit}`
+    );
+    if (!msgRes.ok) {
+      return { ok: false, httpStatus: msgRes.status };
+    }
+    const rawMsgs =
+      msgRes.body.items ?? msgRes.body.data ?? msgRes.body.messages ?? msgRes.body.results;
+    const rawList = Array.isArray(rawMsgs) ? rawMsgs : [];
+    const messages = rawList as Record<string, unknown>[];
+    return { ok: true, messages: messagesToLines(messages, selfId) };
+  } catch {
+    return { ok: false, httpStatus: 0 };
+  }
+}
 
 function messagesToLines(
   messages: Record<string, unknown>[],

@@ -110,7 +110,9 @@ export default function TimLinkedInInboxIntakeWorkspace({
   const [unipileLoading, setUnipileLoading] = useState(false);
   const [unipileError, setUnipileError] = useState<string | null>(null);
   const [unipileScannedChats, setUnipileScannedChats] = useState(0);
-  const [unipileResolution, setUnipileResolution] = useState<"attendee_chats" | "full_scan" | null>(null);
+  const [unipileResolution, setUnipileResolution] = useState<
+    "inbound_webhook_chat" | "attendee_chats" | "full_scan" | null
+  >(null);
   const [unipileEmptyAfterFetch, setUnipileEmptyAfterFetch] = useState(false);
   const [unipileCrmHint, setUnipileCrmHint] = useState<string | null>(null);
   /** Last non-empty reply text successfully saved to the draft artifact (must match current textarea to allow Submit). */
@@ -175,12 +177,23 @@ export default function TimLinkedInInboxIntakeWorkspace({
   }, [moveDialogOpen, closeMoveDialog]);
 
   const loadUnipileThread = useCallback(() => {
-    if (!task.sourceId) return;
     const gen = ++unipileFetchGenRef.current;
     setUnipileLoading(true);
     setUnipileError(null);
     setUnipileEmptyAfterFetch(false);
     setUnipileResolution(null);
+
+    if (!task.sourceId?.trim()) {
+      if (gen === unipileFetchGenRef.current) {
+        setUnipileLines([]);
+        setUnipileError(
+          "This queue row has no CRM person id, so LinkedIn thread cannot load. The item may need to be linked to a person in the workflow."
+        );
+        setUnipileEmptyAfterFetch(true);
+        setUnipileLoading(false);
+      }
+      return;
+    }
 
     void (async () => {
       try {
@@ -244,16 +257,17 @@ export default function TimLinkedInInboxIntakeWorkspace({
               : null
         );
         setUnipileEmptyAfterFetch(lines.length === 0);
-      } catch {
+      } catch (err) {
         if (gen !== unipileFetchGenRef.current) return;
         setUnipileLines([]);
-        setUnipileError("Could not load LinkedIn thread");
+        const msg = err instanceof Error ? err.message : "Could not load LinkedIn thread";
+        setUnipileError(msg);
         setUnipileEmptyAfterFetch(true);
       } finally {
         if (gen === unipileFetchGenRef.current) setUnipileLoading(false);
       }
     })();
-  }, [task.sourceId]);
+  }, [task.sourceId, task.itemId]);
 
   useEffect(() => {
     loadUnipileThread();
@@ -608,9 +622,11 @@ export default function TimLinkedInInboxIntakeWorkspace({
                       ) : null}
                       {unipileEmptyAfterFetch && !unipileLoading && unipileLines.length === 0 && !unipileError ? (
                         <p className="text-[11px] leading-snug text-[var(--text-tertiary)]">
-                          {unipileResolution === "attendee_chats"
-                            ? "Unipile did not return a 1:1 chat for this LinkedIn member id (or the thread has no text yet). Try Refresh after LinkedIn sync, or confirm linkedinProviderId matches their ACoA id."
-                            : `No matching 1:1 chat after scanning ${unipileScannedChats || "many"} recent conversations. Older threads may sit outside the scan — use Refresh after new activity, or ask dev to raise scan depth.`}
+                          {unipileResolution === "inbound_webhook_chat"
+                            ? "Unipile returned no messages for the chat id from this inbound snapshot (new thread, or API returned an empty page). Try Refresh after LinkedIn sync."
+                            : unipileResolution === "attendee_chats"
+                              ? "Unipile did not return a 1:1 chat for this LinkedIn member id (or the thread has no text yet). Try Refresh after LinkedIn sync, or confirm linkedinProviderId matches their ACoA id."
+                              : `No matching 1:1 chat after scanning ${unipileScannedChats || "many"} recent conversations. Older threads may sit outside the scan — use Refresh after new activity, or ask dev to raise scan depth.`}
                         </p>
                       ) : null}
                       {unipileLines.length > 0 ? (

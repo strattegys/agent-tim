@@ -177,7 +177,13 @@ export default function TimLinkedInInboxIntakeWorkspace({
     return () => window.removeEventListener("keydown", onKey);
   }, [moveDialogOpen, closeMoveDialog]);
 
-  const loadUnipileThread = useCallback(() => {
+  const loadUnipileThread = useCallback((reason: "effect" | "click" = "effect") => {
+    // Browser-visible (production-safe): prior debug only POSTed to localhost and was silent on HTTPS.
+    console.warn("[DEBUG-847f63][client] loadUnipileThread", {
+      reason,
+      hasSourceId: Boolean(task.sourceId?.trim()),
+      hasItemId: Boolean(task.itemId?.trim()),
+    });
     const gen = ++unipileFetchGenRef.current;
     setUnipileLoading(true);
     setUnipileError(null);
@@ -406,7 +412,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
   }, [task.sourceId, task.itemId]);
 
   useEffect(() => {
-    loadUnipileThread();
+    loadUnipileThread("effect");
     return () => {
       unipileFetchGenRef.current += 1;
     };
@@ -726,14 +732,19 @@ export default function TimLinkedInInboxIntakeWorkspace({
                   </div>
                   <button
                     type="button"
-                    disabled={unipileLoading}
-                    title={unipileLoading ? "Request in progress…" : "Reload thread from Unipile"}
+                    aria-busy={unipileLoading}
+                    title={
+                      unipileLoading
+                        ? "Request in progress — you can click again to retry"
+                        : "Reload thread from Unipile"
+                    }
                     onClick={(e) => {
+                      console.warn("[DEBUG-847f63][client] Refresh button onClick");
                       e.preventDefault();
                       e.stopPropagation();
-                      void loadUnipileThread();
+                      void loadUnipileThread("click");
                     }}
-                    className="pointer-events-auto shrink-0 text-[10px] font-medium rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-60"
+                    className={`pointer-events-auto shrink-0 text-[10px] font-medium rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${unipileLoading ? "opacity-70" : ""}`}
                   >
                     {unipileLoading ? "Loading…" : "Refresh from LinkedIn"}
                   </button>

@@ -20,13 +20,34 @@ async function bumpWorkflowItemsForPerson(personId: string): Promise<void> {
   );
 }
 
-/** Concatenate recent artifacts for this person so `**Provider id:**` from inbound LinkedIn rows can resolve Unipile. */
+/**
+ * Text blob for resolving Unipile member id when the `person` row has no LinkedIn fields.
+ * 1) Artifacts on the **current queue item** (same as Tim “Queue snapshots”) — no join on `sourceId`,
+ *    so this still works if `workflow_item.sourceId` drifted from the `personId` the client sends.
+ * 2) Artifacts on any `sourceType = person` item for this person (excluding the same item ids already loaded).
+ */
 async function loadArtifactNotesFallbackForPerson(
   personId: string,
   preferredWorkflowItemId: string | null
 ): Promise<string> {
+  const chunks: string[] = [];
+  const wid = preferredWorkflowItemId?.trim() || null;
   try {
-    const rows = await query<{ content: string }>(
+    if (wid) {
+      const onItem = await query<{ content: string }>(
+        `SELECT a.content::text AS content
+         FROM "_artifact" a
+         WHERE a."workflowItemId" = $1::uuid AND a."deletedAt" IS NULL
+         ORDER BY a."createdAt" DESC NULLS LAST
+         LIMIT 40`,
+        [wid]
+      );
+      for (const r of onItem) {
+        const c = r.content?.trim();
+        if (c) chunks.push(c);
+      }
+    }
+    const onPerson = await query<{ content: string }>(
       `SELECT a.content::text AS content
        FROM "_artifact" a
        INNER JOIN "_workflow_item" wi ON wi.id = a."workflowItemId"
@@ -34,20 +55,19 @@ async function loadArtifactNotesFallbackForPerson(
          AND wi."sourceId" = $1::uuid
          AND wi."deletedAt" IS NULL
          AND a."deletedAt" IS NULL
-       ORDER BY
-         CASE
-           WHEN $2::uuid IS NOT NULL AND a."workflowItemId" = $2::uuid THEN 0
-           ELSE 1
-         END,
-         a."createdAt" DESC NULLS LAST
+         AND ($2::uuid IS NULL OR a."workflowItemId" IS DISTINCT FROM $2::uuid)
+       ORDER BY a."createdAt" DESC NULLS LAST
        LIMIT 30`,
-      [personId, preferredWorkflowItemId?.trim() || null]
+      [personId, wid]
     );
-    return rows.map((r) => r.content).join("\n\n");
+    for (const r of onPerson) {
+      const c = r.content?.trim();
+      if (c) chunks.push(c);
+    }
   } catch (e) {
     console.warn("[person/linkedin-thread] artifact notes fallback:", e);
-    return "";
   }
+  return chunks.join("\n\n");
 }
 
 async function loadPersonLinkedInFields(personId: string): Promise<{

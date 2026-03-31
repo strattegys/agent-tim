@@ -42,9 +42,17 @@ export function postgresMissingColumn(error: unknown, columnName: string): boole
 
 const ACOA = /^ACoA[A-Za-z0-9_-]+$/i;
 
+/** Map unicode dashes to ASCII so Unipile member ids still validate after copy/paste or odd editors. */
+export function normalizeUnipileProviderToken(raw: string): string {
+  return raw
+    .replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+    .trim()
+    .replace(/[\s>*`.,;:!?)]+$/, "");
+}
+
 /** True if this string is a Unipile/LinkedIn API member id (not a vanity slug). */
 export function isLinkedInProviderMemberId(s: string): boolean {
-  return ACOA.test(s.trim());
+  return ACOA.test(normalizeUnipileProviderToken(s));
 }
 
 export type ParsedPersonLinkedIn = {
@@ -92,14 +100,18 @@ export function parsePersonLinkedInFields(
 export function extractLinkedInHintFromArtifactOrNotes(text: string): string | null {
   const t = text.trim();
   if (!t) return null;
+  /** Matches `**Provider id:** ACoA…` and plain `Provider id: …` snapshot lines. */
+  const providerLine = /^\s*\*{0,2}\s*Provider id:\s*\*{0,2}\s*(\S+)/i;
   for (const line of t.split(/\r?\n/)) {
-    const prov =
-      line.match(/\*\*Provider id:\*\*\s*(\S+)/i)?.[1] ??
-      line.match(/^\s*Provider id:\s*(\S+)/i)?.[1];
-    if (prov && isLinkedInProviderMemberId(prov)) return prov.trim();
+    const m = line.match(providerLine);
+    const prov = m?.[1] ? normalizeUnipileProviderToken(m[1]) : "";
+    if (prov && isLinkedInProviderMemberId(prov)) return prov;
   }
-  const ac = t.match(/\b(ACoA[A-Za-z0-9_-]+)\b/i);
-  if (ac?.[1] && isLinkedInProviderMemberId(ac[1])) return ac[1];
+  const ac = t.match(/\b(ACoA[A-Za-z0-9_\-\u2010-\u2015]+)\b/i);
+  if (ac?.[1]) {
+    const norm = normalizeUnipileProviderToken(ac[1]);
+    if (isLinkedInProviderMemberId(norm)) return norm;
+  }
   return extractLinkedInProfileIdentifier(t);
 }
 

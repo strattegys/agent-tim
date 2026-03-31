@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { MarkdownRenderer, artifactTabLabel } from "@/components/shared/ArtifactViewer";
+import { panelBus } from "@/lib/events";
 import TimMoveToWorkflow, { type TimMoveSelection } from "./TimMoveToWorkflow";
 
 type UnipileThreadLine = { at: string; direction: "outbound" | "inbound"; body: string };
@@ -111,6 +112,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
   const [unipileScannedChats, setUnipileScannedChats] = useState(0);
   const [unipileResolution, setUnipileResolution] = useState<"attendee_chats" | "full_scan" | null>(null);
   const [unipileEmptyAfterFetch, setUnipileEmptyAfterFetch] = useState(false);
+  const [unipileCrmHint, setUnipileCrmHint] = useState<string | null>(null);
   /** Last non-empty reply text successfully saved to the draft artifact (must match current textarea to allow Submit). */
   const [savedReplyFingerprint, setSavedReplyFingerprint] = useState<string | null>(null);
   const [moveSelection, setMoveSelection] = useState<TimMoveSelection>({ workflowId: "", stageKey: "" });
@@ -140,6 +142,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
     setUnipileScannedChats(0);
     setUnipileResolution(null);
     setUnipileEmptyAfterFetch(false);
+    setUnipileCrmHint(null);
     setSavedReplyFingerprint(null);
     setMoveSelection({ workflowId: "", stageKey: "" });
     setMoveDialogOpen(false);
@@ -182,7 +185,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
     void (async () => {
       try {
         const r = await fetch(
-          `/api/crm/person/linkedin-thread?personId=${encodeURIComponent(task.sourceId)}`,
+          `/api/crm/person/linkedin-thread?personId=${encodeURIComponent(task.sourceId)}&workflowItemId=${encodeURIComponent(task.itemId)}`,
           { credentials: "include", cache: "no-store" }
         );
         const rawText = await r.text();
@@ -198,6 +201,17 @@ export default function TimLinkedInInboxIntakeWorkspace({
         }
 
         if (gen !== unipileFetchGenRef.current) return;
+
+        const crmSynced = d.personCrmSynced === true;
+        if (crmSynced) {
+          setUnipileCrmHint(
+            "Contact profile was updated from LinkedIn (name, title, company, URL). The queue is refreshing so card labels stay in sync."
+          );
+          panelBus.emit("workflow_items");
+          panelBus.emit("dashboard_sync");
+        } else {
+          setUnipileCrmHint(null);
+        }
 
         const scanned =
           typeof d.scannedChats === "number" ? d.scannedChats : Number(d.scannedChats) || 0;
@@ -583,6 +597,9 @@ export default function TimLinkedInInboxIntakeWorkspace({
                           {unipileLoading ? "Loading…" : "Refresh from LinkedIn"}
                         </button>
                       </div>
+                      {unipileCrmHint ? (
+                        <p className="mt-1.5 text-[10px] leading-snug text-[var(--accent-green)]">{unipileCrmHint}</p>
+                      ) : null}
                       {unipileLoading && unipileLines.length === 0 ? (
                         <p className="text-[11px] text-[var(--text-tertiary)]">Loading conversation…</p>
                       ) : null}

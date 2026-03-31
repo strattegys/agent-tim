@@ -1,42 +1,34 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import HumanTasksPanel from "./HumanTasksPanel";
 import ToolsPanel from "./ToolsPanel";
-import WorkflowOpsPanel from "./WorkflowOpsPanel";
-
-type Tab = "workflows" | "tasks" | "tools";
+import FridayPackageAdminPanel from "./FridayPackageAdminPanel";
+import type { FridayDashboardTab, FridayPackageSubTab } from "@/lib/agent-ui-context";
 
 interface FridayDashboardPanelProps {
   onClose?: () => void;
   onSwitchToAgent?: (agentId: string) => void;
   pendingTaskCount?: number;
-  /** When opening from ?panel=tasks (maps to dashboard + this tab). */
-  initialWorkTab?: Tab;
-  /** Chat UI: which dashboard tab is active (including initial mount). */
-  onDashboardTabChange?: (tab: Tab) => void;
+  /** Top-level tab — owned by parent for URL sync and Penny → Friday redirects. */
+  dashboardTab: FridayDashboardTab;
+  onDashboardTabChange: (tab: FridayDashboardTab) => void;
+  /** Packages column sub-tab — owned by parent for URL sync. */
+  packageSubTab: FridayPackageSubTab;
+  onPackageSubTabChange: (sub: FridayPackageSubTab) => void;
 }
 
 export default function FridayDashboardPanel({
   onSwitchToAgent,
   pendingTaskCount = 0,
-  initialWorkTab,
+  dashboardTab: tab,
   onDashboardTabChange,
+  packageSubTab,
+  onPackageSubTabChange,
 }: FridayDashboardPanelProps) {
-  const [tab, setTab] = useState<Tab>(() =>
-    initialWorkTab === "tasks" || initialWorkTab === "tools" || initialWorkTab === "workflows"
-      ? initialWorkTab
-      : "workflows"
-  );
-
-  useEffect(() => {
-    onDashboardTabChange?.(tab);
-  }, [tab, onDashboardTabChange]);
-
-  const TABS: { key: Tab; label: string; count?: string }[] = [
+  const TABS: { key: FridayDashboardTab; label: string; count?: string }[] = [
     {
-      key: "workflows",
-      label: "Workflows",
+      key: "packages",
+      label: "Packages",
     },
     {
       key: "tasks",
@@ -58,7 +50,7 @@ export default function FridayDashboardPanel({
             <button
               key={t.key}
               type="button"
-              onClick={() => setTab(t.key)}
+              onClick={() => onDashboardTabChange(t.key)}
               className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors flex items-center gap-1.5 ${
                 isActive
                   ? "font-semibold text-[var(--text-primary)]"
@@ -74,8 +66,11 @@ export default function FridayDashboardPanel({
         })}
       </div>
 
-      {tab === "workflows" ? (
-        <WorkflowOpsPanel />
+      {tab === "packages" ? (
+        <FridayPackageAdminPanel
+          packageSubTab={packageSubTab}
+          onPackageSubTabChange={onPackageSubTabChange}
+        />
       ) : tab === "tools" ? (
         <ToolsPanel />
       ) : (

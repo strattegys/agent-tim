@@ -17,8 +17,16 @@ export type AgentUiRightPanel =
   | "marni-work"
   | "agent-knowledge";
 
-export type FridayDashboardTab = "workflows" | "tasks" | "tools";
-export type PennyDashboardTab = "queue" | "packages" | "pkg-templates" | "wf-templates";
+export type FridayDashboardTab = "packages" | "tasks" | "tools";
+/**
+ * Sub-view under Friday → Packages: operational queue (with per-workflow Kanban),
+ * draft/testing planner, and static templates.
+ */
+export type FridayPackageSubTab =
+  | "queue"
+  | "planner"
+  | "pkg-templates"
+  | "wf-templates";
 
 export interface AgentUiContextInput {
   agentId: string;
@@ -33,7 +41,7 @@ export interface AgentUiContextInput {
    */
   ghostHasWorkQueueSelection?: boolean;
   fridayTab?: FridayDashboardTab;
-  pennyTab?: PennyDashboardTab;
+  fridayPackageSubTab?: FridayPackageSubTab;
   /** Marni: selected research topic while Knowledge base (book panel) is open. */
   marniKnowledgeTopic?: { id: string; name: string } | null;
   /** Tim: selected research topic while Knowledge base (book panel) is open. */
@@ -120,32 +128,26 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   }
 
   if (rightPanel === "dashboard" && agentId === "friday") {
-    const tab = input.fridayTab ?? "workflows";
-    const label =
-      tab === "tasks"
-        ? "Human tasks"
-        : tab === "tools"
-          ? "Tools registry"
-          : "Workflows (pipeline overview + CRM)";
+    const tab = input.fridayTab ?? "packages";
+    const pkgSub = input.fridayPackageSubTab ?? "queue";
+    let label: string;
+    if (tab === "tasks") label = "Human tasks";
+    else if (tab === "tools") label = "Tools registry";
+    else if (tab === "packages") {
+      label =
+        pkgSub === "queue"
+          ? "Packages — Queue (packages, workflow steps, open Kanban per workflow)"
+          : pkgSub === "planner"
+            ? "Packages — Planner (draft & testing)"
+            : pkgSub === "pkg-templates"
+              ? "Packages — Package templates"
+              : "Packages — Workflow templates";
+    } else {
+      label = "Packages";
+    }
     return (
       "## Friday — UI (this message only)\n" +
-      `Right panel tab: **${label}**. Tools: workflow_manager, web_search, memory.`
-    );
-  }
-
-  if (rightPanel === "dashboard" && agentId === "penny") {
-    const tab = input.pennyTab ?? "queue";
-    const label =
-      tab === "queue"
-        ? "Package queue (Active / Paused / Completed)"
-        : tab === "packages"
-          ? "Package Planner (Draft / Testing)"
-          : tab === "pkg-templates"
-            ? "Package templates"
-            : "Workflow templates";
-    return (
-      "## Penny — UI (this message only)\n" +
-      `Right panel tab: **${label}**. Tools: package_manager, twenty_crm, web_search, memory.`
+      `Right panel tab: **${label}**. Tools: workflow_manager, package_manager, web_search, memory.`
     );
   }
 

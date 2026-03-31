@@ -1,16 +1,20 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { PACKAGE_TEMPLATES, type PackageTemplateSpec } from "@/lib/package-types";
+import {
+  packageTemplatesVisibleInPlanner,
+  type PackageTemplateSpec,
+} from "@/lib/package-types";
 import { WORKFLOW_TYPES, type WorkflowTypeSpec } from "@/lib/workflow-types";
 import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
-import PackageDetailCard from "./PackageDetailCard";
-import AddPackageModal from "./AddPackageModal";
-import WorkflowTemplateCard from "./WorkflowTemplateCard";
-import HumanTasksPanel from "../friday/HumanTasksPanel";
-import OperationalPackageQueue from "../friday/OperationalPackageQueue";
+import PackageDetailCard from "@/components/penny/PackageDetailCard";
+import AddPackageModal from "@/components/penny/AddPackageModal";
+import WorkflowTemplateCard from "@/components/penny/WorkflowTemplateCard";
+import HumanTasksPanel from "./HumanTasksPanel";
+import OperationalPackageQueue from "./OperationalPackageQueue";
 import type { PackageSpec } from "@/lib/package-types";
+import type { FridayPackageSubTab } from "@/lib/agent-ui-context";
 
 interface PackageRow {
   id: string;
@@ -29,24 +33,17 @@ interface PackageRow {
 const POLL_MS_VISIBLE = 5000;
 const POLL_MS_HIDDEN = 30_000;
 
-type Tab = "queue" | "packages" | "pkg-templates" | "wf-templates";
-
-interface PennyDashboardPanelProps {
-  onClose: () => void;
-  /** Chat UI: active tab for ephemeral agent context. */
-  onDashboardTabChange?: (tab: Tab) => void;
+interface FridayPackageAdminPanelProps {
+  packageSubTab: FridayPackageSubTab;
+  onPackageSubTabChange: (tab: FridayPackageSubTab) => void;
 }
 
-export default function PennyDashboardPanel({
-  onClose,
-  onDashboardTabChange,
-}: PennyDashboardPanelProps) {
+export default function FridayPackageAdminPanel({
+  packageSubTab: tab,
+  onPackageSubTabChange: setTab,
+}: FridayPackageAdminPanelProps) {
   const tabVisible = useDocumentVisible();
-  const [tab, setTab] = useState<Tab>("queue");
 
-  useEffect(() => {
-    onDashboardTabChange?.(tab);
-  }, [tab, onDashboardTabChange]);
   const [packages, setPackages] = useState<PackageRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [orphanState, setOrphanState] = useState<{
@@ -59,7 +56,7 @@ export default function PennyDashboardPanel({
   const [addPackageOpen, setAddPackageOpen] = useState(false);
   const mountedRef = useRef(true);
 
-  const pkgTemplates: PackageTemplateSpec[] = Object.values(PACKAGE_TEMPLATES);
+  const pkgTemplates: PackageTemplateSpec[] = packageTemplatesVisibleInPlanner();
   const wfTemplates: WorkflowTypeSpec[] = Object.values(WORKFLOW_TYPES);
 
   const fetchPackages = useCallback(() => {
@@ -135,24 +132,26 @@ export default function PennyDashboardPanel({
     };
   }, [fetchPackages, fetchOrphans, tabVisible]);
 
-  const TABS: { key: Tab; label: string; count?: string }[] = [
+  const TABS: { key: FridayPackageSubTab; label: string; title?: string; count?: string }[] = [
     {
       key: "queue",
-      label: "Package queue",
+      label: "Queue",
+      title: "Active, paused, completed — workflow steps per package; open Kanban per workflow",
     },
     {
-      key: "packages",
-      label: "Package Planner",
+      key: "planner",
+      label: "Planner",
+      title: "Draft and testing — build packages before activation",
       count: loading ? "..." : `${packages.length}`,
     },
     {
       key: "pkg-templates",
-      label: "Package Templates",
+      label: "Package templates",
       count: `${pkgTemplates.length}`,
     },
     {
       key: "wf-templates",
-      label: "Workflow Templates",
+      label: "Workflow templates",
       count: `${wfTemplates.length}`,
     },
   ];
@@ -162,13 +161,14 @@ export default function PennyDashboardPanel({
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {/* Header with tabs — match Suzi sub-tabs: low contrast, text-weight only for active */}
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
         {TABS.map((t) => {
           const isActive = tab === t.key;
           return (
             <button
               key={t.key}
+              type="button"
+              title={t.title}
               onClick={() => setTab(t.key)}
               className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors flex items-center gap-1 ${
                 isActive
@@ -187,7 +187,6 @@ export default function PennyDashboardPanel({
         })}
       </div>
 
-      {/* Tab content */}
       {tab === "queue" ? (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <OperationalPackageQueue />
@@ -199,8 +198,8 @@ export default function PennyDashboardPanel({
               <p className="text-sm text-[var(--text-tertiary)]">No workflow templates defined</p>
             </div>
           ) : (
-            wfTemplates.map((t) => (
-              <WorkflowTemplateCard key={t.id} template={t} />
+            wfTemplates.map((tmpl) => (
+              <WorkflowTemplateCard key={tmpl.id} template={tmpl} />
             ))
           )}
         </div>
@@ -211,24 +210,24 @@ export default function PennyDashboardPanel({
               <p className="text-sm text-[var(--text-tertiary)]">No package templates defined</p>
             </div>
           ) : (
-            pkgTemplates.map((t) => (
+            pkgTemplates.map((tmpl) => (
               <div
-                key={t.id}
+                key={tmpl.id}
                 className="rounded-lg p-3 border border-[var(--border-color)] bg-[var(--bg-secondary)]"
               >
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-xs font-semibold text-[var(--text-primary)]">
-                    {t.label}
+                    {tmpl.label}
                   </span>
                   <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
-                    {t.id}
+                    {tmpl.id}
                   </span>
                 </div>
                 <p className="text-[11px] text-[var(--text-secondary)] mb-2 leading-relaxed">
-                  {t.description}
+                  {tmpl.description}
                 </p>
                 <div className="space-y-1">
-                  {t.deliverables.map((d, i) => (
+                  {tmpl.deliverables.map((d, i) => (
                     <div
                       key={i}
                       className="flex items-center gap-2 text-[11px] text-[var(--text-tertiary)]"
@@ -246,7 +245,7 @@ export default function PennyDashboardPanel({
             ))
           )}
         </div>
-      ) : (
+      ) : tab === "planner" ? (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <AddPackageModal
             open={addPackageOpen}
@@ -307,94 +306,101 @@ export default function PennyDashboardPanel({
           ) : packages.length === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4">
               <p className="text-sm text-[var(--text-tertiary)] text-center">
-                No packages yet — use <strong className="text-[var(--text-secondary)]">New package</strong> above or ask Penny in chat.
+                No packages yet — use <strong className="text-[var(--text-secondary)]">New package</strong> above or
+                use <strong className="text-[var(--text-secondary)]">package_manager</strong> with Friday in chat.
               </p>
             </div>
           ) : (
-        /* ── Two-column board: Draft (40%) | Testing (60%) ── */
-        <div className="flex-1 min-h-0 flex overflow-hidden">
-          {/* Draft column — 40% */}
-          <div className="flex flex-col border-r border-[var(--border-color)]" style={{ width: "40%" }}>
-            <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-50" />
-              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                Draft
-              </span>
-              {draftPackages.length > 0 && (
-                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto tabular-nums">{draftPackages.length}</span>
-              )}
-            </div>
-            <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
-              {draftPackages.length === 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <span className="text-[10px] text-[var(--text-tertiary)]">None</span>
+            <div className="flex-1 min-h-0 flex overflow-hidden">
+              <div className="flex flex-col border-r border-[var(--border-color)]" style={{ width: "40%" }}>
+                <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-50" />
+                  <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                    Draft
+                  </span>
+                  {draftPackages.length > 0 && (
+                    <span className="text-[10px] text-[var(--text-tertiary)] ml-auto tabular-nums">
+                      {draftPackages.length}
+                    </span>
+                  )}
                 </div>
-              ) : (
-                draftPackages.map((pkg) => (
-                  <PackageDetailCard key={pkg.id} pkg={pkg} initialCollapsed />
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Testing column — 60% */}
-          <div className="flex flex-col" style={{ width: "60%" }}>
-            <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-70" />
-              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                Testing
-              </span>
-              {testingPackages.length > 0 && (
-                <span className="text-[10px] text-[var(--text-tertiary)] ml-auto tabular-nums">{testingPackages.length}</span>
-              )}
-            </div>
-            <div className="flex-1 overflow-y-auto p-1.5">
-              {testingPackages.length === 0 ? (
-                <div className="flex items-center justify-center py-8">
-                  <span className="text-[10px] text-[var(--text-tertiary)]">No packages in testing</span>
-                </div>
-              ) : (
-                testingPackages.map((pkg) => (
-                  <div key={pkg.id} className="space-y-2">
-                    {/* Package card */}
-                    <PackageDetailCard pkg={pkg} onPackageMutate={fetchPackages} />
-
-                    {/* Tasks + Logs side by side */}
-                    <div className="flex gap-1.5 min-h-[220px] max-h-[min(55vh,520px)] min-h-0 shrink-0">
-                      {/* Tasks — left 60% */}
-                      <div style={{ width: "60%" }} className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col">
-                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-                          <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">Tasks</span>
-                        </div>
-                        <div className="flex-1 min-h-0 overflow-hidden">
-                          <HumanTasksPanel packageStageFilter="PENDING_APPROVAL" compact />
-                        </div>
-                      </div>
-
-                      {/* Logs — right 40% (newest first; scroll for history) */}
-                      <div style={{ width: "40%" }} className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col">
-                        <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-                          <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">Logs</span>
-                        </div>
-                        <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-0">
-                          <SimLogViewer packageId={pkg.id} />
-                        </div>
-                      </div>
+                <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
+                  {draftPackages.length === 0 ? (
+                    <div className="flex items-center justify-center py-8">
+                      <span className="text-[10px] text-[var(--text-tertiary)]">None</span>
                     </div>
-                  </div>
-                ))
-              )}
+                  ) : (
+                    draftPackages.map((pkg) => (
+                      <PackageDetailCard key={pkg.id} pkg={pkg} initialCollapsed />
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col" style={{ width: "60%" }}>
+                <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)] flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-[var(--text-tertiary)] opacity-70" />
+                  <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                    Testing
+                  </span>
+                  {testingPackages.length > 0 && (
+                    <span className="text-[10px] text-[var(--text-tertiary)] ml-auto tabular-nums">
+                      {testingPackages.length}
+                    </span>
+                  )}
+                </div>
+                <div className="flex-1 overflow-y-auto p-1.5">
+                  {testingPackages.length === 0 ? (
+                    <div className="flex items-center justify-center py-8">
+                      <span className="text-[10px] text-[var(--text-tertiary)]">No packages in testing</span>
+                    </div>
+                  ) : (
+                    testingPackages.map((pkg) => (
+                      <div key={pkg.id} className="space-y-2">
+                        <PackageDetailCard pkg={pkg} onPackageMutate={fetchPackages} />
+
+                        <div className="flex gap-1.5 min-h-[220px] max-h-[min(55vh,520px)] min-h-0 shrink-0">
+                          <div
+                            style={{ width: "60%" }}
+                            className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col"
+                          >
+                            <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+                              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                                Tasks
+                              </span>
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-hidden">
+                              <HumanTasksPanel packageStageFilter="PENDING_APPROVAL" compact />
+                            </div>
+                          </div>
+
+                          <div
+                            style={{ width: "40%" }}
+                            className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col"
+                          >
+                            <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+                              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                                Logs
+                              </span>
+                            </div>
+                            <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-0">
+                              <SimLogViewer packageId={pkg.id} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-/** Reads simLog from sessionStorage (newest-first). Refreshes on panelBus + interval. */
 function SimLogViewer({ packageId }: { packageId: string }) {
   const [log, setLog] = useState<string[]>([]);
   const tabVisible = useDocumentVisible();

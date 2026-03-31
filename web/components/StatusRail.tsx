@@ -157,12 +157,17 @@ function buildConsolidatedSystemRows(services: ServiceRow[] | null): ServiceRow[
   return [commandCentral, dataPlatform, websiteProjects, servicesRow];
 }
 
+export type StatusRailLabMode = "off" | "tim" | "friday";
+
 interface StatusRailProps {
   agents: AgentConfig[];
   /** When provided, rail uses parent-fed alerts and skips /api/notifications polling. */
   sharedNotifications?: DashboardNotification[];
-  /** Desktop Tim lab: bottom dock for Unipile + Groq log buffers. */
-  timLabDock?: boolean;
+  /**
+   * Desktop lab layouts: wider right column, no per-agent heartbeat poll.
+   * `tim` — Unipile + Groq log dock. `friday` — Data Platform + notices/alerts (CRM workflow focus).
+   */
+  labMode?: StatusRailLabMode;
 }
 
 function formatAlertTime(ts: string) {
@@ -264,11 +269,67 @@ function perAgentOverviewTitle(a: AgentConfig, row: StatusRailAgentRow | undefin
   return `${a.name}: ${online} · heartbeat ${row.heartbeat} (${row.heartbeatDetail})`;
 }
 
+function StatusRailNoticesAndAlerts({
+  systemNotices,
+  alerts,
+}: {
+  systemNotices: SystemNotice[];
+  alerts: NotificationRow[];
+}) {
+  return (
+    <>
+      {systemNotices.length > 0 ? (
+        <section>
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
+            Notices
+          </div>
+          <ul className="space-y-2">
+            {systemNotices.map((n) => (
+              <li
+                key={n.id}
+                className={`rounded-md border px-2 py-1.5 text-[10px] leading-snug ${noticeSeverityClass(n.severity)}`}
+              >
+                <div className="font-semibold text-[var(--text-primary)]">{n.title}</div>
+                <div className="text-[var(--text-secondary)] mt-0.5">{n.message}</div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="min-h-0 flex-1 flex flex-col">
+        <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
+          Alerts
+        </div>
+        {alerts.length === 0 ? (
+          <p className="font-mono text-[10px] text-[var(--text-tertiary)]">No alerts</p>
+        ) : (
+          <ul className="font-mono text-[10px] space-y-2">
+            {alerts.map((n, i) => (
+              <li key={`${n.timestamp}-${i}`} className="border-b border-[var(--border-color)] pb-2 last:border-0 last:pb-0">
+                <div className="flex justify-between gap-1 text-[var(--text-tertiary)]">
+                  <span className="truncate uppercase text-[9px]">{n.type.replace(/_/g, " ")}</span>
+                  <span className="shrink-0">{formatAlertTime(n.timestamp)}</span>
+                </div>
+                <div className="text-[var(--text-secondary)] font-medium truncate mt-0.5">{n.title}</div>
+                <div className="text-[var(--text-tertiary)] line-clamp-3 mt-0.5 break-words">{n.message}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </>
+  );
+}
+
 export default function StatusRail({
   agents,
   sharedNotifications,
-  timLabDock = false,
+  labMode = "off",
 }: StatusRailProps) {
+  const labDockActive = labMode === "tim" || labMode === "friday";
+  const railTitle =
+    labMode === "tim" ? "Tim lab" : labMode === "friday" ? "Friday lab" : "System monitor";
   const [services, setServices] = useState<ServiceRow[] | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
   const [systemNotices, setSystemNotices] = useState<SystemNotice[]>([]);
@@ -368,11 +429,11 @@ export default function StatusRail({
   }, [dataPlatformDown, fetchStatus]);
 
   useEffect(() => {
-    if (timLabDock) return;
+    if (labDockActive) return;
     fetchAgentOps();
     const i = setInterval(fetchAgentOps, 60000);
     return () => clearInterval(i);
-  }, [timLabDock, fetchAgentOps]);
+  }, [labDockActive, fetchAgentOps]);
 
   const onReconnectDataPlatform = useCallback(async () => {
     setReconnectBusy(true);
@@ -437,24 +498,37 @@ export default function StatusRail({
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
-      aria-label={timLabDock ? "Tim lab" : "System monitor"}
+      aria-label={railTitle}
     >
       <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5 min-w-0">
         <p
           className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide truncate min-w-0"
-          title={timLabDock ? "Tim lab" : "System monitor"}
+          title={railTitle}
         >
-          {timLabDock ? "Tim lab" : "System monitor"}
+          {railTitle}
         </p>
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">
-        {timLabDock ? (
+        {labMode === "tim" ? (
           <>
             <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
               {systemStatusSection}
             </div>
             <TimLabLogDock fillRail />
+          </>
+        ) : labMode === "friday" ? (
+          <>
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
+              {systemStatusSection}
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
+              <p className="font-mono text-[9px] leading-snug text-[var(--text-tertiary)]">
+                Workflow cards and Kanban use the work panel. Data Platform above must be OK for live CRM
+                workflow stats — use Refresh Data Platform or start local CRM (see PROJECT-MEMORY dev setup).
+              </p>
+              <StatusRailNoticesAndAlerts systemNotices={systemNotices} alerts={alerts} />
+            </div>
           </>
         ) : (
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
@@ -520,46 +594,7 @@ export default function StatusRail({
           </ul>
         </section>
 
-        {systemNotices.length > 0 && (
-          <section>
-            <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
-              Notices
-            </div>
-            <ul className="space-y-2">
-              {systemNotices.map((n) => (
-                <li
-                  key={n.id}
-                  className={`rounded-md border px-2 py-1.5 text-[10px] leading-snug ${noticeSeverityClass(n.severity)}`}
-                >
-                  <div className="font-semibold text-[var(--text-primary)]">{n.title}</div>
-                  <div className="text-[var(--text-secondary)] mt-0.5">{n.message}</div>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        <section className="min-h-0 flex-1 flex flex-col">
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
-            Alerts
-          </div>
-          {alerts.length === 0 ? (
-            <p className="font-mono text-[10px] text-[var(--text-tertiary)]">No alerts</p>
-          ) : (
-            <ul className="font-mono text-[10px] space-y-2">
-              {alerts.map((n, i) => (
-                <li key={`${n.timestamp}-${i}`} className="border-b border-[var(--border-color)] pb-2 last:border-0 last:pb-0">
-                  <div className="flex justify-between gap-1 text-[var(--text-tertiary)]">
-                    <span className="truncate uppercase text-[9px]">{n.type.replace(/_/g, " ")}</span>
-                    <span className="shrink-0">{formatAlertTime(n.timestamp)}</span>
-                  </div>
-                  <div className="text-[var(--text-secondary)] font-medium truncate mt-0.5">{n.title}</div>
-                  <div className="text-[var(--text-tertiary)] line-clamp-3 mt-0.5 break-words">{n.message}</div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <StatusRailNoticesAndAlerts systemNotices={systemNotices} alerts={alerts} />
         </div>
         )}
       </div>

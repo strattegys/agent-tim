@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { AGENT_REGISTRY } from "@/lib/agent-registry";
+import type { WorkflowComplianceSeverity } from "@/lib/workflow-model-validate";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
   person: "People",
@@ -28,8 +29,11 @@ export interface WorkflowStat {
   itemType: string;
   ownerAgent: string | null;
   updatedAt: string | null;
+  boardId: string | null;
   boardName: string | null;
   boardStages: Array<{ key: string; label: string; color: string }>;
+  /** Board transition map from CRM (for registry compliance checks). */
+  boardTransitions: unknown;
   totalItems: number;
   stageCounts: Record<string, number>;
   alertCount: number;
@@ -39,6 +43,9 @@ interface WorkflowCardProps {
   workflow: WorkflowStat;
   /** Open pipeline drill-down (Friday ops panel). */
   onSelect?: () => void;
+  /** From validateWorkflowAgainstModel — red ≈ fix like draft, null ≈ healthy enough to run. */
+  complianceSeverity?: WorkflowComplianceSeverity | null;
+  complianceHint?: string;
 }
 
 const LIFECYCLE_STAGE_COLORS: Record<string, string> = {
@@ -48,7 +55,19 @@ const LIFECYCLE_STAGE_COLORS: Record<string, string> = {
   COMPLETED: "#2563EB",
 };
 
-export default function WorkflowCard({ workflow, onSelect }: WorkflowCardProps) {
+function complianceBorderClass(sev: WorkflowComplianceSeverity | null | undefined): string {
+  if (sev === "error") return "border-l-4 border-l-red-500";
+  if (sev === "warn") return "border-l-4 border-l-amber-500";
+  if (sev === "info") return "border-l-4 border-l-sky-500/80";
+  return "";
+}
+
+export default function WorkflowCard({
+  workflow,
+  onSelect,
+  complianceSeverity,
+  complianceHint,
+}: WorkflowCardProps) {
   const boardLabel = workflow.boardName;
   const owner = resolveOwner(workflow.ownerAgent);
   const stages = workflow.boardStages || [];
@@ -71,7 +90,10 @@ export default function WorkflowCard({ workflow, onSelect }: WorkflowCardProps) 
 
   return (
     <div
-      className={`bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2 relative ${
+      title={complianceHint || undefined}
+      className={`bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2 relative ${complianceBorderClass(
+        complianceSeverity ?? null
+      )} ${
         onSelect ? "cursor-pointer hover:border-[var(--text-tertiary)] transition-colors" : ""
       }`}
       role={onSelect ? "button" : undefined}

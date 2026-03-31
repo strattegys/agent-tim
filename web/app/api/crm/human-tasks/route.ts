@@ -36,7 +36,8 @@ import {
  * - excludePackageStages — comma-separated package stages to omit (e.g. `DRAFT,PENDING_APPROVAL` so planner draft/testing rows don’t appear in agent queues)
  * - includeInactivePackages — with ownerAgent=tim: include workflows on non-ACTIVE packages (default excludes them so planner work stays in package planner).
  * - summary=1 — with ownerAgent=tim only: returns { count, pendingFollowUpCount, warmOutreachDaily } without per-row CRM/artifact work (fast polling).
- * - ownerAgent=tim (default): only packaged workflows whose _package.stage is ACTIVE (non-packaged workflows still show). Pass includeInactivePackages=1 to see planner/inactive packages.
+ * - ownerAgent=tim (default): packaged workflows only if `_package` exists and `stage` is ACTIVE; `packageId` IS NULL still shows (general inbox, connection intake, etc.). Pass includeInactivePackages=1 to include non-ACTIVE packages (planner / ops).
+ * - ownerAgent=tim + humanTaskOpen column: queue is **human steps only** (`humanTaskOpen = true`), plus warm-outreach **MESSAGED** (waiting on LinkedIn; flag intentionally false — see syncHumanTaskOpenForItem).
  * - limit / offset — with ownerAgent=tim on full GET (not summary): paginate (default limit 80, max 150). Response includes hasMore and nextOffset when applicable.
  * - messagingOnly=1 + ownerAgent=tim: rows ordered by **updatedAt DESC** (newest activity first) so LinkedIn inbox / latest replies are not buried behind older due-dated items.
  */
@@ -573,22 +574,14 @@ async function fetchHumanTaskRows(
   let humanOpenSql = "";
   if (useHumanTaskOpenCol) {
     if (ownerAgentLower === "tim") {
-      /* Avoid w.spec::jsonb — empty or invalid JSON in spec aborts the whole query */
+      /* Human-in-the-loop only: trust persisted flag (synced from board requiresHuman + templates).
+       * Exception: warm-outreach MESSAGED keeps humanTaskOpen=false while waiting on LinkedIn — still list for context. */
       humanOpenSql = `(
         wi."humanTaskOpen" = true
         OR (
           UPPER(TRIM(wi.stage::text)) = 'MESSAGED'
           AND COALESCE(w.spec::text, '') LIKE '%"workflowType"%'
           AND COALESCE(w.spec::text, '') LIKE '%warm-outreach%'
-        )
-        OR UPPER(TRIM(wi.stage::text)) IN (
-          'REPLY_DRAFT',
-          'REPLY_SENT',
-          'LINKEDIN_INBOUND',
-          'CONNECTION_ACCEPTED',
-          'MESSAGE_DRAFT',
-          'AWAITING_CONTACT',
-          'INITIATED'
         )
       ) AND `;
     } else {
@@ -702,8 +695,9 @@ export async function GET(req: NextRequest) {
       : "";
 
     if (timOpsQueueOnly && !packageStageFilter) {
+      /* Non-packaged Tim workflows (inbox, intake) stay visible; packaged rows only when package row exists and is ACTIVE. */
       conditions.push(
-        `(w."packageId" IS NULL OR UPPER(TRIM(COALESCE(p.stage::text, ''))) = 'ACTIVE')`
+        `(w."packageId" IS NULL OR (p.id IS NOT NULL AND UPPER(TRIM(COALESCE(p.stage::text, ''))) = 'ACTIVE'))`
       );
     }
 

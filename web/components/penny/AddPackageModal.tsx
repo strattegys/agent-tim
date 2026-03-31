@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { PACKAGE_TEMPLATES, type PackageTemplateSpec } from "@/lib/package-types";
+import {
+  packageTemplatesVisibleInPlanner,
+  type PackageTemplateSpec,
+} from "@/lib/package-types";
 
 interface AddPackageModalProps {
   open: boolean;
@@ -10,7 +13,7 @@ interface AddPackageModalProps {
 }
 
 export default function AddPackageModal({ open, onClose, onCreated }: AddPackageModalProps) {
-  const templates = Object.values(PACKAGE_TEMPLATES) as PackageTemplateSpec[];
+  const templates = packageTemplatesVisibleInPlanner();
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -20,7 +23,7 @@ export default function AddPackageModal({ open, onClose, onCreated }: AddPackage
     if (!open) return;
     setError(null);
     setSubmitting(false);
-    const first = Object.values(PACKAGE_TEMPLATES)[0] as PackageTemplateSpec | undefined;
+    const first = packageTemplatesVisibleInPlanner()[0];
     if (first?.id) setTemplateId(first.id);
     setName("");
   }, [open]);

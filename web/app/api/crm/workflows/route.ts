@@ -21,12 +21,20 @@ interface WorkflowRow {
 export async function GET(request: NextRequest) {
   try {
     const agentFilter = request.nextUrl.searchParams.get("agent");
+    const limitRaw = request.nextUrl.searchParams.get("limit");
+    let limit = 50;
+    if (limitRaw != null) {
+      const n = parseInt(limitRaw, 10);
+      if (!Number.isNaN(n)) limit = Math.min(200, Math.max(1, n));
+    }
+
     const params: unknown[] = [];
     let whereClause = 'WHERE w."deletedAt" IS NULL';
     if (agentFilter) {
       params.push(agentFilter);
       whereClause += ` AND w."ownerAgent" = $${params.length}`;
     }
+    params.push(limit);
 
     const rows = await query<WorkflowRow>(
       `SELECT w.id, w.name, w.stage, w.spec, w."itemType", w."boardId", w."ownerAgent", w."packageId",
@@ -38,7 +46,7 @@ export async function GET(request: NextRequest) {
        LEFT JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL
        ${whereClause}
        ORDER BY p.name ASC NULLS LAST, w.name ASC NULLS LAST
-       LIMIT 50`,
+       LIMIT $${params.length}`,
       params
     );
     const workflows = rows.map((r) => ({

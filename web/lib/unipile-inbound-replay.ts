@@ -2,6 +2,8 @@
  * Server-side replay (Unipile → Tim queue). Not marked `server-only` so `tsx scripts/run-unipile-inbound-replay.ts` can import it; do not import from client components.
  */
 import { handleUnipileWebhook } from "@/lib/linkedin-webhook";
+import { extractSenderNameFromUnipileMessageShape } from "@/lib/linkedin-inbound-unipile-sender";
+import { releaseStaleInboundReceiptForReplay } from "@/lib/linkedin-inbound-receipt";
 import { normalizeUnipileDsn } from "@/lib/unipile-profile";
 import { canUnipileReplayWriteToCrm } from "@/lib/unipile-replay-crm-guard";
 
@@ -94,17 +96,16 @@ function senderFromMessage(m: Record<string, unknown>, cpId: string | null): {
   providerId: string;
 } {
   const sender = m.sender;
+  let providerId = cpId || "";
   if (sender && typeof sender === "object") {
     const o = sender as Record<string, unknown>;
-    const name =
-      pickStr(o.attendee_name) ||
-      pickStr(o.name) ||
-      [pickStr(o.first_name), pickStr(o.last_name)].filter(Boolean).join(" ").trim() ||
-      "Unknown";
-    const providerId = pickStr(o.attendee_provider_id) || pickStr(o.provider_id) || cpId || "";
-    return { name, providerId };
+    providerId =
+      pickStr(o.attendee_provider_id) || pickStr(o.provider_id) || pickStr(m.sender_id) || providerId;
+  } else {
+    providerId = pickStr(m.sender_id) || pickStr(m.provider_id) || providerId;
   }
-  return { name: "Unknown", providerId: cpId || "" };
+  const name = extractSenderNameFromUnipileMessageShape(m, providerId || cpId) || "Unknown";
+  return { name, providerId: providerId || cpId || "" };
 }
 
 async function unipileGetJson(pathWithQuery: string): Promise<{ ok: boolean; status: number; body: unknown }> {
@@ -412,6 +413,15 @@ export async function replayRecentUnipileInboundAsWebhooks(input: {
       continue;
     }
     try {
+      const mid = String(c.webhookPayload.message_id || "").trim();
+      if (mid) {
+        const released = await releaseStaleInboundReceiptForReplay(mid, 8);
+        if (released) {
+          console.log(
+            `[unipile-replay] released stale unprocessed receipt for message ${mid.slice(0, 48)}…`
+          );
+        }
+      }
       await handleUnipileWebhook(c.webhookPayload);
       items.push({
         chatId: c.chatId,

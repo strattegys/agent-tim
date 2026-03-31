@@ -60,10 +60,12 @@ export async function GET() {
 
     // 2. Item counts per workflow per stage
     const itemCounts = await query<ItemCountRow>(
-      `SELECT "workflowId", stage, COUNT(*)::text AS count
-       FROM "_workflow_item"
-       WHERE "workflowId" = ANY($1) AND "deletedAt" IS NULL
-       GROUP BY "workflowId", stage`,
+      `SELECT "workflowId"::text AS "workflowId",
+              UPPER(TRIM(wi.stage::text)) AS stage,
+              COUNT(*)::text AS count
+       FROM "_workflow_item" wi
+       WHERE wi."workflowId" = ANY($1) AND wi."deletedAt" IS NULL
+       GROUP BY wi."workflowId", UPPER(TRIM(wi.stage::text))`,
       [wfIds]
     );
 
@@ -119,8 +121,10 @@ export async function GET() {
         itemType: w.itemType || "person",
         ownerAgent: (w as Record<string, unknown>).ownerAgent as string | null,
         updatedAt: w.updatedAt,
+        boardId: w.boardId,
         boardName: w.board_name,
         boardStages: w.board_stages || [],
+        boardTransitions: (w as Record<string, unknown>).board_transitions ?? null,
         totalItems,
         stageCounts,
         alertCount: alertsByWorkflow[w.id] || 0,

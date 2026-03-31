@@ -51,7 +51,8 @@ export function resolveWorkflowRegistryId(raw: string | undefined | null): strin
   return null;
 }
 
-function boardStageKeysUpper(boardStages: unknown): string[] {
+/** Normalized stage keys from board JSON (jsonb or string). Exported for workflow model compliance checks. */
+export function boardStageKeysUpper(boardStages: unknown): string[] {
   if (boardStages == null) return [];
   let arr: unknown = boardStages;
   if (typeof boardStages === "string") {

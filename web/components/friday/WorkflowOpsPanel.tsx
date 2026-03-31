@@ -1,9 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import WorkflowCard, { type WorkflowStat } from "./WorkflowRow";
 import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
 import { panelBus } from "@/lib/events";
+import {
+  validateWorkflowAgainstModel,
+  worstSeverity,
+  type WorkflowComplianceSeverity,
+} from "@/lib/workflow-model-validate";
 
 function normalizeBoardStages(
   raw: unknown
@@ -47,8 +52,10 @@ function normalizeWorkflowStat(row: Record<string, unknown>): WorkflowStat {
     ownerAgent:
       row.ownerAgent == null ? null : String(row.ownerAgent),
     updatedAt: row.updatedAt == null ? null : String(row.updatedAt),
+    boardId: row.boardId == null || row.boardId === "" ? null : String(row.boardId),
     boardName: row.boardName == null ? null : String(row.boardName),
     boardStages: normalizeBoardStages(row.boardStages),
+    boardTransitions: row.boardTransitions ?? null,
     totalItems: typeof row.totalItems === "number" ? row.totalItems : 0,
     stageCounts:
       row.stageCounts != null && typeof row.stageCounts === "object"
@@ -57,6 +64,35 @@ function normalizeWorkflowStat(row: Record<string, unknown>): WorkflowStat {
     alertCount:
       typeof row.alertCount === "number" ? row.alertCount : 0,
   };
+}
+
+function parseSpecForValidate(raw: string): unknown {
+  const t = raw.trim();
+  if (!t) return {};
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try {
+      return JSON.parse(raw) as unknown;
+    } catch {
+      return raw;
+    }
+  }
+  return raw;
+}
+
+function upperStageCounts(m: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(m)) {
+    const u = k.trim().toUpperCase();
+    out[u] = (out[u] ?? 0) + v;
+  }
+  return out;
+}
+
+function complianceRank(s: WorkflowComplianceSeverity | null | undefined): number {
+  if (s === "error") return 0;
+  if (s === "warn") return 1;
+  if (s === "info") return 2;
+  return 3;
 }
 
 export default function WorkflowOpsPanel() {
@@ -112,6 +148,41 @@ export default function WorkflowOpsPanel() {
     };
   }, [load]);
 
+  const complianceById = useMemo(() => {
+    const severity = new Map<string, WorkflowComplianceSeverity | null>();
+    const hint = new Map<string, string>();
+    for (const w of workflows) {
+      const issues = validateWorkflowAgainstModel({
+        id: w.id,
+        name: w.name,
+        lifecycleStage: w.stage,
+        spec: parseSpecForValidate(w.spec),
+        itemType: w.itemType,
+        boardId: w.boardId,
+        ownerAgent: w.ownerAgent,
+        boardStages: w.boardStages,
+        boardTransitions: w.boardTransitions,
+        itemStageCounts: upperStageCounts(w.stageCounts),
+      });
+      severity.set(w.id, worstSeverity(issues));
+      if (issues.length > 0) {
+        const lines = issues.slice(0, 5).map((i) => i.message);
+        const extra = issues.length > 5 ? `\n+${issues.length - 5} more` : "";
+        hint.set(w.id, lines.join("\n") + extra);
+      }
+    }
+    return { severity, hint };
+  }, [workflows]);
+
+  const sortedWorkflows = useMemo(() => {
+    return [...workflows].sort((a, b) => {
+      const ra = complianceRank(complianceById.severity.get(a.id));
+      const rb = complianceRank(complianceById.severity.get(b.id));
+      if (ra !== rb) return ra - rb;
+      return a.name.localeCompare(b.name);
+    });
+  }, [workflows, complianceById]);
+
   if (selected) {
     return (
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-primary)]">
@@ -143,10 +214,10 @@ export default function WorkflowOpsPanel() {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-primary)]">
       <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 flex items-center gap-2 flex-wrap">
         <span className="text-xs font-semibold text-[var(--text-primary)]">
-          Workflows
+          Pipelines
         </span>
         <span className="text-[10px] text-[var(--text-tertiary)]">
-          Live CRM — click a card to open the pipeline board
+          Live boards — left accent shows registry fit (red = needs attention). Click a card for Kanban.
         </span>
         <button
           type="button"
@@ -185,11 +256,13 @@ export default function WorkflowOpsPanel() {
 
         {workflows.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-            {workflows.map((w) => (
+            {sortedWorkflows.map((w) => (
               <WorkflowCard
                 key={w.id}
                 workflow={w}
                 onSelect={() => setSelected({ id: w.id, name: w.name })}
+                complianceSeverity={complianceById.severity.get(w.id) ?? null}
+                complianceHint={complianceById.hint.get(w.id)}
               />
             ))}
           </div>

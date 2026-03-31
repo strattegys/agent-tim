@@ -4,7 +4,6 @@
   "private": true,
   "scripts": {
     "dev": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010",
-    "dev:friday": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV NEXT_PUBLIC_CC_FRIDAY_DEV=1 CC_AGENT_CHAT_PROFILE=localdev next dev -p 3011",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
     "build:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD next build && node scripts/copy-standalone-assets.mjs",
     "start": "next start",
@@ -23,7 +22,11 @@
     "check-crm-db:no-ts-fallback": "node scripts/check-crm-db.mjs --no-tailscale-fallback",
     "db:vector-memory": "node scripts/db-exec.mjs scripts/migrate-vector-memory.sql",
     "db:linkedin-inbound-receipt": "node scripts/db-exec.mjs scripts/migrate-linkedin-inbound-receipt.sql",
+    "db:linkedin-inbound-receipt-outcome": "node scripts/db-exec.mjs scripts/migrate-linkedin-inbound-receipt-outcome.sql",
+    "db:unipile-webhook-inbox": "node scripts/db-exec.mjs scripts/migrate-unipile-webhook-inbox.sql",
     "check:linkedin-inbound-receipt": "npx tsx scripts/check-linkedin-inbound-receipt.ts",
+    "check:linkedin-inbound-orphans": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/check-linkedin-inbound-orphans.ts",
+    "cron:linkedin-inbound-catchup": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/run-linkedin-inbound-catchup-once.ts",
     "db:punch-list-actions": "node scripts/db-exec.mjs scripts/migrate-punch-list-actions-jsonb.sql",
     "migrate:orphan-workflows": "node scripts/migrate-orphan-workflows-to-packages.mjs",
     "prune:linkedin-connection-alerts": "node scripts/prune-linkedin-connection-notifications.mjs",
@@ -36,7 +39,8 @@
     "backfill:jebin": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-warm-replied-inbound.ts",
     "backfill:warm-replied-inbound": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-warm-replied-inbound.ts",
     "migrate:tim-crm-slice": "node scripts/migrate-tim-crm-slice.mjs",
-    "migrate:linkedin-connection-intake": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/migrate-linkedin-connection-intake-items.ts"
+    "migrate:linkedin-connection-intake": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/migrate-linkedin-connection-intake-items.ts",
+    "backfill:tim-human-task-open": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-tim-human-task-open.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

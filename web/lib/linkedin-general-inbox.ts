@@ -3,7 +3,6 @@
  * Packaged warm-outreach / linkedin-outreach steps are handled elsewhere before this runs.
  */
 import { query } from "@/lib/db";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import {
   isLinkedInProviderMemberId,
   postgresMissingColumn,
@@ -13,60 +12,17 @@ import {
   resolvePostgresPersonIdsForLinkedInSender,
 } from "@/lib/warm-outreach-inbound-reply";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
+import { ensureTimLinkedInSystemPackageWorkflow } from "@/lib/ensure-tim-linkedin-system-package-workflow";
 
-const GENERAL_INBOX_TYPE = "linkedin-general-inbox" as const;
 const GENERAL_STAGE = "LINKEDIN_INBOUND";
 
 let ensureWorkflowPromise: Promise<string> | null = null;
 
-async function createGeneralInboxWorkflow(): Promise<string> {
-  const tmpl = WORKFLOW_TYPES[GENERAL_INBOX_TYPE];
-  const boardResult = await query<{ id: string }>(
-    `INSERT INTO "_board" (name, description, stages, transitions, "createdAt", "updatedAt")
-     VALUES ($1, $2, $3::jsonb, $4::jsonb, NOW(), NOW()) RETURNING id`,
-    [
-      "LinkedIn — General Inbox",
-      "Inbound LinkedIn activity not matched to an active package workflow step",
-      JSON.stringify(tmpl.defaultBoard.stages),
-      JSON.stringify(tmpl.defaultBoard.transitions),
-    ]
-  );
-  const boardId = boardResult[0].id;
-  const spec = JSON.stringify({ workflowType: GENERAL_INBOX_TYPE });
-  const wfResult = await query<{ id: string }>(
-    `INSERT INTO "_workflow" (name, spec, "itemType", "boardId", "ownerAgent", "packageId", stage, "createdAt", "updatedAt")
-     VALUES ($1, $2::jsonb, $3, $4, $5, NULL, 'ACTIVE', NOW(), NOW()) RETURNING id`,
-    [
-      "LinkedIn — General Inbox",
-      spec,
-      tmpl.itemType,
-      boardId,
-      "tim",
-    ]
-  );
-  return wfResult[0].id;
-}
-
-/** Lazy-create a single non-package workflow Tim uses for unmatched LinkedIn events. */
+/** Lazy-create the single Tim general-inbox workflow (always under its system package). */
 export async function ensureGeneralLinkedInInboxWorkflowId(): Promise<string> {
   if (!ensureWorkflowPromise) {
-    ensureWorkflowPromise = (async () => {
-      const existing = await query<{ id: string }>(
-        `SELECT w.id
-         FROM "_workflow" w
-         WHERE w."deletedAt" IS NULL
-           AND w."packageId" IS NULL
-           AND LOWER(TRIM(COALESCE(w."ownerAgent"::text, ''))) = 'tim'
-           AND (
-             COALESCE(w.spec::text, '') LIKE '%"workflowType":"linkedin-general-inbox"%'
-             OR COALESCE(w.spec::text, '') LIKE '%"workflowType": "linkedin-general-inbox"%'
-           )
-         ORDER BY w."createdAt" ASC
-         LIMIT 1`
-      );
-      if (existing.length > 0) return existing[0].id;
-      return createGeneralInboxWorkflow();
-    })();
+    ensureWorkflowPromise = (async () =>
+      ensureTimLinkedInSystemPackageWorkflow("general-inbox"))();
   }
   return ensureWorkflowPromise;
 }
@@ -207,6 +163,47 @@ async function findGeneralInboxWorkflowItemForPerson(
   return r.id;
 }
 
+/** Replace auto-created "LinkedIn" / "Unknown" contact names when Unipile gives a real display name. */
+async function refreshInboundPersonDisplayNameIfPlaceholder(
+  personId: string,
+  displayName: string
+): Promise<void> {
+  const name = displayName.trim();
+  if (!name || name.toLowerCase() === "unknown") return;
+  const parts = name.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] || "";
+  const lastName = parts.length > 1 ? parts.slice(1).join(" ") : "Inbound";
+  if (!firstName) return;
+
+  try {
+    const rows = await query<{ fn: string; ln: string }>(
+      `SELECT TRIM(COALESCE("nameFirstName", '')) AS fn, TRIM(COALESCE("nameLastName", '')) AS ln
+       FROM person WHERE id = $1 AND "deletedAt" IS NULL`,
+      [personId]
+    );
+    const r = rows[0];
+    if (!r) return;
+    const fn = r.fn.toLowerCase();
+    const ln = r.ln.toLowerCase();
+    const placeholder =
+      fn === "" ||
+      fn === "unknown" ||
+      fn === "linkedin" ||
+      (fn === "linkedin" && ln === "inbound");
+    if (!placeholder) return;
+
+    await query(
+      `UPDATE person
+       SET "nameFirstName" = $2, "nameLastName" = $3, "updatedAt" = NOW()
+       WHERE id = $1 AND "deletedAt" IS NULL`,
+      [personId, firstName, lastName]
+    );
+  } catch (e) {
+    if (postgresMissingColumn(e, "nameFirstName")) return;
+    console.warn("[linkedin-general-inbox] refresh person display name:", e);
+  }
+}
+
 /**
  * When no packaged workflow consumed the event, queue a Tim task with the payload in an artifact.
  * Inbound DMs only — connection acceptances use `recordLinkedInConnectionAccepted`.
@@ -231,6 +228,8 @@ export async function recordGeneralLinkedInInbound(args: {
         "No Postgres person and could not create one — need Unipile sender id (attendee_provider_id) on the webhook payload.",
     };
   }
+
+  await refreshInboundPersonDisplayNameIfPlaceholder(primaryPersonId, args.senderDisplayName);
 
   const workflowId = await ensureGeneralLinkedInInboxWorkflowId();
   const ts = args.timestampIso || new Date().toISOString();

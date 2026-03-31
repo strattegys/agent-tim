@@ -320,6 +320,52 @@ export function initCronJobs(): void {
     }
   );
 
+  registerJob(
+    {
+      id: "unipile-webhook-inbox-drain",
+      name: "Drain Unipile webhook inbox",
+      schedule: "* * * * *",
+      description:
+        "Process persisted Unipile POST payloads (fault-tolerant queue when app restarts or CRM was down)",
+      agentId: "tim",
+      enabled: true,
+    },
+    async () => {
+      if (
+        process.env.UNIPILE_WEBHOOK_INBOX_DRAIN_CRON?.trim() === "0" ||
+        process.env.UNIPILE_WEBHOOK_INBOX_DRAIN_CRON?.trim().toLowerCase() === "false"
+      ) {
+        return;
+      }
+      const { isUnipileWebhookInboxEnabled, drainUnipileWebhookInbox } = await import(
+        "./unipile-webhook-inbox"
+      );
+      if (!isUnipileWebhookInboxEnabled()) return;
+      const r = await drainUnipileWebhookInbox(50);
+      if (r.processed > 0 || r.failed > 0) {
+        console.log(
+          `[cron] unipile-webhook-inbox-drain: processed=${r.processed} failed=${r.failed} claimed=${r.claimed}`
+        );
+      }
+    }
+  );
+
+  registerJob(
+    {
+      id: "linkedin-inbound-catchup",
+      name: "LinkedIn inbound Unipile catch-up",
+      schedule: "*/10 * * * *",
+      description:
+        "Drain webhook inbox batch; release stuck dedupe receipts; replay Unipile DMs (lookback hours from LINKEDIN_INBOUND_CATCHUP_HOURS, default 72)",
+      agentId: "tim",
+      enabled: true,
+    },
+    async () => {
+      const { runLinkedInInboundCatchupCron } = await import("./linkedin-inbound-catchup");
+      await runLinkedInInboundCatchupCron();
+    }
+  );
+
   const hasAnthropicAdmin = !!process.env.ANTHROPIC_ADMIN_API_KEY?.trim();
   registerJob(
     {

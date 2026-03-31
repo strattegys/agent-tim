@@ -11,7 +11,10 @@ import {
   fetchUnipileLinkedInProfile,
   isUnipileConfigured,
 } from "@/lib/unipile-profile";
-import { isWarmOutreachPlaceholderJobTitle } from "@/lib/warm-outreach-researching-guard";
+import {
+  isLinkedInInboundAutoJobTitle,
+  isWarmOutreachPlaceholderJobTitle,
+} from "@/lib/warm-outreach-researching-guard";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 
 function logTs(message: string): string {
@@ -258,7 +261,10 @@ export async function applyUnipileResearchToPerson(
   let nextTitle: string;
   if ((u.jobTitle || "").trim()) {
     nextTitle = (u.jobTitle || "").trim();
-  } else if (isWarmOutreachPlaceholderJobTitle(cur.jobTitle)) {
+  } else if (
+    isWarmOutreachPlaceholderJobTitle(cur.jobTitle) ||
+    isLinkedInInboundAutoJobTitle(cur.jobTitle)
+  ) {
     nextTitle = "";
   } else {
     nextTitle = (cur.jobTitle || "").trim();

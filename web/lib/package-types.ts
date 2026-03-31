@@ -105,6 +105,8 @@ export interface PackageTemplateSpec {
   label: string;
   /** Description for humans */
   description: string;
+  /** When true, hide from Penny / Friday template pickers (infrastructure packages). */
+  hideFromPlanner?: boolean;
   /** Workflows that make up this package */
   deliverables: PackageDeliverable[];
   /**
@@ -242,6 +244,40 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
       },
     ],
   },
+
+  /** Tim — always-on LinkedIn message inbox (one workflow, same name as package). */
+  "linkedin-general-inbox-package": {
+    id: "linkedin-general-inbox-package",
+    label: "LinkedIn — General Inbox (system)",
+    description:
+      "Infrastructure package for unmatched LinkedIn inbound events. Created automatically; do not duplicate from Planner.",
+    hideFromPlanner: true,
+    deliverables: [
+      {
+        workflowType: "linkedin-general-inbox",
+        ownerAgent: "tim",
+        targetCount: 0,
+        label: "LinkedIn — General Inbox",
+      },
+    ],
+  },
+
+  /** Tim — connection acceptances without a packaged outreach row. */
+  "linkedin-connection-intake-package": {
+    id: "linkedin-connection-intake-package",
+    label: "LinkedIn — Connection intake (system)",
+    description:
+      "Infrastructure package for non-package connection acceptances. Created automatically; do not duplicate from Planner.",
+    hideFromPlanner: true,
+    deliverables: [
+      {
+        workflowType: "linkedin-connection-intake",
+        ownerAgent: "tim",
+        targetCount: 0,
+        label: "LinkedIn — Connection intake",
+      },
+    ],
+  },
 };
 
 /** Look up a package template by ID. Returns undefined if not found. */
@@ -249,4 +285,9 @@ export function getPackageTemplate(
   id: string
 ): PackageTemplateSpec | undefined {
   return PACKAGE_TEMPLATES[id];
+}
+
+/** Penny / Friday pickers — excludes infrastructure templates (LinkedIn system inboxes). */
+export function packageTemplatesVisibleInPlanner(): PackageTemplateSpec[] {
+  return Object.values(PACKAGE_TEMPLATES).filter((t) => !t.hideFromPlanner);
 }

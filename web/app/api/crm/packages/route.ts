@@ -331,6 +331,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    if (operational) {
+      const { warmOperationalTimLinkedInSystemPackages } = await import(
+        "@/lib/ensure-tim-linkedin-system-package-workflow"
+      );
+      await warmOperationalTimLinkedInSystemPackages();
+    }
+
     if (includeWorkflowBreakdown) {
       rows = await attachWorkflowBreakdown(rows);
     }
@@ -362,6 +369,15 @@ export async function POST(req: NextRequest) {
     if (!template) {
       return NextResponse.json(
         { error: `Unknown template: ${templateId}` },
+        { status: 400 }
+      );
+    }
+    if (template.hideFromPlanner) {
+      return NextResponse.json(
+        {
+          error:
+            "This template is system infrastructure (Tim LinkedIn inboxes). It is created automatically, not via POST.",
+        },
         { status: 400 }
       );
     }

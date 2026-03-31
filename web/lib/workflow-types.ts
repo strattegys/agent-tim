@@ -315,6 +315,7 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     itemType: "person",
     description:
       "Inbound LinkedIn messages that did not match an active packaged workflow step (e.g. warm-outreach at Messaged). " +
+      "Lives on the system package **LinkedIn — General Inbox** (same name as the workflow). " +
       "Connection acceptances without a package path use the separate LinkedIn connection intake workflow. " +
       "Govind triages from Tim’s active queue; Submit dismisses the row when handled.",
     defaultBoard: {
@@ -336,7 +337,7 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     },
   },
 
-  // ─── LinkedIn connection accepted (non-package) — route into a package workflow or dismiss ─
+  // ─── LinkedIn connection accepted (no matching outreach row) — system package + workflow ─
 
   "linkedin-connection-intake": {
     id: "linkedin-connection-intake",
@@ -344,6 +345,7 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     itemType: "person",
     description:
       "Someone accepted your LinkedIn invitation but no packaged linkedin-outreach row was waiting on them. " +
+      "Lives on the system package **LinkedIn — Connection intake** (same name as the workflow). " +
       "You decide the next step: add them to a package workflow (warm-outreach, linkedin-outreach, etc.), or dismiss.",
     defaultBoard: {
       stages: [

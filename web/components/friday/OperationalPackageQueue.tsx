@@ -19,7 +19,7 @@ const POLL_MS_HIDDEN = 30_000;
 
 /**
  * Operational package board: ACTIVE / PAUSED / COMPLETED (live ops).
- * Used in Penny’s dashboard; was previously Friday’s Packages tab.
+ * Used under Friday → Packages → Package queue.
  */
 export default function OperationalPackageQueue() {
   const tabVisible = useDocumentVisible();

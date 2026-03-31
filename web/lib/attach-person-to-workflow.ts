@@ -19,7 +19,6 @@ export async function validateCloseIntakeRow(
        AND wi."sourceType" = 'person'
        AND wi."sourceId"::text = $2
        AND LOWER(TRIM(COALESCE(w."ownerAgent"::text, ''))) = 'tim'
-       AND w."packageId" IS NULL
        AND (
          COALESCE(w.spec::text, '') LIKE '%linkedin-connection-intake%'
          OR (

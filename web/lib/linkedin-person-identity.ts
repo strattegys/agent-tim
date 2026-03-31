@@ -86,6 +86,24 @@ export function parsePersonLinkedInFields(
 }
 
 /**
+ * Pull Unipile member id or public slug/URL from markdown bodies (e.g. LinkedIn inbound artifacts:
+ * `**Provider id:** ACoA…`) or free text.
+ */
+export function extractLinkedInHintFromArtifactOrNotes(text: string): string | null {
+  const t = text.trim();
+  if (!t) return null;
+  for (const line of t.split(/\r?\n/)) {
+    const prov =
+      line.match(/\*\*Provider id:\*\*\s*(\S+)/i)?.[1] ??
+      line.match(/^\s*Provider id:\s*(\S+)/i)?.[1];
+    if (prov && isLinkedInProviderMemberId(prov)) return prov.trim();
+  }
+  const ac = t.match(/\b(ACoA[A-Za-z0-9_-]+)\b/i);
+  if (ac?.[1] && isLinkedInProviderMemberId(ac[1])) return ac[1];
+  return extractLinkedInProfileIdentifier(t);
+}
+
+/**
  * Best identifier to pass to Unipile `GET /users/{id}` / send — prefers stable member id when present.
  */
 export function resolveUnipilePersonIdentifier(args: {
@@ -102,7 +120,7 @@ export function resolveUnipilePersonIdentifier(args: {
   const slug = extractLinkedInProfileIdentifier(fromUrl);
   if (slug) return slug;
   if (args.notesFallback) {
-    return extractLinkedInProfileIdentifier(args.notesFallback.trim());
+    return extractLinkedInHintFromArtifactOrNotes(args.notesFallback);
   }
   return null;
 }

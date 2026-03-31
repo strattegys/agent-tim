@@ -11,9 +11,9 @@ import { checkWarmOutreachDailyPaceFindings } from "./warm-outreach-daily-progre
 /**
  * Tim heartbeat — lightweight ops nudges (no legacy file/shell CRM scans).
  *
- * Uses Postgres-backed warm-outreach checks only. Inbound LinkedIn is handled by
- * Unipile webhooks and the work queue; we do not re-scan notifications.jsonl or
- * run autonomous LLM + CRM tools here (that produced noisy “heartbeat summaries”).
+ * Uses Postgres-backed warm-outreach checks only. Inbound LinkedIn is primarily Unipile
+ * webhooks plus the `linkedin-inbound-catchup` cron (replay + stuck-receipt release).
+ * We do not re-scan notifications.jsonl or run autonomous LLM + CRM tools here.
  *
  * Output: notification bell entries only (optional detect-only for /api/heartbeat).
  */

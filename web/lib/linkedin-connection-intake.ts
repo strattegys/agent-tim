@@ -1,57 +1,19 @@
 /**
- * Non-packaged LinkedIn connection acceptances → Tim queue (separate from message general inbox).
+ * LinkedIn connection acceptances without a packaged outreach row → Tim queue (system package + workflow).
  */
 import { query } from "@/lib/db";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import { resolvePrimaryPostgresPersonForLinkedInInbound } from "@/lib/linkedin-general-inbox";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
+import { ensureTimLinkedInSystemPackageWorkflow } from "@/lib/ensure-tim-linkedin-system-package-workflow";
 
-const INTAKE_TYPE = "linkedin-connection-intake" as const;
 const INTAKE_STAGE = "CONNECTION_ACCEPTED";
 
 let ensureWorkflowPromise: Promise<string> | null = null;
 
-async function createConnectionIntakeWorkflow(): Promise<string> {
-  const tmpl = WORKFLOW_TYPES[INTAKE_TYPE];
-  const boardResult = await query<{ id: string }>(
-    `INSERT INTO "_board" (name, description, stages, transitions, "createdAt", "updatedAt")
-     VALUES ($1, $2, $3::jsonb, $4::jsonb, NOW(), NOW()) RETURNING id`,
-    [
-      "LinkedIn — Connection intake",
-      "Connection acceptances not tied to an active package outreach step",
-      JSON.stringify(tmpl.defaultBoard.stages),
-      JSON.stringify(tmpl.defaultBoard.transitions),
-    ]
-  );
-  const boardId = boardResult[0].id;
-  const spec = JSON.stringify({ workflowType: INTAKE_TYPE });
-  const wfResult = await query<{ id: string }>(
-    `INSERT INTO "_workflow" (name, spec, "itemType", "boardId", "ownerAgent", "packageId", stage, "createdAt", "updatedAt")
-     VALUES ($1, $2::jsonb, $3, $4, $5, NULL, 'ACTIVE', NOW(), NOW()) RETURNING id`,
-    ["LinkedIn — Connection intake", spec, tmpl.itemType, boardId, "tim"]
-  );
-  return wfResult[0].id;
-}
-
 export async function ensureLinkedInConnectionIntakeWorkflowId(): Promise<string> {
   if (!ensureWorkflowPromise) {
-    ensureWorkflowPromise = (async () => {
-      const existing = await query<{ id: string }>(
-        `SELECT w.id
-         FROM "_workflow" w
-         WHERE w."deletedAt" IS NULL
-           AND w."packageId" IS NULL
-           AND LOWER(TRIM(COALESCE(w."ownerAgent"::text, ''))) = 'tim'
-           AND (
-             COALESCE(w.spec::text, '') LIKE '%"workflowType":"linkedin-connection-intake"%'
-             OR COALESCE(w.spec::text, '') LIKE '%"workflowType": "linkedin-connection-intake"%'
-           )
-         ORDER BY w."createdAt" ASC
-         LIMIT 1`
-      );
-      if (existing.length > 0) return existing[0].id;
-      return createConnectionIntakeWorkflow();
-    })();
+    ensureWorkflowPromise = (async () =>
+      ensureTimLinkedInSystemPackageWorkflow("connection-intake"))();
   }
   return ensureWorkflowPromise;
 }

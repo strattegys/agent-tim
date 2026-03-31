@@ -69,12 +69,14 @@ const tool: ToolModule = {
 
   async execute(args, context) {
     const { query: dbQuery } = await import("../db");
-    const { PACKAGE_TEMPLATES } = await import("../package-types");
+    const { PACKAGE_TEMPLATES, packageTemplatesVisibleInPlanner } = await import(
+      "../package-types"
+    );
     const cmd = args.command;
 
     // ─── list-templates ──────────────────────────────────────────
     if (cmd === "list-templates") {
-      const templates = Object.values(PACKAGE_TEMPLATES);
+      const templates = packageTemplatesVisibleInPlanner();
       if (templates.length === 0) return "No package templates defined.";
       return templates
         .map((t) => {
@@ -92,6 +94,9 @@ const tool: ToolModule = {
 
       const template = PACKAGE_TEMPLATES[args.arg1];
       if (!template) return `Error: unknown template "${args.arg1}". Use list-templates to see available templates.`;
+      if (template.hideFromPlanner) {
+        return `Error: template "${template.id}" is system infrastructure (created automatically). Do not create it with create-package.`;
+      }
 
       const packageName = (args.arg2 && String(args.arg2).trim()) || template.label;
       const customerId = args.arg3 || null;

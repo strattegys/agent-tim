@@ -4,6 +4,7 @@
  */
 
 import { query, transaction } from "@/lib/db";
+import { ensureGeneralLinkedInInboxWorkflowId } from "@/lib/linkedin-general-inbox";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 
 const IDS = {
@@ -14,7 +15,6 @@ const IDS = {
 } as const;
 
 const PKG_NAME = "Dev — Tim test queue";
-const GI_WF_NAME = "LinkedIn — General Inbox";
 
 type RunRows = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>;
 
@@ -117,8 +117,8 @@ export async function runDevTimTestQueueSeed(opts: { force?: boolean }): Promise
     };
   }
 
-  const giTmpl = WORKFLOW_TYPES["linkedin-general-inbox"];
   const warmTmpl = WORKFLOW_TYPES["warm-outreach"];
+  const giWorkflowId = await ensureGeneralLinkedInInboxWorkflowId();
 
   try {
     const out = await transaction(async (runQuery) => {
@@ -145,43 +145,6 @@ export async function runDevTimTestQueueSeed(opts: { force?: boolean }): Promise
            "updatedAt" = NOW()`,
         [IDS.personGi1, IDS.personGi2, IDS.personWarm]
       );
-
-      const giExisting = await run(
-        `SELECT w.id
-         FROM "_workflow" w
-         WHERE w."deletedAt" IS NULL
-           AND w."packageId" IS NULL
-           AND LOWER(TRIM(COALESCE(w."ownerAgent"::text, ''))) = 'tim'
-           AND (
-             COALESCE(w.spec::text, '') LIKE '%"workflowType":"linkedin-general-inbox"%'
-             OR COALESCE(w.spec::text, '') LIKE '%"workflowType": "linkedin-general-inbox"%'
-           )
-         ORDER BY w."createdAt" ASC
-         LIMIT 1`
-      );
-
-      let giWorkflowId: string;
-      if (giExisting.length > 0 && giExisting[0].id) {
-        giWorkflowId = String(giExisting[0].id);
-      } else {
-        const br = await run(
-          `INSERT INTO "_board" (name, description, stages, transitions, "createdAt", "updatedAt")
-           VALUES ($1, $2, $3::jsonb, $4::jsonb, NOW(), NOW()) RETURNING id`,
-          [
-            "LinkedIn — General Inbox",
-            "Dev seed",
-            JSON.stringify(giTmpl.defaultBoard.stages),
-            JSON.stringify(giTmpl.defaultBoard.transitions),
-          ]
-        );
-        const boardId = String(br[0]!.id);
-        const wr = await run(
-          `INSERT INTO "_workflow" (name, spec, "itemType", "boardId", "ownerAgent", "packageId", stage, "createdAt", "updatedAt")
-           VALUES ($1, $2::jsonb, $3, $4, 'tim', NULL, 'ACTIVE', NOW(), NOW()) RETURNING id`,
-          [GI_WF_NAME, JSON.stringify({ workflowType: "linkedin-general-inbox" }), giTmpl.itemType, boardId]
-        );
-        giWorkflowId = String(wr[0]!.id);
-      }
 
       const header =
         "## LinkedIn — inbound message (general inbox)\n\n**From:** Dev seed\n\nHello from the test queue.";

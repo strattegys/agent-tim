@@ -184,7 +184,43 @@ export default function TimLinkedInInboxIntakeWorkspace({
     setUnipileEmptyAfterFetch(false);
     setUnipileResolution(null);
 
+    // #region agent log
+    fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
+      body: JSON.stringify({
+        sessionId: "847f63",
+        runId: "pre-fix",
+        hypothesisId: "H1,H5",
+        location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:start",
+        message: "loadUnipileThread invoked",
+        data: {
+          hasSourceId: Boolean(task.sourceId?.trim()),
+          hasItemId: Boolean(task.itemId?.trim()),
+          gen,
+          refAfter: unipileFetchGenRef.current,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+
     if (!task.sourceId?.trim()) {
+      // #region agent log
+      fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
+        body: JSON.stringify({
+          sessionId: "847f63",
+          runId: "pre-fix",
+          hypothesisId: "H1",
+          location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:noSourceId",
+          message: "early exit missing sourceId",
+          data: { gen },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       if (gen === unipileFetchGenRef.current) {
         setUnipileLines([]);
         setUnipileError(
@@ -207,6 +243,27 @@ export default function TimLinkedInInboxIntakeWorkspace({
         try {
           d = JSON.parse(rawText) as Record<string, unknown>;
         } catch {
+          // #region agent log
+          fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
+            body: JSON.stringify({
+              sessionId: "847f63",
+              runId: "pre-fix",
+              hypothesisId: "H2",
+              location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:jsonParseFail",
+              message: "response not JSON",
+              data: {
+                httpStatus: r.status,
+                rOk: r.ok,
+                rawLen: rawText.length,
+                gen,
+                ref: unipileFetchGenRef.current,
+              },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
           if (gen !== unipileFetchGenRef.current) return;
           setUnipileLines([]);
           setUnipileError(r.ok ? "Bad response from server" : `HTTP ${r.status}`);
@@ -214,7 +271,50 @@ export default function TimLinkedInInboxIntakeWorkspace({
           return;
         }
 
-        if (gen !== unipileFetchGenRef.current) return;
+        if (gen !== unipileFetchGenRef.current) {
+          // #region agent log
+          fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
+            body: JSON.stringify({
+              sessionId: "847f63",
+              runId: "pre-fix",
+              hypothesisId: "H5",
+              location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:staleGen",
+              message: "skipped state updates stale generation",
+              data: { gen, ref: unipileFetchGenRef.current },
+              timestamp: Date.now(),
+            }),
+          }).catch(() => {});
+          // #endregion
+          return;
+        }
+
+        // #region agent log
+        const msgArr = d.messages;
+        const msgLen = Array.isArray(msgArr) ? msgArr.length : -1;
+        fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
+          body: JSON.stringify({
+            sessionId: "847f63",
+            runId: "pre-fix",
+            hypothesisId: "H2,H3,H4",
+            location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:response",
+            message: "linkedin-thread response parsed",
+            data: {
+              httpStatus: r.status,
+              rOk: r.ok,
+              bodyOk: d.ok,
+              errType: typeof d.error,
+              resolution: typeof d.resolution === "string" ? d.resolution : null,
+              messagesArrayLen: msgLen,
+              gen,
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
 
         const crmSynced = d.personCrmSynced === true;
         if (crmSynced) {
@@ -260,7 +360,40 @@ export default function TimLinkedInInboxIntakeWorkspace({
                 : null
         );
         setUnipileEmptyAfterFetch(lines.length === 0);
+        // #region agent log
+        fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
+          body: JSON.stringify({
+            sessionId: "847f63",
+            runId: "pre-fix",
+            hypothesisId: "H4",
+            location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:normalized",
+            message: "normalized thread lines",
+            data: { normalizedCount: lines.length, gen },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
       } catch (err) {
+        // #region agent log
+        fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
+          body: JSON.stringify({
+            sessionId: "847f63",
+            runId: "pre-fix",
+            hypothesisId: "H2",
+            location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:catch",
+            message: "fetch threw",
+            data: {
+              gen,
+              err: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+            },
+            timestamp: Date.now(),
+          }),
+        }).catch(() => {});
+        // #endregion
         if (gen !== unipileFetchGenRef.current) return;
         setUnipileLines([]);
         const msg = err instanceof Error ? err.message : "Could not load LinkedIn thread";

@@ -145,6 +145,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
     setUnipileResolution(null);
     setUnipileEmptyAfterFetch(false);
     setUnipileCrmHint(null);
+    setUnipileLoading(false);
     setSavedReplyFingerprint(null);
     setMoveSelection({ workflowId: "", stageKey: "" });
     setMoveDialogOpen(false);
@@ -254,7 +255,9 @@ export default function TimLinkedInInboxIntakeWorkspace({
             ? "full_scan"
             : d.resolution === "attendee_chats"
               ? "attendee_chats"
-              : null
+              : d.resolution === "inbound_webhook_chat"
+                ? "inbound_webhook_chat"
+                : null
         );
         setUnipileEmptyAfterFetch(lines.length === 0);
       } catch (err) {
@@ -275,6 +278,13 @@ export default function TimLinkedInInboxIntakeWorkspace({
       unipileFetchGenRef.current += 1;
     };
   }, [task.itemId, task.sourceId, loadUnipileThread]);
+
+  /** Avoid a stuck disabled Refresh if a superseded fetch never cleared loading (Strict Mode / fast tab switch). */
+  useEffect(() => {
+    if (!unipileLoading) return;
+    const t = window.setTimeout(() => setUnipileLoading(false), 125_000);
+    return () => window.clearTimeout(t);
+  }, [unipileLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -569,6 +579,80 @@ export default function TimLinkedInInboxIntakeWorkspace({
       <div className="flex min-h-0 flex-1 flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--border-color)]">
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-4 py-3">
+              <section aria-label="LinkedIn thread from Unipile">
+                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+                      LinkedIn thread (Unipile)
+                    </p>
+                    <p className="mt-0.5 text-[9px] leading-snug text-[var(--text-tertiary)]">
+                      Stays on screen when you open <strong className="font-medium text-[var(--text-secondary)]">History</strong>{" "}
+                      tabs — Refresh always runs the same request.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={unipileLoading}
+                    title={unipileLoading ? "Request in progress…" : "Reload thread from Unipile"}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void loadUnipileThread();
+                    }}
+                    className="pointer-events-auto shrink-0 text-[10px] font-medium rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-60"
+                  >
+                    {unipileLoading ? "Loading…" : "Refresh from LinkedIn"}
+                  </button>
+                </div>
+                {unipileCrmHint ? (
+                  <p className="mt-1.5 text-[10px] leading-snug text-[var(--accent-green)]">{unipileCrmHint}</p>
+                ) : null}
+                {unipileLoading && unipileLines.length === 0 ? (
+                  <p className="text-[11px] text-[var(--text-tertiary)]">Loading conversation…</p>
+                ) : null}
+                {unipileError ? (
+                  <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-400">{unipileError}</p>
+                ) : null}
+                {unipileEmptyAfterFetch && !unipileLoading && unipileLines.length === 0 && !unipileError ? (
+                  <p className="text-[11px] leading-snug text-[var(--text-tertiary)]">
+                    {unipileResolution === "inbound_webhook_chat"
+                      ? "Unipile returned no messages for the chat id from this inbound snapshot (new thread, or API returned an empty page). Try Refresh after LinkedIn sync."
+                      : unipileResolution === "attendee_chats"
+                        ? "Unipile did not return a 1:1 chat for this LinkedIn member id (or the thread has no text yet). Try Refresh after LinkedIn sync, or confirm linkedinProviderId matches their ACoA id."
+                        : `No matching 1:1 chat after scanning ${unipileScannedChats || "many"} recent conversations. Older threads may sit outside the scan — use Refresh after new activity, or ask dev to raise scan depth.`}
+                  </p>
+                ) : null}
+                {unipileLines.length > 0 ? (
+                  <ul className="mt-2 flex max-h-[min(22rem,42vh)] flex-col gap-2 overflow-y-auto pr-0.5">
+                    {unipileLines.map((ln, idx) => (
+                      <li
+                        key={`${ln.at}-${idx}`}
+                        className="rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-primary)]/90 px-2.5 py-2"
+                      >
+                        <p className="text-[9px] text-[var(--text-tertiary)]">
+                          {ln.at
+                            ? new Date(ln.at).toLocaleString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })
+                            : "—"}{" "}
+                          <span className="font-medium text-[var(--text-secondary)]">
+                            · {ln.direction === "outbound" ? "You" : "Them"}
+                          </span>
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap text-[12px] leading-snug text-[var(--text-chat-body)]">
+                          {ln.body}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+            </div>
+
             {activeTab === REPLY_TAB ? (
               <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
                 <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/85 p-3 shadow-sm">
@@ -587,81 +671,16 @@ export default function TimLinkedInInboxIntakeWorkspace({
                 <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/50">
                   <div className="shrink-0 border-b border-[var(--border-color)]/70 px-3 py-2">
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                      Message history
+                      Queue snapshots (CRM)
                     </p>
                     <p className="mt-0.5 text-[9px] leading-snug text-[var(--text-tertiary)]">
-                      Live thread from Unipile (includes your connection request note when it lives only in chat). Below
-                      that, CRM snapshots for this queue row. Open{" "}
+                      Inbound webhook copies and notes for this row. Live Unipile thread is in the panel above. Open{" "}
                       <strong className="font-medium text-[var(--text-secondary)]">Contact profile</strong> in History
                       for CRM fields.
                     </p>
                   </div>
                   <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-2">
-                    <section aria-label="LinkedIn thread from Unipile">
-                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                          LinkedIn thread (Unipile)
-                        </p>
-                        <button
-                          type="button"
-                          disabled={unipileLoading}
-                          onClick={() => void loadUnipileThread()}
-                          className="text-[10px] font-medium rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2 py-0.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-                        >
-                          {unipileLoading ? "Loading…" : "Refresh from LinkedIn"}
-                        </button>
-                      </div>
-                      {unipileCrmHint ? (
-                        <p className="mt-1.5 text-[10px] leading-snug text-[var(--accent-green)]">{unipileCrmHint}</p>
-                      ) : null}
-                      {unipileLoading && unipileLines.length === 0 ? (
-                        <p className="text-[11px] text-[var(--text-tertiary)]">Loading conversation…</p>
-                      ) : null}
-                      {unipileError ? (
-                        <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-400">{unipileError}</p>
-                      ) : null}
-                      {unipileEmptyAfterFetch && !unipileLoading && unipileLines.length === 0 && !unipileError ? (
-                        <p className="text-[11px] leading-snug text-[var(--text-tertiary)]">
-                          {unipileResolution === "inbound_webhook_chat"
-                            ? "Unipile returned no messages for the chat id from this inbound snapshot (new thread, or API returned an empty page). Try Refresh after LinkedIn sync."
-                            : unipileResolution === "attendee_chats"
-                              ? "Unipile did not return a 1:1 chat for this LinkedIn member id (or the thread has no text yet). Try Refresh after LinkedIn sync, or confirm linkedinProviderId matches their ACoA id."
-                              : `No matching 1:1 chat after scanning ${unipileScannedChats || "many"} recent conversations. Older threads may sit outside the scan — use Refresh after new activity, or ask dev to raise scan depth.`}
-                        </p>
-                      ) : null}
-                      {unipileLines.length > 0 ? (
-                        <ul className="flex flex-col gap-2">
-                          {unipileLines.map((ln, idx) => (
-                            <li
-                              key={`${ln.at}-${idx}`}
-                              className="rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-primary)]/90 px-2.5 py-2"
-                            >
-                              <p className="text-[9px] text-[var(--text-tertiary)]">
-                                {ln.at
-                                  ? new Date(ln.at).toLocaleString(undefined, {
-                                      month: "short",
-                                      day: "numeric",
-                                      hour: "numeric",
-                                      minute: "2-digit",
-                                    })
-                                  : "—"}{" "}
-                                <span className="font-medium text-[var(--text-secondary)]">
-                                  · {ln.direction === "outbound" ? "You" : "Them"}
-                                </span>
-                              </p>
-                              <p className="mt-1 whitespace-pre-wrap text-[12px] leading-snug text-[var(--text-chat-body)]">
-                                {ln.body}
-                              </p>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </section>
-
                     <section aria-label="CRM artifacts for this queue item">
-                      <p className="mb-2 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                        Queue snapshots (CRM)
-                      </p>
                       {loading ? (
                         <p className="text-[11px] text-[var(--text-tertiary)]">Loading artifacts…</p>
                       ) : messageHistoryArtifacts.length === 0 ? (

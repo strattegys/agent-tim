@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { Client } from "pg";
 import { auth } from "@/lib/auth";
-import { CRM_WORKSPACE_SCHEMA, crmResolvedHostPort, resetCrmPoolForReconnect } from "@/lib/db";
+import {
+  CRM_WORKSPACE_SCHEMA,
+  crmResolvedHostPort,
+  crmTailscaleDirectRefusedHint,
+  resetCrmPoolForReconnect,
+} from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -98,15 +103,19 @@ export async function POST() {
       /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|timeout/i.test(msg) ||
       msg.toLowerCase().includes("connect");
     const dockerHint = dockerDesktopTunnelHint(host, port);
+    const tailscaleRefused = /ECONNREFUSED/i.test(msg) ? crmTailscaleDirectRefusedHint(host) : "";
     let devHints = "";
     if (process.env.NODE_ENV === "development") {
       if (/ECONNREFUSED/i.test(msg)) {
         devHints =
+          tailscaleRefused ||
           dockerHint ||
           " On your machine, restart the SSH tunnel (e.g. cd web && npm run db:reconnect, or COMMAND-CENTRAL/scripts/crm-db-tunnel.ps1). The app cannot open that tunnel for you from the browser.";
       } else if (isConn && dockerHint) {
         devHints = dockerHint;
       }
+    } else if (tailscaleRefused) {
+      devHints = tailscaleRefused;
     }
     const prodHint =
       process.env.NODE_ENV === "production" && isConn

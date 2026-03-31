@@ -4,6 +4,7 @@ import { getAllAgentSpecs } from "@/lib/agent-registry";
 import {
   CRM_WORKSPACE_SCHEMA,
   crmResolvedHostPort,
+  crmTailscaleDirectRefusedHint,
   getCrmDataPlatformConnectionLabel,
 } from "@/lib/db";
 import { normalizeUnipileDsn } from "@/lib/unipile-profile";
@@ -207,18 +208,23 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
           220
         );
     } else if (/ECONNREFUSED/i.test(msg)) {
-      const portHint =
-        process.env.CRM_DB_PORT && process.env.CRM_DB_PORT !== "5432"
-          ? `port ${process.env.CRM_DB_PORT}`
-          : "5432";
-      const dockerTunnel =
-        dbHost === "host.docker.internal" || dbHost.endsWith(".docker.internal")
-          ? " From Docker, tunnel must bind 0.0.0.0 (default in crm-db-tunnel.ps1/.sh), not 127.0.0.1 only."
-          : "";
-      detail = `${detail.slice(0, 88)} → start SSH tunnel to droplet :5432 (${portHint}).${dockerTunnel}`.slice(
-        0,
-        220
-      );
+      const tsHint = crmTailscaleDirectRefusedHint(dbHost);
+      if (tsHint) {
+        detail = `${msg.slice(0, 48)} · ${target} — ${tsHint}`.slice(0, 280);
+      } else {
+        const portHint =
+          process.env.CRM_DB_PORT && process.env.CRM_DB_PORT !== "5432"
+            ? `port ${process.env.CRM_DB_PORT}`
+            : "5432";
+        const dockerTunnel =
+          dbHost === "host.docker.internal" || dbHost.endsWith(".docker.internal")
+            ? " From Docker, tunnel must bind 0.0.0.0 (default in crm-db-tunnel.ps1/.sh), not 127.0.0.1 only."
+            : "";
+        detail = `${detail.slice(0, 88)} → start SSH tunnel to droplet :5432 (${portHint}).${dockerTunnel}`.slice(
+          0,
+          220
+        );
+      }
     }
     return {
       id: DATA_PLATFORM_ID,

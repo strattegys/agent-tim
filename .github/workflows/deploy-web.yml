@@ -116,7 +116,21 @@ jobs:
 
           # CRM Postgres is service crm-db in the same compose file as web (see docker-compose.yml).
           # Variable substitution for POSTGRES_PASSWORD requires --env-file.
-          DC="docker compose --env-file web/.env.local -f docker-compose.yml"
+          #
+          # IMPORTANT: If we `up -d` with only docker-compose.yml, Docker drops the generated
+          # Tailscale port publish (docker-compose.crm-db-tailscale.generated.yml). Laptops using
+          # 100.x:5432 then get ECONNREFUSED until expose runs. Always merge the generated file
+          # when it exists so deploy does not briefly (or permanently, if expose fails) remove it.
+          if [ -f tools/expose-crm-db-tailscale.sh ]; then
+            echo "Refresh CRM Tailscale publish (creates/updates overlay; idempotent)..."
+            bash tools/expose-crm-db-tailscale.sh || echo "WARN: expose-crm-db-tailscale.sh failed — Tailscale down on server? Re-run after: tailscale up"
+          fi
+          DC_FILES="-f docker-compose.yml"
+          if [ -f docker-compose.crm-db-tailscale.generated.yml ]; then
+            DC_FILES="$DC_FILES -f docker-compose.crm-db-tailscale.generated.yml"
+            echo "Using Tailscale CRM overlay (docker-compose.crm-db-tailscale.generated.yml) for compose commands."
+          fi
+          DC="docker compose --env-file web/.env.local $DC_FILES"
 
           echo "Building Docker images..."
           $DC build --no-cache web
@@ -153,10 +167,9 @@ jobs:
           $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-marni-kb.sql
 
-          # Re-apply Tailscale port mapping for crm-db. `docker compose -f docker-compose.yml up` alone
-          # drops the generated overlay; without this, laptop Docker dev loses host.docker.internal:5433 paths.
+          # Re-run expose after full up so TS_IP changes or first-time overlays stay aligned with crm-db.
           if [ -f tools/expose-crm-db-tailscale.sh ]; then
-            echo "Ensuring CRM Postgres is published on Tailscale (idempotent)..."
+            echo "Re-check CRM Postgres on Tailscale (idempotent)..."
             bash tools/expose-crm-db-tailscale.sh || echo "WARN: expose-crm-db-tailscale.sh failed (Tailscale down on server?). Re-run after: tailscale up"
           fi
 
@@ -168,7 +181,9 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s <<'EOF'
           cd /opt/agent-tim
-          DC="docker compose --env-file web/.env.local -f docker-compose.yml"
+          DC_FILES="-f docker-compose.yml"
+          [ -f docker-compose.crm-db-tailscale.generated.yml ] && DC_FILES="$DC_FILES -f docker-compose.crm-db-tailscale.generated.yml"
+          DC="docker compose --env-file web/.env.local $DC_FILES"
           if curl -sf http://localhost:3001/api/health > /dev/null 2>&1; then
             echo "✓ Health check passed — Command Central is running."
           else

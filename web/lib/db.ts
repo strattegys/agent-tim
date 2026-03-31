@@ -188,6 +188,21 @@ export function getCrmDataPlatformConnectionLabel(): string {
   return `Other CRM target — ${host}:${port}`;
 }
 
+/**
+ * When Data Platform uses a Tailscale 100.x host and Postgres returns ECONNREFUSED, the droplet
+ * is usually not publishing crm-db on that address (run expose-crm-db-tailscale.sh) or Tailscale is down.
+ */
+export function crmTailscaleDirectRefusedHint(host: string): string {
+  const h = host.trim();
+  if (!/^100\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return "";
+  return (
+    "Droplet must publish Postgres on this tailnet IP: ssh to Command Central, then " +
+    "`cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh` (requires `tailscale up` on the server). " +
+    "On your PC: keep Tailscale connected. " +
+    "Without tailnet: set CRM_LOCALPROD_DB_HOST=host.docker.internal, CRM_LOCALPROD_DB_PORT=5433, run scripts/localprod-crm-tunnel.ps1, recreate the web container."
+  );
+}
+
 /** Twenty / CRM workspace schema (Kanban, workflows, person, _workflow_item, …). */
 export const CRM_WORKSPACE_SCHEMA = "workspace_9rc10n79wgdr0r3z6mzti24f6";
 const SCHEMA = CRM_WORKSPACE_SCHEMA;

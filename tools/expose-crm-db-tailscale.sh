@@ -44,7 +44,9 @@ if [[ -f "$OVER" ]] && cmp -s "$TMP" "$OVER"; then
 fi
 
 mv -f "$TMP" "$OVER"
-docker compose --env-file web/.env.local -f docker-compose.yml -f "$OVER" up -d crm-db
+# Use prod wrapper so future manual compose commands match deploy (both port bindings).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+bash "$SCRIPT_DIR/docker-compose-cc-prod.sh" up -d crm-db
 echo "OK: CRM Postgres also on Tailscale ${TS_IP}:5432 (127.0.0.1:5432 unchanged)."
 echo "Laptop .env.local (native Node): CRM_DB_HOST=${TS_IP} CRM_DB_PORT=5432"
 echo "Tunnel over tailnet: CRM_SSH_HOST=${TS_IP} in crm-db-tunnel.ps1 / .sh"

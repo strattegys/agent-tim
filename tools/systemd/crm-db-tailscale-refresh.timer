@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically ensure CRM Postgres is published on the tailnet
+
+[Timer]
+# After boot Docker + Tailscale need a moment
+OnBootSec=5min
+# Self-heal if compose was run without the Tailscale overlay
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

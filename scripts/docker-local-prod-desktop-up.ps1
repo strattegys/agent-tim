@@ -38,13 +38,21 @@ $usingTailscale = ($crmHost -match '^100\.')
 
 if ($usingTailscale) {
   Write-Host "Checking Tailscale CRM at $($crmHost):$crmPort..." -ForegroundColor Gray
-  if (Test-TcpOpen $crmHost $crmPort) {
+  $ok = $false
+  for ($i = 0; $i -lt 4; $i++) {
+    if (Test-TcpOpen $crmHost $crmPort 6000) { $ok = $true; break }
+    if ($i -lt 3) {
+      Write-Host "  Retry $($i + 1)/3 in 5s (tailnet or droplet may still be settling)..." -ForegroundColor DarkGray
+      Start-Sleep -Seconds 5
+    }
+  }
+  if ($ok) {
     Write-Host "Tailscale CRM reachable ($($crmHost):$crmPort) - direct connection (no bridge/tunnel)." -ForegroundColor Cyan
   } else {
-    Write-Warning "Tailscale CRM at $($crmHost):$crmPort is not reachable."
-    Write-Host "  Check: Is Tailscale running? Has expose-crm-db-tailscale.sh been run on the server?" -ForegroundColor Yellow
-    Write-Host "  Fallback: set CRM_LOCALPROD_DB_HOST=host.docker.internal CRM_LOCALPROD_DB_PORT=5433 and run:" -ForegroundColor Yellow
-    Write-Host "    .\scripts\localprod-crm-tunnel.ps1  (separate window)" -ForegroundColor Yellow
+    Write-Warning "Tailscale CRM at $($crmHost):$crmPort is not reachable after retries."
+    Write-Host "  Server: cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh" -ForegroundColor Yellow
+    Write-Host "  Server (long-term): sudo bash tools/install-crm-db-tailscale-refresh-timer.sh" -ForegroundColor Yellow
+    Write-Host "  This PC: Tailscale connected? Fallback: CRM_LOCALPROD_DB_HOST=host.docker.internal CRM_LOCALPROD_DB_PORT=5433 + .\scripts\localprod-crm-tunnel.ps1" -ForegroundColor Yellow
   }
 } else {
   Write-Host "CRM target: $($crmHost):$crmPort (custom/bridge mode)" -ForegroundColor Cyan

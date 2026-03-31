@@ -1,0 +1,11 @@
+[Unit]
+Description=Republish Command Central CRM Postgres on Tailscale (100.x:5432)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/agent-tim
+Environment=COMPOSE_DIR=/opt/agent-tim
+# Requires tailscale up on the droplet; exits non-zero if TS unavailable (timer will retry).
+ExecStart=/bin/bash /opt/agent-tim/tools/expose-crm-db-tailscale.sh

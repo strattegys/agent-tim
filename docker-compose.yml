@@ -15,8 +15,9 @@ services:
       - crm_postgres_data:/var/lib/postgresql/data
       # First-time cluster only; existing volumes rely on migrate-vector-memory.sql after pull.
       - ./docker/crm-db-init:/docker-entrypoint-initdb.d:ro
-    # Loopback only — not exposed on the public interface. Lets SSH tunnel scripts forward
-    # droplet localhost:5432 → laptop (e.g. 5433) so Docker-based dev can reach prod CRM data.
+    # Loopback here + optional tailnet IP via docker-compose.crm-db-tailscale.generated.yml
+    # (tools/expose-crm-db-tailscale.sh). On the droplet always use tools/docker-compose-cc-prod.sh
+    # so merges are not dropped. SSH tunnels use 127.0.0.1:5432; LOCALPROD uses 100.x:5432.
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:

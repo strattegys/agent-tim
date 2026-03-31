@@ -114,63 +114,63 @@ jobs:
             ufw reload || true
           fi
 
-          # CRM Postgres is service crm-db in the same compose file as web (see docker-compose.yml).
-          # Variable substitution for POSTGRES_PASSWORD requires --env-file.
-          #
-          # IMPORTANT: If we `up -d` with only docker-compose.yml, Docker drops the generated
-          # Tailscale port publish (docker-compose.crm-db-tailscale.generated.yml). Laptops using
-          # 100.x:5432 then get ECONNREFUSED until expose runs. Always merge the generated file
-          # when it exists so deploy does not briefly (or permanently, if expose fails) remove it.
+          # CRM Postgres: use tools/docker-compose-cc-prod.sh for ALL compose invocations so the
+          # generated Tailscale overlay is never dropped (plain -f docker-compose.yml up removes it).
+          COMPOSE="bash tools/docker-compose-cc-prod.sh"
+
           if [ -f tools/expose-crm-db-tailscale.sh ]; then
             echo "Refresh CRM Tailscale publish (creates/updates overlay; idempotent)..."
             bash tools/expose-crm-db-tailscale.sh || echo "WARN: expose-crm-db-tailscale.sh failed — Tailscale down on server? Re-run after: tailscale up"
           fi
-          DC_FILES="-f docker-compose.yml"
-          if [ -f docker-compose.crm-db-tailscale.generated.yml ]; then
-            DC_FILES="$DC_FILES -f docker-compose.crm-db-tailscale.generated.yml"
-            echo "Using Tailscale CRM overlay (docker-compose.crm-db-tailscale.generated.yml) for compose commands."
-          fi
-          DC="docker compose --env-file web/.env.local $DC_FILES"
 
           echo "Building Docker images..."
-          $DC build --no-cache web
+          $COMPOSE build --no-cache web
 
           echo "Starting containers..."
-          $DC up -d
+          $COMPOSE up -d
 
           echo "Waiting for CRM Postgres (pgvector + _memory)..."
           for i in $(seq 1 90); do
-            if $DC exec -T crm-db pg_isready -U postgres -d default >/dev/null 2>&1; then
+            if $COMPOSE exec -T crm-db pg_isready -U postgres -d default >/dev/null 2>&1; then
               break
             fi
             sleep 1
           done
-          if ! $DC exec -T crm-db pg_isready -U postgres -d default >/dev/null 2>&1; then
+          if ! $COMPOSE exec -T crm-db pg_isready -U postgres -d default >/dev/null 2>&1; then
             echo "ERROR: crm-db did not become ready"
-            $DC logs --tail=40 crm-db
+            $COMPOSE logs --tail=40 crm-db
             exit 1
           fi
 
           echo "Applying idempotent vector memory migration (extension + _memory)..."
-          $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+          $COMPOSE exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-vector-memory.sql
 
           echo "Applying idempotent Suzi Intake migration (_intake)..."
-          $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+          $COMPOSE exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-intake.sql
 
           echo "Applying idempotent punch list actions (JSONB on _punch_list)..."
-          $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+          $COMPOSE exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-punch-list-actions-jsonb.sql
 
           echo "Applying idempotent Marni Knowledge Studio (_kb_topic, _agent_knowledge)..."
-          $DC exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+          $COMPOSE exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-marni-kb.sql
 
-          # Re-run expose after full up so TS_IP changes or first-time overlays stay aligned with crm-db.
           if [ -f tools/expose-crm-db-tailscale.sh ]; then
             echo "Re-check CRM Postgres on Tailscale (idempotent)..."
             bash tools/expose-crm-db-tailscale.sh || echo "WARN: expose-crm-db-tailscale.sh failed (Tailscale down on server?). Re-run after: tailscale up"
+          fi
+
+          echo "Verify tailnet Postgres port (from droplet host)..."
+          TS_IP=$(tailscale ip -4 2>/dev/null | head -1 || true)
+          if [ -n "$TS_IP" ] && command -v nc >/dev/null 2>&1; then
+            if nc -z -w 5 "$TS_IP" 5432 2>/dev/null; then
+              echo "OK: $TS_IP:5432 accepts TCP — laptop LOCALPROD / tailnet CRM should work."
+            else
+              echo "WARN: $TS_IP:5432 closed from host — run: cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh"
+            fi
           fi
 
           echo "Waiting for server to start..."
@@ -181,16 +181,14 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key root@${{ secrets.DEPLOY_HOST }} bash -s <<'EOF'
           cd /opt/agent-tim
-          DC_FILES="-f docker-compose.yml"
-          [ -f docker-compose.crm-db-tailscale.generated.yml ] && DC_FILES="$DC_FILES -f docker-compose.crm-db-tailscale.generated.yml"
-          DC="docker compose --env-file web/.env.local $DC_FILES"
+          COMPOSE="bash tools/docker-compose-cc-prod.sh"
           if curl -sf http://localhost:3001/api/health > /dev/null 2>&1; then
             echo "✓ Health check passed — Command Central is running."
           else
             echo "✗ Health check FAILED"
             echo ""
             echo "Container logs:"
-            $DC logs --tail=30 web
+            $COMPOSE logs --tail=30 web
             exit 1
           fi
           EOF

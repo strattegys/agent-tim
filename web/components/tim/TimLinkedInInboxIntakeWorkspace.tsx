@@ -245,10 +245,22 @@ export default function TimLinkedInInboxIntakeWorkspace({
           { credentials: "include", cache: "no-store" }
         );
         const rawText = await r.text();
+        console.warn("[DEBUG-847f63][client] linkedin-thread HTTP", {
+          reason,
+          httpStatus: r.status,
+          rOk: r.ok,
+          bodyChars: rawText.length,
+          gen,
+        });
         let d: Record<string, unknown> = {};
         try {
           d = JSON.parse(rawText) as Record<string, unknown>;
         } catch {
+          console.warn("[DEBUG-847f63][client] linkedin-thread not JSON", {
+            reason,
+            httpStatus: r.status,
+            bodyHead: rawText.slice(0, 80),
+          });
           // #region agent log
           fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
             method: "POST",
@@ -278,6 +290,11 @@ export default function TimLinkedInInboxIntakeWorkspace({
         }
 
         if (gen !== unipileFetchGenRef.current) {
+          console.warn("[DEBUG-847f63][client] linkedin-thread stale gen skip UI", {
+            reason,
+            gen,
+            ref: unipileFetchGenRef.current,
+          });
           // #region agent log
           fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
             method: "POST",
@@ -299,6 +316,15 @@ export default function TimLinkedInInboxIntakeWorkspace({
         // #region agent log
         const msgArr = d.messages;
         const msgLen = Array.isArray(msgArr) ? msgArr.length : -1;
+        console.warn("[DEBUG-847f63][client] linkedin-thread parsed", {
+          reason,
+          httpStatus: r.status,
+          bodyOk: d.ok,
+          resolution: typeof d.resolution === "string" ? d.resolution : null,
+          messagesArrayLen: msgLen,
+          errSlice: typeof d.error === "string" ? d.error.slice(0, 120) : null,
+          gen,
+        });
         fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },

@@ -163,9 +163,42 @@ export type WarmThreadTurn = {
   createdAt: string;
 };
 
+const UNIPILE_THREAD_JSON_FENCE = "unipile-thread-json";
+
+/**
+ * Parsed turns from **Update LinkedIn** / backfill (fenced JSON on the REPLIED artifact).
+ */
+export function parseUnipileThreadTurnsFromRepliedArtifact(markdown: string): WarmThreadTurn[] | null {
+  const re = new RegExp(
+    "```\\s*" + UNIPILE_THREAD_JSON_FENCE + "\\s*\\n([\\s\\S]*?)```",
+    "i"
+  );
+  const m = markdown.match(re);
+  if (!m?.[1]) return null;
+  try {
+    const raw = JSON.parse(m[1].trim()) as unknown;
+    if (!Array.isArray(raw) || raw.length === 0) return null;
+    const out: WarmThreadTurn[] = [];
+    for (const row of raw) {
+      if (!row || typeof row !== "object") continue;
+      const o = row as Record<string, unknown>;
+      const role = o.role === "you" || o.role === "them" ? o.role : null;
+      const text = typeof o.text === "string" ? o.text.trim() : "";
+      const createdAt = typeof o.createdAt === "string" ? o.createdAt.trim() : "";
+      if (!role || !text || !createdAt) continue;
+      out.push({ role, text, createdAt });
+    }
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Build message history strictly before the current MESSAGE_DRAFT / REPLY_DRAFT row
  * (sent DMs from MESSAGED/REPLY_SENT, their replies from REPLIED, or earliest MESSAGE_DRAFT plain if nothing was sent yet).
+ * When the latest prior **REPLIED** artifact includes a Unipile **Thread sync** block, that full thread is used and CRM
+ * **you** rows **newer** than the last Unipile message are appended (sends after the sync).
  * Rows are oldest-first; callers may re-sort for display (e.g. newest at top).
  */
 export function buildWarmLinkedInThreadBeforeDraft(
@@ -182,33 +215,66 @@ export function buildWarmLinkedInThreadBeforeDraft(
   });
   prior.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-  const turns: WarmThreadTurn[] = [];
+  let unipileTurns: WarmThreadTurn[] | null = null;
+  let unipileSourceCreatedMs = -1;
   for (const a of prior) {
-    const st = (a.stage || "").toUpperCase();
-    if (st === "REPLIED") {
-      const t = extractWarmRepliedInboundText(a.content);
-      if (t?.trim()) turns.push({ role: "them", text: t.trim(), createdAt: a.createdAt });
-    } else if (st === "MESSAGED" || st === "REPLY_SENT") {
-      const sent = extractSentPlainFromLinkedInSendArtifact(a.content);
-      if (sent) turns.push({ role: "you", text: sent, createdAt: a.createdAt });
+    if ((a.stage || "").toUpperCase() !== "REPLIED") continue;
+    const parsed = parseUnipileThreadTurnsFromRepliedArtifact(a.content);
+    if (!parsed?.length) continue;
+    const ms = new Date(a.createdAt).getTime();
+    if (Number.isFinite(ms) && ms >= unipileSourceCreatedMs) {
+      unipileSourceCreatedMs = ms;
+      unipileTurns = parsed;
     }
   }
 
-  if (!turns.some((x) => x.role === "you")) {
-    for (const a of prior) {
-      const st = (a.stage || "").toUpperCase();
-      if (st === "MESSAGE_DRAFT") {
-        const plain = extractPlainDmFromDraftMarkdown(a.content).trim();
-        if (plain.length >= 8) {
-          turns.push({ role: "you", text: plain, createdAt: a.createdAt });
-          break;
+  const crmTurns: WarmThreadTurn[] = [];
+  for (const a of prior) {
+    const st = (a.stage || "").toUpperCase();
+    if (unipileTurns?.length && st === "REPLIED") continue;
+    if (st === "REPLIED") {
+      const t = extractWarmRepliedInboundText(a.content);
+      if (t?.trim()) crmTurns.push({ role: "them", text: t.trim(), createdAt: a.createdAt });
+    } else if (st === "MESSAGED" || st === "REPLY_SENT") {
+      const sent = extractSentPlainFromLinkedInSendArtifact(a.content);
+      if (sent) crmTurns.push({ role: "you", text: sent, createdAt: a.createdAt });
+    }
+  }
+
+  const appendFirstYouFromMessageDraftIfMissing = (turns: WarmThreadTurn[]) => {
+    if (!turns.some((x) => x.role === "you")) {
+      for (const a of prior) {
+        const st = (a.stage || "").toUpperCase();
+        if (st === "MESSAGE_DRAFT") {
+          const plain = extractPlainDmFromDraftMarkdown(a.content).trim();
+          if (plain.length >= 8) {
+            turns.push({ role: "you", text: plain, createdAt: a.createdAt });
+            break;
+          }
         }
       }
     }
+    return turns;
+  };
+
+  if (unipileTurns && unipileTurns.length > 0) {
+    const uniTimes = unipileTurns
+      .map((x) => new Date(x.createdAt).getTime())
+      .filter((n) => Number.isFinite(n));
+    const maxUni = uniTimes.length > 0 ? Math.max(...uniTimes) : 0;
+    const extraYou = crmTurns.filter((t) => {
+      if (t.role !== "you") return false;
+      const tm = new Date(t.createdAt).getTime();
+      return Number.isFinite(tm) && tm > maxUni;
+    });
+    const merged = [...unipileTurns, ...extraYou];
+    merged.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return appendFirstYouFromMessageDraftIfMissing(merged);
   }
 
-  turns.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  return turns;
+  appendFirstYouFromMessageDraftIfMissing(crmTurns);
+  crmTurns.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return crmTurns;
 }
 
 /** CRM artifact rows for thread reconstruction (chronological ASC). */
@@ -251,7 +317,7 @@ export function buildStructuredWarmThreadTranscriptForLlm(rows: WarmThreadArtifa
         lines.push(`[${ts}] CONTACT (their LinkedIn message):\n${t.trim()}`);
       } else {
         lines.push(
-          `[${ts}] CONTACT: They replied on LinkedIn, but the exact text is not stored in CRM. Govind should use "Load from LinkedIn" on the Contact replied card or read LinkedIn.`
+          `[${ts}] CONTACT: They replied on LinkedIn, but the exact text is not stored in CRM. Govind should use "Update LinkedIn" in the work panel header or read LinkedIn.`
         );
       }
     } else if (st === "MESSAGE_DRAFT" || st === "REPLY_DRAFT") {

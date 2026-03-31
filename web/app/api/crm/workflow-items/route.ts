@@ -4,6 +4,7 @@ import type { WorkflowItemType } from "@/lib/board-types";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+import { attachPersonToWorkflow } from "@/lib/attach-person-to-workflow";
 
 interface PersonRow {
   [key: string]: unknown;
@@ -137,10 +138,29 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { workflowId, sourceType, sourceId, stage } = body;
+    const closeIntakeItemIdRaw = body.closeIntakeItemId;
+    const closeIntakeItemId =
+      typeof closeIntakeItemIdRaw === "string" && closeIntakeItemIdRaw.trim().length > 0
+        ? closeIntakeItemIdRaw.trim()
+        : null;
 
     if (!workflowId || !sourceType || !stage) {
       return NextResponse.json(
         { error: "workflowId, sourceType, and stage are required" },
+        { status: 400 }
+      );
+    }
+
+    if (closeIntakeItemId && sourceType !== "person") {
+      return NextResponse.json(
+        { error: "closeIntakeItemId is only valid when sourceType is person" },
+        { status: 400 }
+      );
+    }
+
+    if (closeIntakeItemId && !sourceId) {
+      return NextResponse.json(
+        { error: "sourceId is required when closeIntakeItemId is set" },
         { status: 400 }
       );
     }
@@ -175,16 +195,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "sourceId is required" }, { status: 400 });
     }
 
-    const rows = await query<{ id: string }>(
-      `INSERT INTO "_workflow_item" ("workflowId", stage, "sourceType", "sourceId", "createdAt", "updatedAt")
-       VALUES ($1, $2, $3, $4, NOW(), NOW())
-       RETURNING id`,
-      [workflowId, stage, sourceType, sourceId]
-    );
-    const newId = rows[0].id;
-    await syncHumanTaskOpenForItem(newId);
-    notifyDashboardSyncChange();
-    return NextResponse.json({ id: newId });
+    const attached = await attachPersonToWorkflow({
+      workflowId,
+      stage,
+      sourceType,
+      sourceId: String(sourceId),
+      closeIntakeItemId,
+    });
+    if (!attached.ok) {
+      return NextResponse.json({ error: attached.error }, { status: 400 });
+    }
+    return NextResponse.json({
+      id: attached.id,
+      closedIntakeItemId: attached.closedIntakeItemId,
+    });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Failed to create workflow item";
     return NextResponse.json({ error: msg }, { status: 500 });

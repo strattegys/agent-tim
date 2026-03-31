@@ -37,9 +37,18 @@ export interface WorkflowStat {
 
 interface WorkflowCardProps {
   workflow: WorkflowStat;
+  /** Open pipeline drill-down (Friday ops panel). */
+  onSelect?: () => void;
 }
 
-export default function WorkflowCard({ workflow }: WorkflowCardProps) {
+const LIFECYCLE_STAGE_COLORS: Record<string, string> = {
+  PLANNING: "#6b7280",
+  ACTIVE: "#16A34A",
+  PAUSED: "#D4A017",
+  COMPLETED: "#2563EB",
+};
+
+export default function WorkflowCard({ workflow, onSelect }: WorkflowCardProps) {
   const boardLabel = workflow.boardName;
   const owner = resolveOwner(workflow.ownerAgent);
   const stages = workflow.boardStages || [];
@@ -58,8 +67,33 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, [showSpec]);
 
+  const lc = (workflow.stage || "").trim().toUpperCase();
+
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2 relative">
+    <div
+      className={`bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-2 relative ${
+        onSelect ? "cursor-pointer hover:border-[var(--text-tertiary)] transition-colors" : ""
+      }`}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={
+        onSelect
+          ? () => {
+              onSelect();
+            }
+          : undefined
+      }
+      onKeyDown={
+        onSelect
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
+    >
       {/* Name + info button + alert badge */}
       <div className="flex items-center gap-1.5">
         <span className="text-xs font-semibold text-[var(--text-primary)] truncate flex-1">
@@ -71,7 +105,11 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
           </span>
         )}
         <button
-          onClick={() => setShowSpec(true)}
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowSpec(true);
+          }}
           className="p-0.5 rounded text-[var(--text-tertiary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
           title="View spec"
         >
@@ -83,8 +121,19 @@ export default function WorkflowCard({ workflow }: WorkflowCardProps) {
         </button>
       </div>
 
-      {/* Item type + board + owner */}
+      {/* Item type + lifecycle + board + owner */}
       <div className="flex items-center gap-1.5 flex-wrap">
+        {lc && (
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium"
+            style={{
+              backgroundColor: LIFECYCLE_STAGE_COLORS[lc] || "#555",
+            }}
+            title="Workflow lifecycle (not board stage)"
+          >
+            {lc}
+          </span>
+        )}
         <span
           className="text-[9px] px-1.5 py-0.5 rounded-full text-white font-medium"
           style={{ backgroundColor: ITEM_TYPE_COLORS[workflow.itemType] || "#555" }}

@@ -49,7 +49,7 @@ const tool: ToolModule = {
     name: "workflow_items",
     description:
       "Manage workflow items and artifact bodies. " +
-      "add-person-to-workflow: arg1=workflowId, arg2=personId, arg3=stage optional (else first board stage). " +
+      "add-person-to-workflow: arg1=workflowId, arg2=personId, arg3=stage optional (else first board stage), arg4=optional closeIntakeItemId (Tim LinkedIn intake queue item id — dismisses that row after attach; same person). " +
       "add-content-to-workflow: arg1=workflowId, arg2=title, arg3=description, arg4=contentType (article|post|email), arg5=stage optional. " +
       "list-items: arg1=workflowId, arg2=stage filter optional. " +
       "move-item: arg1=workflow item id, arg2=newStage (board key, typically UPPERCASE). " +
@@ -81,7 +81,8 @@ const tool: ToolModule = {
         },
         arg4: {
           type: "string",
-          description: "Fourth arg: contentType for add-content (article|post|email)",
+          description:
+            "Fourth arg: contentType for add-content (article|post|email), or closeIntakeItemId uuid for add-person-to-workflow",
         },
         arg5: {
           type: "string",
@@ -102,6 +103,36 @@ const tool: ToolModule = {
     if (cmd === "add-person-to-workflow") {
       if (!args.arg1) return "Error: arg1 (workflowId) is required";
       if (!args.arg2) return "Error: arg2 (personId) is required";
+
+      const closeIntake = (args.arg4 ?? "").trim();
+      if (ITEM_OR_WORKFLOW_UUID_RE.test(closeIntake)) {
+        const { attachPersonToWorkflow } = await import("../attach-person-to-workflow");
+        const wfRows0 = await dbQuery(
+          `SELECT w."itemType", b.stages
+           FROM "_workflow" w
+           LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
+           WHERE w.id = $1 AND w."deletedAt" IS NULL`,
+          [args.arg1]
+        );
+        if (wfRows0.length === 0) return "Error: workflow not found";
+        const wf0 = wfRows0[0] as Record<string, unknown>;
+        if (wf0.itemType !== "person")
+          return "Error: this workflow tracks content, not people. Use add-content-to-workflow.";
+        let stage0 = (args.arg3 ?? "").trim();
+        if (!stage0) {
+          const stages = wf0.stages as Array<{ key: string }> | null;
+          stage0 = stages?.[0]?.key || "TARGET";
+        }
+        const r = await attachPersonToWorkflow({
+          workflowId: args.arg1,
+          stage: stage0,
+          sourceType: "person",
+          sourceId: args.arg2,
+          closeIntakeItemId: closeIntake,
+        });
+        if (!r.ok) return `Error: ${r.error}`;
+        return `Added person to workflow at stage ${stage0} (new item id: ${r.id})${r.closedIntakeItemId ? `; closed intake row ${r.closedIntakeItemId}` : ""}.`;
+      }
 
       // Look up the workflow to get its board stages
       const wfRows = await dbQuery(

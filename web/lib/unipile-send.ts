@@ -7,6 +7,7 @@ import {
   isUnipileConfigured,
   normalizeUnipileDsn,
 } from "./unipile-profile";
+import { pushUnipileObservabilityLog } from "./unipile-observability-buffer";
 
 function pickStr(v: unknown): string | undefined {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
@@ -82,6 +83,20 @@ export async function sendUnipileLinkedInMessage(
           : typeof body === "object" && body !== null && "message" in body
             ? String((body as { message?: string }).message)
             : rawText.slice(0, 500);
+      pushUnipileObservabilityLog(
+        `[unipile-lab] ${JSON.stringify(
+          {
+            kind: "unipile_send_dm",
+            ok: false,
+            httpStatus: res.status,
+            error: (errMsg || `HTTP ${res.status}`).slice(0, 800),
+            bodySnippet:
+              typeof body === "string" ? body.slice(0, 600) : JSON.stringify(body).slice(0, 800),
+          },
+          null,
+          2
+        )}`
+      );
       return {
         ok: false,
         httpStatus: res.status,
@@ -89,9 +104,25 @@ export async function sendUnipileLinkedInMessage(
         body,
       };
     }
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify(
+        {
+          kind: "unipile_send_dm",
+          ok: true,
+          httpStatus: res.status,
+          bodySnippet:
+            typeof body === "string" ? body.slice(0, 600) : JSON.stringify(body).slice(0, 800),
+        },
+        null,
+        2
+      )}`
+    );
     return { ok: true, httpStatus: res.status, body };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify({ kind: "unipile_send_dm", ok: false, error: msg.slice(0, 800) }, null, 2)}`
+    );
     return { ok: false, error: msg };
   }
 }

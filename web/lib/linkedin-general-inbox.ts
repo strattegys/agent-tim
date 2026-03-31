@@ -72,6 +72,26 @@ export async function ensureGeneralLinkedInInboxWorkflowId(): Promise<string> {
 }
 
 /**
+ * Resolve a single Postgres `person.id` for LinkedIn inbound (Twenty id, LinkedIn URL, provider id, name),
+ * creating a minimal row when needed (same rules as general inbox).
+ */
+export async function resolvePrimaryPostgresPersonForLinkedInInbound(args: {
+  crmContactId: string;
+  senderProviderId: string;
+  senderDisplayName: string;
+}): Promise<string | null> {
+  let personIds = await resolvePostgresPersonIdsForLinkedInSender(
+    args.crmContactId,
+    args.senderProviderId,
+    args.senderDisplayName
+  );
+  if (personIds.length === 0) {
+    return ensurePostgresPersonForLinkedInInbound(args);
+  }
+  return personIds[0] ?? null;
+}
+
+/**
  * When no existing `person` row matches the sender, create a minimal Postgres contact so Tim’s
  * general inbox can still attach a workflow item (simple inbound → queue path).
  */
@@ -158,35 +178,53 @@ async function findOpenGeneralInboxItem(
   return rows[0]?.id ?? null;
 }
 
-export type GeneralInboxEventKind = "message" | "connection_accepted";
+/**
+ * Row for this person on the general-inbox workflow (unique on workflow + sourceType + sourceId).
+ * Prefers active rows; if only a soft-deleted row exists, revives it so new artifacts can attach.
+ */
+async function findGeneralInboxWorkflowItemForPerson(
+  workflowId: string,
+  personId: string
+): Promise<string | null> {
+  const rows = await query<{ id: string; deletedAt: Date | null }>(
+    `SELECT wi.id, wi."deletedAt"
+     FROM "_workflow_item" wi
+     WHERE wi."workflowId" = $1
+       AND wi."sourceType" = 'person'
+       AND wi."sourceId" = $2
+     ORDER BY (wi."deletedAt" IS NULL) DESC, wi."updatedAt" DESC NULLS LAST
+     LIMIT 1`,
+    [workflowId, personId]
+  );
+  const r = rows[0];
+  if (!r) return null;
+  if (r.deletedAt != null) {
+    await query(
+      `UPDATE "_workflow_item" SET "deletedAt" = NULL, "updatedAt" = NOW() WHERE id = $1`,
+      [r.id]
+    );
+  }
+  return r.id;
+}
 
 /**
  * When no packaged workflow consumed the event, queue a Tim task with the payload in an artifact.
+ * Inbound DMs only — connection acceptances use `recordLinkedInConnectionAccepted`.
  */
 export async function recordGeneralLinkedInInbound(args: {
   crmContactId: string;
   senderProviderId: string;
   senderDisplayName: string;
-  eventKind: GeneralInboxEventKind;
   messageText?: string;
   chatId?: string;
   timestampIso?: string;
 }): Promise<{ ok: boolean; reason?: string; workflowItemId?: string }> {
-  let personIds = await resolvePostgresPersonIdsForLinkedInSender(
-    args.crmContactId,
-    args.senderProviderId,
-    args.senderDisplayName
-  );
-  if (personIds.length === 0) {
-    const ensured = await ensurePostgresPersonForLinkedInInbound(args);
-    if (ensured) {
-      personIds = [ensured];
-      console.log(
-        `[linkedin-general-inbox] Created Postgres person ${ensured.slice(0, 8)}… for Tim inbox (${args.senderDisplayName})`
-      );
-    }
-  }
-  if (personIds.length === 0) {
+  const primaryPersonId = await resolvePrimaryPostgresPersonForLinkedInInbound({
+    crmContactId: args.crmContactId,
+    senderProviderId: args.senderProviderId,
+    senderDisplayName: args.senderDisplayName,
+  });
+  if (!primaryPersonId) {
     return {
       ok: false,
       reason:
@@ -196,27 +234,22 @@ export async function recordGeneralLinkedInInbound(args: {
 
   const workflowId = await ensureGeneralLinkedInInboxWorkflowId();
   const ts = args.timestampIso || new Date().toISOString();
-  const header =
-    args.eventKind === "connection_accepted"
-      ? "## LinkedIn — connection accepted (general inbox)"
-      : "## LinkedIn — inbound message (general inbox)";
   const body = [
-    header,
+    "## LinkedIn — inbound message (general inbox)",
     "",
     `**From:** ${args.senderDisplayName}`,
     args.senderProviderId ? `**Provider id:** ${args.senderProviderId}` : "",
     args.chatId ? `**Chat ID:** ${args.chatId}` : "",
     `**Recorded:** ${ts}`,
     "",
-    args.eventKind === "message"
-      ? args.messageText?.trim() || "_(empty body)_"
-      : "_No message body — new connection accepted._",
+    args.messageText?.trim() || "_(empty body)_",
   ]
     .filter(Boolean)
     .join("\n");
 
-  const primaryPersonId = personIds[0];
-  let itemId = await findOpenGeneralInboxItem(workflowId, primaryPersonId);
+  let itemId =
+    (await findOpenGeneralInboxItem(workflowId, primaryPersonId)) ??
+    (await findGeneralInboxWorkflowItemForPerson(workflowId, primaryPersonId));
 
   if (!itemId) {
     const ins = await query<{ id: string }>(
@@ -235,9 +268,7 @@ export async function recordGeneralLinkedInInbound(args: {
       itemId,
       workflowId,
       GENERAL_STAGE,
-      args.eventKind === "connection_accepted"
-        ? "LinkedIn: connection accepted"
-        : "LinkedIn: inbound message",
+      "LinkedIn: inbound message",
       "markdown",
       body,
     ]

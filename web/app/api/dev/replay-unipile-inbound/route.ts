@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
-import { replayRecentUnipileInboundAsWebhooks } from "@/lib/unipile-inbound-replay";
+import {
+  replayRecentUnipileInboundAsWebhooks,
+  replayUnipileRelationsAsNewRelationWebhooks,
+} from "@/lib/unipile-inbound-replay";
 
 export const runtime = "nodejs";
 
@@ -22,9 +25,13 @@ function replayAllowed(): boolean {
  * UNIPILE_REPLAY_ALLOW_REMOTE_CRM=1 is set for that process (use only for intentional staging).
  *
  * Body (JSON, optional):
- * - maxChats (default 30) — how many chats to list (higher = better chance to fill maxInbound)
+ * - maxChats (default 30) — total LinkedIn chats to scan (paginated; Unipile max 250 per page, up to 2000)
  * - messagesPerChat (default 25) — messages fetched per chat
- * - maxInbound (default 10) — cap on inbound messages to replay (newest among collected)
+ * - maxInbound (default 10) — cap on inbound messages to replay (newest among collected, max 500)
+ * - messageAfterIso — only inbound messages at/after this ISO time (e.g. week-to-date backfill)
+ * - relations (default false) — also replay GET /users/relations as `new_relation` (connection accepts)
+ * - relationsAfterIso — filter relations by created_at (defaults to messageAfterIso when both set)
+ * - relationsLimit (default 250) — Unipile relations page size
  * - dryRun (default false) — if true, only returns previews without writing CRM / queue
  *
  * From the browser console while logged in:
@@ -70,12 +77,26 @@ export async function POST(req: NextRequest) {
       ? body.maxInbound
       : 10;
   const dryRun = body.dryRun === true;
+  const messageAfterIso =
+    typeof body.messageAfterIso === "string" && body.messageAfterIso.trim()
+      ? body.messageAfterIso.trim()
+      : undefined;
+  const runRelations = body.relations === true;
+  const relationsAfterIso =
+    typeof body.relationsAfterIso === "string" && body.relationsAfterIso.trim()
+      ? body.relationsAfterIso.trim()
+      : messageAfterIso;
+  const relationsLimit =
+    typeof body.relationsLimit === "number" && Number.isFinite(body.relationsLimit)
+      ? body.relationsLimit
+      : 250;
 
   const result = await replayRecentUnipileInboundAsWebhooks({
     maxChats,
     messagesPerChat,
     maxInbound,
     dryRun,
+    messageAfterIso,
   });
 
   if (!result.ok && result.error) {
@@ -90,7 +111,29 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!dryRun && result.replayed > 0) {
+  let relationsResult: Awaited<ReturnType<typeof replayUnipileRelationsAsNewRelationWebhooks>> | null =
+    null;
+  if (runRelations) {
+    relationsResult = await replayUnipileRelationsAsNewRelationWebhooks({
+      dryRun,
+      afterIso: relationsAfterIso,
+      limit: relationsLimit,
+    });
+    if (!relationsResult.ok && relationsResult.error) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: relationsResult.error,
+          messages: result,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  const replayedTotal =
+    result.replayed + (relationsResult?.replayed ?? 0);
+  if (!dryRun && replayedTotal > 0) {
     notifyDashboardSyncChange();
   }
 
@@ -101,10 +144,12 @@ export async function POST(req: NextRequest) {
       dryRun === false
         ? "Replaying the same Unipile messages again duplicates CRM notes and inbox artifacts; use dryRun first or lower limits."
         : "Set dryRun:false to run handleUnipileWebhook for each preview (writes CRM + may update Tim queue).",
+    messageAfterIso: messageAfterIso ?? null,
     chatsListed: result.chatsListed,
     inboundCandidates: result.inboundCandidates,
     replayed: result.replayed,
     skippedOutbound: result.skippedOutbound,
     items: result.items,
+    relations: relationsResult,
   });
 }

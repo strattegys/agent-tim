@@ -2,7 +2,7 @@
 # Run from COMMAND-CENTRAL:  .\scripts\dev-docker-up.ps1
 #
 # Default: **local CRM Postgres** in the same Compose stack (no Tailscale/SSH). Stable TCP on the
-# Docker network — web uses CRM_DB_HOST=crm-db. First-time volume is empty until you pg_restore a backup
+# Docker network - web uses CRM_DB_HOST=crm-db. First-time volume is empty until you pg_restore a backup
 # or use workflows that tolerate empty Kanban; see docs/LOCAL-ENV-LAYERS.md.
 #
 # Remote droplet CRM (opt-in):  .\scripts\dev-docker-up.ps1 -UseRemoteCrm
@@ -47,7 +47,7 @@ Set-Location $RepoRoot
 
 $envLocal = Join-Path $RepoRoot "web\.env.local"
 if (-not (Test-Path -LiteralPath $envLocal)) {
-  Write-Error "Missing web\.env.local — create it first (see web\.env.local.example)."
+  Write-Error "Missing web\.env.local - create it first (see web\.env.local.example)."
   exit 1
 }
 
@@ -101,11 +101,11 @@ if ($UseRemoteCrm) {
       Start-Sleep -Seconds 2
     }
   } else {
-    Write-Host "Port $localPort already listening (bridge or tunnel may already be running)."
+    Write-Host ('Port ' + $localPort + ' already listening (bridge or tunnel may already be running).')
   }
 
 } else {
-  Write-Host "LOCALDEV: using bundled **crm-db** in Docker (no tunnel). Stable; empty DB until you restore a dump or use -UseRemoteCrm for droplet data." -ForegroundColor Cyan
+  Write-Host 'LOCALDEV: bundled crm-db in Docker (no tunnel). Empty until restore, or use -UseRemoteCrm for droplet data.' -ForegroundColor Cyan
 }
 
 if ($UseRemoteCrm) {

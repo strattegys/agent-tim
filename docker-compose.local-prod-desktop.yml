@@ -1,12 +1,22 @@
 # Local-only overlay: LOCALPROD Docker stack on your PC.
 # Do NOT use on the droplet — production uses docker-compose.yml only.
 #
-# Web uses the **Command Central droplet CRM Postgres** via a host forward (SSH tunnel or similar):
-#   CRM_DB_HOST=host.docker.internal  +  CRM_DB_PORT (default 5433)
-# Start a tunnel first — see scripts/localprod-crm-tunnel.ps1 or dev-docker-up.ps1 -UseRemoteCrm.
+# CRM data is the **same Command Central Postgres as production** (DigitalOcean droplet).
 #
-# The real **crm-db** service from the base compose is replaced here with a tiny **stub** so
-# `depends_on: crm-db` still resolves; no local Postgres data is written for LOCALPROD.
+# **Default (Tailscale direct — no bridge/tunnel):** Docker Desktop can route to Tailscale
+# IPs, so the container connects straight to 100.74.54.12:5432 (CC droplet crm-db exposed on
+# its Tailscale address via tools/expose-crm-db-tailscale.sh). Requires Tailscale running on
+# your PC and the expose script applied on the server (deploy-web.yml does this automatically).
+#
+# **Fallback (bridge/tunnel):** If Docker cannot reach the Tailscale IP (rare routing issue or
+# Tailscale down), set CRM_LOCALPROD_DB_HOST=host.docker.internal and CRM_LOCALPROD_DB_PORT=5433,
+# then run scripts/localprod-crm-tunnel.ps1 (SSH) or the Tailscale TCP bridge before starting.
+#
+# The bundled **crm-db** service from docker-compose.yml is **not started** here: we assign it profile
+# `bundled-crm-postgres` so only `web` + `caddy` run. No local Postgres container, no stub — you are
+# always pointed at the droplet's database (see CRM_DB_HOST / CRM_DB_PORT below).
+# To run a **local** Compose Postgres instead (rare): `docker compose ... --profile bundled-crm-postgres up`
+# and point CRM_DB_HOST at `crm-db` in .env.local (not the default LOCALPROD flow).
 #
 #   docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml up -d --build
 #
@@ -29,26 +39,18 @@ services:
       CC_AGENT_CHAT_PROFILE: ""
       AUTH_URL: http://localhost:3001
       NEXTAUTH_URL: http://localhost:3001
-      CRM_DB_HOST: ${CRM_LOCALPROD_DB_HOST:-host.docker.internal}
-      CRM_DB_PORT: ${CRM_LOCALPROD_DB_PORT:-5433}
-    depends_on:
-      crm-db:
-        condition: service_healthy
+      # Friday → Observation Post + /api/dev/observability* (NODE_ENV=production in this stack)
+      OBSERVATION_POST_API: "1"
+      # Direct Tailscale: container routes to the CC droplet's Tailscale IP (no bridge/tunnel needed).
+      # Override with CRM_LOCALPROD_DB_HOST / CRM_LOCALPROD_DB_PORT for bridge fallback.
+      CRM_DB_HOST: ${CRM_LOCALPROD_DB_HOST:-100.74.54.12}
+      CRM_DB_PORT: ${CRM_LOCALPROD_DB_PORT:-5432}
+    # CRM is on the droplet via Tailscale — clear base `depends_on: crm-db` (merge would keep it otherwise).
+    depends_on: !reset []
 
-  # Satisfies web.depends_on without running Postgres on the laptop.
   crm-db:
-    container_name: cc-localprod-crm-stub
-    image: alpine:3.19
-    restart: unless-stopped
-    command: ["sleep", "infinity"]
-    volumes: !override []
-    ports: !override []
-    healthcheck:
-      test: ["CMD-SHELL", "exit 0"]
-      interval: 3s
-      timeout: 2s
-      retries: 3
-      start_period: 2s
+    profiles:
+      - bundled-crm-postgres
 
   caddy:
     container_name: cc-localprod-caddy

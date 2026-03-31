@@ -13,6 +13,7 @@ const tool: ToolModule = {
       "create-workflow",
       "update-workflow-stage",
       "assign-workflow",
+      "attach-person-to-workflow",
       "list-boards",
       "list-templates",
     ],
@@ -22,33 +23,34 @@ const tool: ToolModule = {
   declaration: {
     name: "workflow_manager",
     description:
-      "Manage workflows and workflow templates across all agents. Use this to oversee, create, and modify workflows. Commands: list-workflows (optional arg1=agentId to filter by owner), get-workflow (arg1=workflowId), create-workflow (arg1=name, arg2=boardId, arg3=ownerAgent, arg4=itemType), update-workflow-stage (arg1=workflowId, arg2=new stage: PLANNING|ACTIVE|PAUSED|COMPLETED), assign-workflow (arg1=workflowId, arg2=agentId), list-boards, list-templates.",
+      "Manage workflows and workflow templates across all agents. Use this to oversee, create, and modify workflows. Commands: list-workflows (optional arg1=agentId to filter by owner), get-workflow (arg1=workflowId), create-workflow (arg1=name, arg2=boardId, arg3=ownerAgent, arg4=itemType), update-workflow-stage (arg1=workflowId, arg2=new stage: PLANNING|ACTIVE|PAUSED|COMPLETED), assign-workflow (arg1=workflowId, arg2=agentId), attach-person-to-workflow (arg1=personId uuid, arg2=targetWorkflowId, arg3=boardItemStage e.g. TARGET or AWAITING_CONTACT, optional arg4=closeIntakeItemId to dismiss Tim LinkedIn intake row after attach), list-boards, list-templates.",
     parameters: {
       type: "object" as const,
       properties: {
         command: {
           type: "string",
           description:
-            "Command: list-workflows, get-workflow, create-workflow, update-workflow-stage, assign-workflow, list-boards, list-templates",
+            "Command: list-workflows, get-workflow, create-workflow, update-workflow-stage, assign-workflow, attach-person-to-workflow, list-boards, list-templates",
         },
         arg1: {
           type: "string",
           description:
-            "First arg: agentId (list-workflows filter), workflowId (get/update/assign), or name (create)",
+            "First arg: agentId (list-workflows), workflowId (get/update/assign), name (create), or personId uuid (attach-person-to-workflow)",
         },
         arg2: {
           type: "string",
           description:
-            "Second arg: boardId (create), new stage (update-workflow-stage), or agentId (assign-workflow)",
+            "Second arg: boardId (create), workflow stage PLANNING|… (update-workflow-stage), agentId (assign), targetWorkflowId (attach-person-to-workflow)",
         },
         arg3: {
           type: "string",
-          description: "Third arg: ownerAgent (create-workflow)",
+          description:
+            "Third arg: ownerAgent (create-workflow), or board item stage TARGET|AWAITING_CONTACT|… (attach-person-to-workflow)",
         },
         arg4: {
           type: "string",
           description:
-            "Fourth arg: itemType — 'person' or 'content' (create-workflow)",
+            "Fourth arg: itemType person|content (create-workflow), or optional closeIntakeItemId (attach-person-to-workflow)",
         },
       },
       required: ["command"],
@@ -149,6 +151,22 @@ const tool: ToolModule = {
       return `Workflow ${args.arg1} assigned to ${args.arg2}.`;
     }
 
+    if (cmd === "attach-person-to-workflow") {
+      if (!args.arg1) return "Error: arg1 (personId / person uuid) is required";
+      if (!args.arg2) return "Error: arg2 (targetWorkflowId) is required";
+      if (!args.arg3) return "Error: arg3 (board item stage, e.g. TARGET, AWAITING_CONTACT, INITIATED) is required";
+      const { attachPersonToWorkflow } = await import("../attach-person-to-workflow");
+      const r = await attachPersonToWorkflow({
+        workflowId: args.arg2.trim(),
+        stage: args.arg3.trim(),
+        sourceType: "person",
+        sourceId: args.arg1.trim(),
+        closeIntakeItemId: args.arg4?.trim() || null,
+      });
+      if (!r.ok) return `Error: ${r.error}`;
+      return `Attached person ${args.arg1.slice(0, 8)}… to workflow item ${r.id}${r.closedIntakeItemId ? `; closed intake row ${r.closedIntakeItemId.slice(0, 8)}…` : ""}.`;
+    }
+
     if (cmd === "list-boards") {
       const rows = await dbQuery(
         `SELECT id, name, description FROM "_board" WHERE "deletedAt" IS NULL ORDER BY name ASC`
@@ -168,7 +186,7 @@ const tool: ToolModule = {
         .join("\n");
     }
 
-    return "Unknown workflow_manager command. Use: list-workflows, get-workflow, create-workflow, update-workflow-stage, assign-workflow, list-boards, list-templates";
+    return "Unknown workflow_manager command. Use: list-workflows, get-workflow, create-workflow, update-workflow-stage, assign-workflow, attach-person-to-workflow, list-boards, list-templates";
   },
 };
 

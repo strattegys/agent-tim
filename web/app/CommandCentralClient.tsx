@@ -71,6 +71,10 @@ const CROSS_AGENT_CHAT_MS_HIDDEN = 300_000;
 
 const AGENTS: AgentConfig[] = getFrontendAgents();
 
+/** `npm run dev:friday` — opens Friday + dashboard by default on port 3011 for workflow UI work. */
+const CC_FRIDAY_DEV =
+  typeof process !== "undefined" && process.env.NEXT_PUBLIC_CC_FRIDAY_DEV === "1";
+
 type RightPanel =
   | "info"
   | "kanban"
@@ -96,10 +100,16 @@ const VALID_RIGHT_PANELS: RightPanel[] = [
   "agent-knowledge",
 ];
 
+function timLabQueryTruthy(raw: string | null): boolean {
+  const v = raw?.trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
 export default function CommandCentralClient() {
   const searchParams = useSearchParams();
   const paramAgent = searchParams.get("agent");
   const paramPanel = searchParams.get("panel");
+  const timLabLayout = timLabQueryTruthy(searchParams.get("timLab"));
 
   /** Hide chrome (avatars, sidebar) until after layout — avoids a one-frame icon flash on hard refresh. */
   const [shellReady, setShellReady] = useState(false);
@@ -122,12 +132,26 @@ export default function CommandCentralClient() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [activeAgent, setActiveAgent] = useState(paramAgent || "suzi");
+  const [activeAgent, setActiveAgent] = useState(() =>
+    timLabLayout ? "tim" : paramAgent || "suzi"
+  );
   const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
-    const agent = paramAgent || "suzi";
-    const p = paramPanel as RightPanel | null;
+    if (timLabLayout) return "messages";
     if (paramPanel === "knowledge") return "agent-knowledge";
-    if (agent === "friday" && (paramPanel === "tasks" || paramPanel === "observation")) return "dashboard";
+    const agent =
+      paramAgent && AGENTS.some((a) => a.id === paramAgent)
+        ? paramAgent
+        : CC_FRIDAY_DEV
+          ? "friday"
+          : paramAgent || "suzi";
+    const p = paramPanel as RightPanel | null;
+    if (
+      agent === "friday" &&
+      (paramPanel === "tasks" ||
+        paramPanel === "observation" ||
+        paramPanel === "workflows")
+    )
+      return "dashboard";
     if (agent === "tim" && p === "kanban") return "messages";
     if (agent === "ghost" && p === "kanban") return "messages";
     if (agent === "marni" && p === "kanban") return "marni-work";
@@ -137,6 +161,11 @@ export default function CommandCentralClient() {
   // Deep links (e.g. Friday → ?agent=tim&panel=messages): searchParams update but state
   // was only initialized on mount — sync when the URL changes.
   useEffect(() => {
+    if (timLabLayout) {
+      setActiveAgent("tim");
+      setRightPanel("messages");
+      return;
+    }
     if (paramAgent && AGENTS.some((a) => a.id === paramAgent)) {
       setActiveAgent(paramAgent);
     }
@@ -148,7 +177,10 @@ export default function CommandCentralClient() {
       setRightPanel("marni-work");
       return;
     }
-    if (paramAgent === "friday" && paramPanel === "observation") {
+    if (
+      paramAgent === "friday" &&
+      (paramPanel === "observation" || paramPanel === "workflows")
+    ) {
       setRightPanel("dashboard");
       return;
     }
@@ -163,7 +195,7 @@ export default function CommandCentralClient() {
         setRightPanel(paramPanel as RightPanel);
       }
     }
-  }, [paramAgent, paramPanel]);
+  }, [timLabLayout, paramAgent, paramPanel]);
 
   useEffect(() => {
     setRightPanel((prev) =>
@@ -342,7 +374,7 @@ export default function CommandCentralClient() {
   const [suziFocusedReminder, setSuziFocusedReminder] = useState<SuziFocusedReminder | null>(null);
   const [suziFocusedNote, setSuziFocusedNote] = useState<SuziFocusedNote | null>(null);
   const [fridayDashboardTab, setFridayDashboardTab] =
-    useState<FridayDashboardTab>("observation");
+    useState<FridayDashboardTab>("workflows");
   const [pennyDashboardTab, setPennyDashboardTab] =
     useState<PennyDashboardTab>("queue");
   const [marniKnowledgeFocus, setMarniKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
@@ -868,9 +900,13 @@ export default function CommandCentralClient() {
           workQueueContext?: string;
           uiContext?: string;
           sessionHistoryMaxMessages?: number;
+          timWorkflowItemId?: string;
         } = { message: apiMessage, agent: activeAgent };
         if (activeAgent === "tim" && timWorkSelection) {
           body.workQueueContext = formatTimWorkQueueContext(timWorkSelection);
+          if (timWorkSelection.omitLinkedInThreadFromChat) {
+            body.timWorkflowItemId = timWorkSelection.itemId;
+          }
         }
         if (activeAgent === "ghost" && ghostWorkSelection) {
           body.workQueueContext = formatGhostWorkQueueContext(ghostWorkSelection);
@@ -1268,7 +1304,14 @@ export default function CommandCentralClient() {
       </div>
 
       {/* Desktop: sidebar + chat + agent panel + status rail (grid reserves the right column) */}
-      <div className="hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[200px_384px_minmax(0,1fr)_minmax(160px,10%)] md:grid-rows-1">
+      <div
+        className={
+          timLabLayout
+            ? "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[384px_minmax(0,1fr)_minmax(280px,22%)] md:grid-rows-1"
+            : "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[200px_384px_minmax(0,1fr)_minmax(160px,10%)] md:grid-rows-1"
+        }
+      >
+        {!timLabLayout ? (
         <AgentSidebar
           agents={agents}
           activeAgent={activeAgent}
@@ -1287,6 +1330,7 @@ export default function CommandCentralClient() {
             }
           }}
         />
+        ) : null}
 
       {/* Desktop: Main chat area (narrow) */}
       <div className="flex w-full min-w-0 min-h-0 flex-col bg-[var(--bg-primary)]">
@@ -1617,8 +1661,8 @@ export default function CommandCentralClient() {
               initialWorkTab={
                 paramPanel === "tasks"
                   ? "tasks"
-                  : paramPanel === "observation"
-                    ? "observation"
+                  : paramPanel === "observation" || paramPanel === "workflows"
+                    ? "workflows"
                     : undefined
               }
             />
@@ -1676,7 +1720,11 @@ export default function CommandCentralClient() {
         </div>
       </div>
 
-        <StatusRail agents={agents} sharedNotifications={dashboardNotifications} />
+        <StatusRail
+          agents={agents}
+          sharedNotifications={dashboardNotifications}
+          timLabDock={timLabLayout}
+        />
       </div>
 
       </div>

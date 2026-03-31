@@ -5,9 +5,11 @@ import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
 import type { TimWorkQueueSelection } from "@/lib/tim-work-context";
 import { WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS } from "@/lib/warm-outreach-cadence";
+import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 import { isWarmOutreachPlaceholderJobTitle } from "@/lib/warm-outreach-researching-guard";
 import ArtifactViewer, { type ArtifactConfirmedWorkflowAction } from "../shared/ArtifactViewer";
 import TimIntakeWorkspace from "./TimIntakeWorkspace";
+import TimLinkedInInboxIntakeWorkspace from "./TimLinkedInInboxIntakeWorkspace";
 
 /** Same as Friday human tasks — form-first steps */
 const INPUT_ONLY_STAGES = new Set(["IDEA", "AWAITING_CONTACT"]);
@@ -21,6 +23,7 @@ const NO_REJECT_STAGES = new Set([
   "MESSAGE_DRAFT",
   "REPLY_DRAFT",
   "LINKEDIN_INBOUND",
+  "CONNECTION_ACCEPTED",
 ]);
 
 interface MessagingTask {
@@ -48,6 +51,7 @@ interface MessagingTask {
   /** Discovery slot: Next/Contact placeholder person — show “add contact” in strip */
   contactSlotOpen?: boolean;
   contactName?: string | null;
+  contactFirstName?: string | null;
   contactCompany?: string | null;
   contactTitle?: string | null;
   /** Person row still Next/Contact in CRM — intake artifacts not applied */
@@ -55,27 +59,6 @@ interface MessagingTask {
   contactLinkedinPublicUrl?: string | null;
   contactLinkedinMemberId?: string | null;
   contactPrimaryEmail?: string | null;
-}
-
-type WarmOutreachDailyProgress = {
-  completed: number;
-  target: number;
-  datePacific: string;
-  pacedDailyActive?: boolean;
-  nextDiscoveryOpensAt?: string | null;
-};
-
-function formatNextWarmSlotPacific(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Los_Angeles",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
 }
 
 /** Under the document title: person identity + LinkedIn (public URL + API member id) + email when present. */
@@ -173,12 +156,64 @@ function timShowsArtifactSubmit(task: MessagingTask): boolean {
   return (
     task.stage === "MESSAGE_DRAFT" ||
     task.stage === "REPLY_DRAFT" ||
-    task.stage === "LINKEDIN_INBOUND"
+    task.stage === "LINKEDIN_INBOUND" ||
+    task.stage === "CONNECTION_ACCEPTED"
   );
 }
 
-/** Queue card primary line: warm-outreach shows workflow + step in the title. */
+/** Contact + company for queue card headline (Tim messaging rows). */
+function timQueueContactHeadline(task: MessagingTask): string | null {
+  const name = task.contactName?.trim() || task.itemTitle?.trim() || "";
+  const company = task.contactCompany?.trim() || "";
+  if (name && company) return `${name} · ${company}`;
+  if (name) return name;
+  if (company) return company;
+  return null;
+}
+
+function timQueueUsesContactHeadline(task: MessagingTask): boolean {
+  return (
+    task.workflowType === "warm-outreach" ||
+    task.workflowType === "linkedin-general-inbox" ||
+    task.workflowType === "linkedin-connection-intake" ||
+    task.workflowType === "linkedin-outreach"
+  );
+}
+
+/** Reserved titles: keep as primary (intake / placeholder rows). */
+function timQueueCardTitleIsReserved(task: MessagingTask): boolean {
+  if (task.contactSlotOpen) return true;
+  const t = task.itemTitle?.trim() || "";
+  if (t === "Contact — not saved yet") return true;
+  if (t.startsWith("Next contact")) return true;
+  if (t === "Awaiting contact") return true;
+  if (t === "Warm outreach slot" || t === "Discovery slot") return true;
+  return false;
+}
+
+function timQueueStepSubtitle(task: MessagingTask, workflowShortLabel: string): string {
+  const step = task.stageLabel?.trim() || task.stage.replace(/_/g, " ");
+  return `${workflowShortLabel} · ${step}`;
+}
+
+/** Queue card primary line: contact name · company when known; else workflow + step. */
 function timQueueCardPrimaryTitle(task: MessagingTask): string {
+  if (
+    task.stage === "AWAITING_CONTACT" &&
+    !task.workflowType?.trim() &&
+    (!task.itemTitle?.trim() || task.itemTitle === "Unknown") &&
+    !task.contactName?.trim()
+  ) {
+    return "Awaiting contact";
+  }
+  /** Warm outreach discovery row: single queue label; contact name lives in the work header detail. */
+  if (task.workflowType === "warm-outreach" && task.stage === "AWAITING_CONTACT") {
+    return "Awaiting contact";
+  }
+  if (timQueueUsesContactHeadline(task) && !timQueueCardTitleIsReserved(task)) {
+    const headline = timQueueContactHeadline(task);
+    if (headline) return headline;
+  }
   if (task.workflowType === "warm-outreach") {
     const step = task.stageLabel?.trim() || task.stage.replace(/_/g, " ");
     return `Warm Outreach · ${step}`;
@@ -187,11 +222,48 @@ function timQueueCardPrimaryTitle(task: MessagingTask): string {
     const step = task.stageLabel?.trim() || task.stage.replace(/_/g, " ");
     return `LinkedIn inbox · ${step}`;
   }
+  if (task.workflowType === "linkedin-connection-intake") {
+    const step = task.stageLabel?.trim() || task.stage.replace(/_/g, " ");
+    return `LinkedIn connection · ${step}`;
+  }
+  if (task.workflowType === "linkedin-outreach") {
+    const step = task.stageLabel?.trim() || task.stage.replace(/_/g, " ");
+    return `LinkedIn outreach · ${step}`;
+  }
   return task.itemTitle;
 }
 
-/** Second line under the primary title (contact / content name for warm-outreach). */
+/** Second line: workflow step when primary is contact headline; else stage / legacy. */
 function timQueueCardSecondaryLine(task: MessagingTask): string | null {
+  if (timQueueUsesContactHeadline(task)) {
+    if (timQueueCardTitleIsReserved(task)) {
+      if (
+        task.workflowType === "warm-outreach" &&
+        task.stage === "AWAITING_CONTACT" &&
+        task.itemSubtitle?.trim()
+      ) {
+        return task.itemSubtitle.trim();
+      }
+      return task.stageLabel?.trim() || task.itemSubtitle?.trim() || null;
+    }
+    const headline = timQueueContactHeadline(task);
+    if (headline) {
+      if (task.workflowType === "warm-outreach") {
+        return timQueueStepSubtitle(task, "Warm outreach");
+      }
+      if (task.workflowType === "linkedin-general-inbox") {
+        return timQueueStepSubtitle(task, "LinkedIn inbox");
+      }
+      if (task.workflowType === "linkedin-connection-intake") {
+        return timQueueStepSubtitle(task, "LinkedIn connection");
+      }
+      if (task.workflowType === "linkedin-outreach") {
+        return timQueueStepSubtitle(task, "LinkedIn outreach");
+      }
+    }
+    // Primary is already workflow · step; avoid repeating the stage on line 2.
+    return task.itemSubtitle?.trim() || null;
+  }
   if (task.workflowType === "warm-outreach") {
     return task.itemTitle?.trim() || null;
   }
@@ -208,6 +280,33 @@ function messageAffiliationLine(t: MessagingTask): string {
   const pkg = `${num}${(t.packageName && t.packageName.trim()) || "Package"}`.trim();
   const wf = t.workflowName?.trim() || "Workflow";
   return `${pkg} · ${wf}`;
+}
+
+type TimQueueFilter =
+  | { type: "all" }
+  | { type: "workflow"; workflowType: string }
+  | { type: "package"; packageId: string };
+
+function taskMatchesQueueFilter(task: MessagingTask, f: TimQueueFilter): boolean {
+  if (f.type === "all") return true;
+  if (f.type === "workflow") return task.workflowType === f.workflowType;
+  if (f.type === "package") return task.packageId === f.packageId;
+  return true;
+}
+
+function workflowTypeFilterLabel(wt: string): string {
+  switch (wt) {
+    case "warm-outreach":
+      return "Warm outreach";
+    case "linkedin-outreach":
+      return "LinkedIn outreach";
+    case "linkedin-general-inbox":
+      return "LinkedIn inbox";
+    case "linkedin-connection-intake":
+      return "LinkedIn connection";
+    default:
+      return wt.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Other";
+  }
 }
 
 /** Shown only when `npm run dev` / Docker dev set this (see package.json). */
@@ -245,6 +344,10 @@ function mapRawToMessagingTask(t: Record<string, unknown>): MessagingTask {
     waitingFollowUp: Boolean(t.waitingFollowUp),
     contactSlotOpen: Boolean(t.contactSlotOpen),
     contactName: t.contactName != null ? String(t.contactName) : null,
+    contactFirstName:
+      t.contactFirstName != null && String(t.contactFirstName).trim() !== ""
+        ? String(t.contactFirstName).trim()
+        : null,
     contactCompany: t.contactCompany != null ? String(t.contactCompany) : null,
     contactTitle: t.contactTitle != null ? String(t.contactTitle) : null,
     contactDbSyncPending: Boolean(t.contactDbSyncPending),
@@ -301,21 +404,23 @@ function TimQueueItemRow({
       type="button"
       onClick={onSelect}
       aria-current={active ? "true" : undefined}
-      className={`w-full text-left rounded-md px-2 py-1.5 border transition-colors ${
+      className={`w-full text-left rounded-lg px-3 py-2.5 border transition-colors ${
         active
-          ? "border-[var(--accent-green)]/55 bg-[var(--accent-green)]/14 shadow-sm ring-1 ring-inset ring-[var(--accent-green)]/35"
-          : "border-transparent bg-[var(--bg-primary)]/80 hover:border-[var(--border-color)]"
+          ? "border-[var(--accent-green)]/80 bg-[var(--accent-green)]/14 shadow-sm ring-2 ring-inset ring-[var(--accent-green)]/45"
+          : "border-[var(--border-color)] bg-[var(--bg-primary)]/90 hover:border-[var(--text-tertiary)]/55 hover:bg-[var(--bg-primary)]"
       }`}
     >
       <div
-        className={`truncate text-[10px] ${active ? "font-semibold text-[var(--text-primary)]" : "font-medium text-[var(--text-chat-body)]"}`}
+        className={`line-clamp-2 text-[12px] leading-relaxed break-words ${active ? "font-semibold text-[var(--text-primary)]" : "font-semibold text-[var(--text-chat-body)]"}`}
       >
         {timQueueCardPrimaryTitle(task)}
       </div>
       {secondary ? (
-        <div className="text-[9px] text-[var(--text-tertiary)] truncate">{secondary}</div>
+        <div className="text-[10px] text-[var(--text-tertiary)] line-clamp-2 break-words mt-1.5 leading-snug">
+          {secondary}
+        </div>
       ) : null}
-      <div className="text-[9px] text-[var(--text-secondary)] truncate mt-0.5 leading-tight">
+      <div className="text-[9px] text-[var(--text-secondary)] truncate mt-1.5 leading-tight">
         {messageAffiliationLine(task)}
       </div>
     </button>
@@ -343,13 +448,10 @@ export default function TimMessagesPanel({
   const [syncingWarmContact, setSyncingWarmContact] = useState(false);
   const [warmSyncHint, setWarmSyncHint] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [warmOutreachDaily, setWarmOutreachDaily] = useState<WarmOutreachDailyProgress | null>(null);
+  const [queueFilter, setQueueFilter] = useState<TimQueueFilter>({ type: "all" });
   const [resolveHint, setResolveHint] = useState<string | null>(null);
   const [queueHasMore, setQueueHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [devQueueBusy, setDevQueueBusy] = useState<null | "unipile" | "seed" | "seedForce">(null);
-  const [devQueueHint, setDevQueueHint] = useState<string | null>(null);
-  const [devQueueError, setDevQueueError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const lastTasksFingerprintRef = useRef<string>("");
   const loadMoreNextRef = useRef<number | null>(null);
@@ -392,32 +494,6 @@ export default function TimMessagesPanel({
         if (data == null) return;
         if (data.error) console.warn("[TimMessagesPanel] human-tasks API:", data.error);
         const list = Array.isArray(data.tasks) ? data.tasks : [];
-        const wod = (data as { warmOutreachDaily?: unknown }).warmOutreachDaily;
-        if (
-          wod &&
-          typeof wod === "object" &&
-          wod !== null &&
-          typeof (wod as WarmOutreachDailyProgress).completed === "number" &&
-          typeof (wod as WarmOutreachDailyProgress).target === "number" &&
-          typeof (wod as WarmOutreachDailyProgress).datePacific === "string"
-        ) {
-          if (mountedRef.current) {
-            const w = wod as WarmOutreachDailyProgress & {
-              pacedDailyActive?: unknown;
-              nextDiscoveryOpensAt?: unknown;
-            };
-            setWarmOutreachDaily({
-              completed: w.completed,
-              target: w.target,
-              datePacific: w.datePacific,
-              pacedDailyActive: Boolean(w.pacedDailyActive),
-              nextDiscoveryOpensAt:
-                typeof w.nextDiscoveryOpensAt === "string" ? w.nextDiscoveryOpensAt : null,
-            });
-          }
-        } else if (mountedRef.current && !append) {
-          setWarmOutreachDaily(null);
-        }
         if (mountedRef.current) {
           const next = list.map((t: Record<string, unknown>) => mapRawToMessagingTask(t));
           const nextOff = (data as { nextOffset?: unknown }).nextOffset;
@@ -455,69 +531,6 @@ export default function TimMessagesPanel({
         else if (!silent) setLoading(false);
       });
   }, []);
-
-  const runDevUnipileReplay = useCallback(async () => {
-    setDevQueueError(null);
-    setDevQueueBusy("unipile");
-    try {
-      const r = await fetch("/api/dev/replay-unipile-inbound", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ maxInbound: 10, dryRun: false }),
-      });
-      const data = (await r.json()) as Record<string, unknown>;
-      if (!r.ok) {
-        setDevQueueHint(null);
-        setDevQueueError(typeof data.error === "string" ? data.error : `HTTP ${r.status}`);
-        return;
-      }
-      const n = typeof data.replayed === "number" ? data.replayed : 0;
-      setDevQueueHint(`Unipile replay: processed ${n} inbound message(s).`);
-      panelBus.emit("tim_human_task_progress");
-      panelBus.emit("dashboard_sync");
-      await new Promise((x) => setTimeout(x, 200));
-      await fetchTasks({ silent: true });
-    } catch (e) {
-      setDevQueueError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setDevQueueBusy(null);
-    }
-  }, [fetchTasks]);
-
-  const runDevSeedQueue = useCallback(
-    async (force: boolean) => {
-      setDevQueueError(null);
-      setDevQueueBusy(force ? "seedForce" : "seed");
-      try {
-        const r = await fetch("/api/dev/seed-tim-test-queue", {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ force }),
-        });
-        const data = (await r.json()) as Record<string, unknown>;
-        if (!r.ok) {
-          setDevQueueHint(null);
-          setDevQueueError(typeof data.error === "string" ? data.error : `HTTP ${r.status}`);
-          return;
-        }
-        setDevQueueHint(typeof data.message === "string" ? data.message : "Done.");
-        if (data.alreadySeeded === true) {
-          return;
-        }
-        panelBus.emit("tim_human_task_progress");
-        panelBus.emit("dashboard_sync");
-        await new Promise((x) => setTimeout(x, 200));
-        await fetchTasks({ silent: true });
-      } catch (e) {
-        setDevQueueError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setDevQueueBusy(null);
-      }
-    },
-    [fetchTasks]
-  );
 
   const loadMoreTasks = useCallback(() => {
     if (!queueHasMore || loadingMore || loadMoreNextRef.current == null) return;
@@ -560,11 +573,55 @@ export default function TimMessagesPanel({
     [sortedTasks]
   );
 
+  const filteredActiveQueue = useMemo(
+    () => activeQueue.filter((t) => taskMatchesQueueFilter(t, queueFilter)),
+    [activeQueue, queueFilter]
+  );
+  const filteredPendingQueue = useMemo(
+    () => pendingQueue.filter((t) => taskMatchesQueueFilter(t, queueFilter)),
+    [pendingQueue, queueFilter]
+  );
+
+  const workflowFilterOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of sortedTasks) {
+      if (t.workflowType) set.add(t.workflowType);
+    }
+    return [...set].sort();
+  }, [sortedTasks]);
+
+  const packageFilterOptions = useMemo(() => {
+    const m = new Map<string, { packageId: string; packageName: string; count: number }>();
+    for (const t of sortedTasks) {
+      if (!t.packageId) continue;
+      const prev = m.get(t.packageId);
+      if (prev) prev.count += 1;
+      else
+        m.set(t.packageId, {
+          packageId: t.packageId,
+          packageName: (t.packageName && t.packageName.trim()) || "Package",
+          count: 1,
+        });
+    }
+    return [...m.values()].sort((a, b) => b.count - a.count).slice(0, 6);
+  }, [sortedTasks]);
+
   const visibleQueue = useMemo(() => {
-    if (queueTab === "active") return activeQueue;
-    if (queueTab === "pending") return pendingQueue;
+    if (queueTab === "active") return filteredActiveQueue;
+    if (queueTab === "pending") return filteredPendingQueue;
     return null;
-  }, [queueTab, activeQueue, pendingQueue]);
+  }, [queueTab, filteredActiveQueue, filteredPendingQueue]);
+
+  useEffect(() => {
+    if (queueFilter.type === "workflow" && !workflowFilterOptions.includes(queueFilter.workflowType)) {
+      setQueueFilter({ type: "all" });
+      return;
+    }
+    if (queueFilter.type === "package") {
+      const stillHere = sortedTasks.some((t) => t.packageId === queueFilter.packageId);
+      if (!stillHere) setQueueFilter({ type: "all" });
+    }
+  }, [queueFilter, workflowFilterOptions, sortedTasks]);
 
   useEffect(() => {
     if (visibleQueue) {
@@ -579,7 +636,7 @@ export default function TimMessagesPanel({
       );
       return;
     }
-    const ordered = [...activeQueue, ...pendingQueue];
+    const ordered = [...filteredActiveQueue, ...filteredPendingQueue];
     if (ordered.length === 0) {
       setSelectedId(null);
       return;
@@ -587,9 +644,9 @@ export default function TimMessagesPanel({
     setSelectedId((prev) =>
       prev && ordered.some((t) => t.itemId === prev)
         ? prev
-        : activeQueue[0]?.itemId ?? pendingQueue[0]?.itemId ?? null
+        : filteredActiveQueue[0]?.itemId ?? filteredPendingQueue[0]?.itemId ?? null
     );
-  }, [visibleQueue, activeQueue, pendingQueue]);
+  }, [visibleQueue, filteredActiveQueue, filteredPendingQueue]);
 
   useEffect(() => {
     setWarmSyncHint(null);
@@ -602,20 +659,30 @@ export default function TimMessagesPanel({
       return visibleQueue.find((t) => t.itemId === selectedId) ?? null;
     }
     return (
-      activeQueue.find((t) => t.itemId === selectedId) ??
-      pendingQueue.find((t) => t.itemId === selectedId) ??
+      filteredActiveQueue.find((t) => t.itemId === selectedId) ??
+      filteredPendingQueue.find((t) => t.itemId === selectedId) ??
       null
     );
-  }, [visibleQueue, activeQueue, pendingQueue, selectedId]);
+  }, [visibleQueue, filteredActiveQueue, filteredPendingQueue, selectedId]);
 
   const isInputStage = Boolean(selected && INPUT_ONLY_STAGES.has(selected.stage));
 
   const timPersonHeaderDetail =
     selected &&
-    selected.itemType === "person" &&
-    (selected.workflowType === "warm-outreach" || selected.workflowType === "linkedin-outreach")
+    (selected.itemType === "person" || selected.itemType === WARM_DISCOVERY_SOURCE_TYPE) &&
+    (selected.workflowType === "warm-outreach" ||
+      selected.workflowType === "linkedin-outreach" ||
+      selected.workflowType === "linkedin-general-inbox" ||
+      selected.workflowType === "linkedin-connection-intake")
       ? timPersonWorkflowHeaderDetail(selected)
       : undefined;
+
+  const useLinkedInInboxIntakeWorkspace = Boolean(
+    selected &&
+      selected.sourceId &&
+      (selected.workflowType === "linkedin-connection-intake" ||
+        (selected.workflowType === "linkedin-general-inbox" && selected.stage === "LINKEDIN_INBOUND"))
+  );
 
   const [focusedArtifact, setFocusedArtifact] = useState<{
     stage: string;
@@ -652,6 +719,8 @@ export default function TimMessagesPanel({
         selected.workflowType === "warm-outreach" || selected.workflowType === "linkedin-outreach"
           ? linkedInThreadTranscript
           : null,
+      omitLinkedInThreadFromChat:
+        selected.workflowType === "warm-outreach" || selected.workflowType === "linkedin-outreach",
     });
   }, [selected, isInputStage, focusedArtifact, onWorkSelectionChange, linkedInThreadTranscript]);
 
@@ -664,9 +733,8 @@ export default function TimMessagesPanel({
   const handleResolve = useCallback(
     async (
       itemId: string,
-      action: "approve" | "reject" | "input" | "replied" | "ended" | "undo_replied" | "dismiss",
-      notes?: string,
-      options?: { confirmDismiss?: boolean }
+      action: "approve" | "reject" | "input" | "replied" | "ended" | "dismiss",
+      notes?: string
     ) => {
       if (resolving) return;
       setResolving(itemId);
@@ -678,8 +746,6 @@ export default function TimMessagesPanel({
             itemId,
             action,
             notes: notes || undefined,
-            ...(action === "undo_replied" ? { confirmUndo: true } : {}),
-            ...(action === "dismiss" && options?.confirmDismiss ? { confirmDismiss: true } : {}),
           }),
         });
         const data = await res.json();
@@ -742,6 +808,19 @@ export default function TimMessagesPanel({
       });
     }
 
+    if (selected.workflowType === "linkedin-connection-intake") {
+      actions.push({
+        id: "dismiss-connection-intake",
+        label: "Dismiss from queue",
+        variant: "neutral",
+        confirmMessage:
+          "Remove this connection-intake row? Use after you’ve moved them to a package workflow or decided no follow-up. The row and artifacts will be archived (soft-deleted).",
+        onConfirm: async () => {
+          await handleResolve(id, "dismiss");
+        },
+      });
+    }
+
     if (selected.workflowType === "warm-outreach") {
       if (selected.stage === "MESSAGED") {
         actions.push({
@@ -753,16 +832,6 @@ export default function TimMessagesPanel({
           onConfirm: () => handleResolve(id, "replied"),
         });
       }
-      if (selected.stage === "REPLY_DRAFT" || selected.stage === "REPLIED") {
-        actions.push({
-          id: "undo-replied",
-          label: "Undo mistaken Replied",
-          variant: "danger",
-          confirmMessage:
-            "Remove Replied / Reply-draft artifacts for this item and return to Messaged with a new follow-up date? Only if you clicked Replied by mistake. This deletes reply-thread artifacts on this workflow item.",
-          onConfirm: () => handleResolve(id, "undo_replied"),
-        });
-      }
       if (selected.stage === "REPLY_DRAFT") {
         actions.push({
           id: "end-sequence",
@@ -771,18 +840,6 @@ export default function TimMessagesPanel({
           confirmMessage:
             "End this warm-outreach sequence for this contact? The item will move to Ended.",
           onConfirm: () => handleResolve(id, "ended"),
-        });
-      }
-      if (selected.stage === "REPLY_DRAFT" || selected.stage === "REPLIED") {
-        actions.push({
-          id: "dismiss-warm-mistake",
-          label: "Remove from queue (mistake)",
-          variant: "danger",
-          confirmMessage:
-            "Archive this entire warm-outreach workflow item and its artifacts? Use for mistaken replay or wrong row — you will not see it in Tim’s queue anymore.",
-          onConfirm: async () => {
-            await handleResolve(id, "dismiss", undefined, { confirmDismiss: true });
-          },
         });
       }
     }
@@ -817,12 +874,6 @@ export default function TimMessagesPanel({
       {!embedded && (
         <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
           <span className="text-xs font-medium text-[var(--text-chat-body)]">Tim work queues</span>
-          <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5 leading-snug">
-            In Command Central, open the <strong>work panel</strong> (list icon under Tim’s header) and use the{" "}
-            <strong>Active Work Queue</strong> / <strong>Pending Work Queue</strong> tabs. Here (standalone) both queues
-            are listed below.
-            Active needs a decision now; pending is waiting on timing or follow-up.
-          </p>
           {loadError && (
             <p className="text-[10px] text-[var(--text-secondary)] mt-1">{loadError}</p>
           )}
@@ -845,80 +896,62 @@ export default function TimMessagesPanel({
                 : "Tim message queues"
           }
         >
-          <div className="shrink-0 px-2 py-1.5 border-b border-[var(--border-color)]/80 space-y-1">
+          <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)]/80 space-y-2">
             <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
               {queueTab === "active"
-                ? `Active Work Queue · ${activeQueue.length}`
+                ? `Active · ${filteredActiveQueue.length}${queueFilter.type !== "all" && filteredActiveQueue.length !== activeQueue.length ? ` / ${activeQueue.length}` : ""}`
                 : queueTab === "pending"
-                  ? `Pending Work Queue · ${pendingQueue.length}`
-                  : `Queues · ${sortedTasks.length} total`}
+                  ? `Pending · ${filteredPendingQueue.length}${queueFilter.type !== "all" && filteredPendingQueue.length !== pendingQueue.length ? ` / ${pendingQueue.length}` : ""}`
+                  : `Queues · ${sortedTasks.length}`}
             </span>
-            {warmOutreachDaily && warmOutreachDaily.target > 0 && queueTab !== "pending" ? (
-              <div className="rounded border border-[var(--border-color)]/60 bg-[var(--bg-primary)]/40 px-1.5 py-1">
-                <p className="text-[9px] font-medium text-[var(--text-chat-body)] leading-tight">
-                  Today (PT): {warmOutreachDaily.completed} / {warmOutreachDaily.target} contact intakes
-                </p>
-                <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mt-0.5">
-                  Target sums <code className="text-[8px]">discoveriesPerDay</code> on each active warm-outreach
-                  package. Submit notes on a discovery slot to count.
-                </p>
-                {warmOutreachDaily.completed < warmOutreachDaily.target ? (
-                  <p className="text-[8px] text-[var(--text-secondary)] mt-0.5 leading-snug">
-                    {warmOutreachDaily.target - warmOutreachDaily.completed} left to hit today’s goal.
-                  </p>
-                ) : (
-                  <p className="text-[8px] text-[var(--text-tertiary)] mt-0.5">Daily intake goal met.</p>
-                )}
-                {warmOutreachDaily.pacedDailyActive && warmOutreachDaily.nextDiscoveryOpensAt ? (
-                  <p className="text-[8px] text-[var(--text-secondary)] mt-0.5 leading-snug">
-                    Paced weekdays: next discovery slot can spawn after{" "}
-                    <strong>{formatNextWarmSlotPacific(warmOutreachDaily.nextDiscoveryOpensAt)} PT</strong>{" "}
-                    (cron checks ~every 30 min).
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            {IS_LOCALDEV_UI ? (
-              <div className="rounded border border-amber-500/35 bg-amber-500/[0.06] px-1.5 py-1 space-y-1">
-                <p className="text-[8px] font-medium text-[var(--text-secondary)] leading-tight">
-                  Local dev — fill Tim&apos;s queue (no CLI)
-                </p>
-                <div className="flex flex-wrap gap-1">
+            {sortedTasks.length > 0 ? (
+              <div className="flex flex-wrap gap-1" role="toolbar" aria-label="Filter queue by type or package">
+                <button
+                  type="button"
+                  onClick={() => setQueueFilter({ type: "all" })}
+                  className={`text-[9px] px-2 py-0.5 rounded-full border shrink-0 transition-colors ${
+                    queueFilter.type === "all"
+                      ? "border-[var(--accent-green)]/60 bg-[var(--accent-green)]/15 text-[var(--text-primary)] font-medium"
+                      : "border-[var(--border-color)] bg-[var(--bg-primary)]/80 text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]/40"
+                  }`}
+                >
+                  All
+                </button>
+                {workflowFilterOptions.map((wt) => (
                   <button
+                    key={wt}
                     type="button"
-                    disabled={devQueueBusy !== null}
-                    onClick={() => void runDevUnipileReplay()}
-                    className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-chat-body)] disabled:opacity-50"
+                    onClick={() => setQueueFilter({ type: "workflow", workflowType: wt })}
+                    className={`text-[9px] px-2 py-0.5 rounded-full border shrink-0 max-w-[9.5rem] truncate transition-colors ${
+                      queueFilter.type === "workflow" && queueFilter.workflowType === wt
+                        ? "border-[var(--accent-green)]/60 bg-[var(--accent-green)]/15 text-[var(--text-primary)] font-medium"
+                        : "border-[var(--border-color)] bg-[var(--bg-primary)]/80 text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]/40"
+                    }`}
+                    title={wt}
                   >
-                    {devQueueBusy === "unipile" ? "Pulling…" : "Pull inbound (Unipile)"}
+                    {workflowTypeFilterLabel(wt)}
                   </button>
+                ))}
+                {packageFilterOptions.map((p) => (
                   <button
+                    key={p.packageId}
                     type="button"
-                    disabled={devQueueBusy !== null}
-                    onClick={() => void runDevSeedQueue(false)}
-                    className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-chat-body)] disabled:opacity-50"
+                    onClick={() => setQueueFilter({ type: "package", packageId: p.packageId })}
+                    className={`text-[9px] px-2 py-0.5 rounded-full border shrink-0 max-w-[10rem] truncate transition-colors ${
+                      queueFilter.type === "package" && queueFilter.packageId === p.packageId
+                        ? "border-[var(--accent-green)]/60 bg-[var(--accent-green)]/15 text-[var(--text-primary)] font-medium"
+                        : "border-[var(--border-color)] bg-[var(--bg-primary)]/80 text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]/40"
+                    }`}
+                    title={`${p.packageName} (${p.count})`}
                   >
-                    {devQueueBusy === "seed" ? "Adding…" : "Add sample rows"}
+                    {p.packageName.length > 20 ? `${p.packageName.slice(0, 18)}…` : p.packageName}
+                    <span className="opacity-70 font-normal"> ·{p.count}</span>
                   </button>
-                  <button
-                    type="button"
-                    disabled={devQueueBusy !== null}
-                    onClick={() => void runDevSeedQueue(true)}
-                    className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-chat-body)] disabled:opacity-50"
-                  >
-                    {devQueueBusy === "seedForce" ? "Replacing…" : "Replace sample"}
-                  </button>
-                </div>
-                {devQueueHint ? (
-                  <p className="text-[8px] text-[var(--text-secondary)] leading-snug">{devQueueHint}</p>
-                ) : null}
-                {devQueueError ? (
-                  <p className="text-[8px] text-red-600/90 dark:text-red-400/90 leading-snug">{devQueueError}</p>
-                ) : null}
+                ))}
               </div>
             ) : null}
           </div>
-          <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-3">
+          <div className="flex-1 min-h-0 overflow-y-auto px-2.5 py-2.5 space-y-4">
             {queueTab === "active" ? (
               sortedTasks.length === 0 ? (
                 <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">No tasks</p>
@@ -926,14 +959,13 @@ export default function TimMessagesPanel({
                 <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
                   Nothing active — check <strong>Pending Work Queue</strong>.
                 </p>
+              ) : filteredActiveQueue.length === 0 ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
+                  Nothing matches this filter. Try <strong>All</strong> or another package/type.
+                </p>
               ) : (
-                <div className="space-y-1">
-                  <div className="px-0.5">
-                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug">
-                      Drafts, intake, review — needs your attention now.
-                    </p>
-                  </div>
-                  {activeQueue.map((task) => (
+                <div className="space-y-2.5">
+                  {filteredActiveQueue.map((task) => (
                     <TimQueueItemRow
                       key={task.itemId}
                       task={task}
@@ -944,19 +976,19 @@ export default function TimMessagesPanel({
                 </div>
               )
             ) : queueTab === "pending" ? (
-              pendingQueue.length === 0 ? (
+              sortedTasks.length === 0 ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">No tasks</p>
+              ) : pendingQueue.length === 0 ? (
                 <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
-                  No pending items — waiting rows appear after you message someone and the follow-up window hasn’t
-                  opened yet.
+                  No pending items.
+                </p>
+              ) : filteredPendingQueue.length === 0 ? (
+                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
+                  Nothing matches this filter. Try <strong>All</strong> or another package/type.
                 </p>
               ) : (
-                <div className="space-y-1">
-                  <div className="px-0.5">
-                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug">
-                      Sent or waiting — next step opens on schedule (or start follow-up early in the workspace).
-                    </p>
-                  </div>
-                  {pendingQueue.map((task) => (
+                <div className="space-y-2.5">
+                  {filteredPendingQueue.map((task) => (
                     <TimQueueItemRow
                       key={task.itemId}
                       task={task}
@@ -970,54 +1002,68 @@ export default function TimMessagesPanel({
               <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">Queues empty</p>
             ) : (
               <>
-                <div className="space-y-1">
-                  <div className="px-0.5">
+                <div className="space-y-2">
+                  <div className="px-0.5 pb-0.5">
                     <span className="text-[10px] font-semibold text-[var(--text-primary)]">
-                      Active work queue ({activeQueue.length})
+                      Active ({filteredActiveQueue.length}
+                      {queueFilter.type !== "all" && filteredActiveQueue.length !== activeQueue.length
+                        ? ` / ${activeQueue.length}`
+                        : ""}
+                      )
                     </span>
-                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mt-0.5">
-                      Needs your attention now (drafts, intake, review).
-                    </p>
                   </div>
                   {activeQueue.length === 0 ? (
                     <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">None right now.</p>
+                  ) : filteredActiveQueue.length === 0 ? (
+                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">
+                      No rows for this filter.
+                    </p>
                   ) : (
-                    activeQueue.map((task) => (
-                      <TimQueueItemRow
-                        key={task.itemId}
-                        task={task}
-                        active={task.itemId === selectedId}
-                        onSelect={() => setSelectedId(task.itemId)}
-                      />
-                    ))
+                    <div className="space-y-2.5">
+                      {filteredActiveQueue.map((task) => (
+                        <TimQueueItemRow
+                          key={task.itemId}
+                          task={task}
+                          active={task.itemId === selectedId}
+                          onSelect={() => setSelectedId(task.itemId)}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
-                <div className="space-y-1 pt-1 border-t border-[var(--border-color)]/50">
-                  <div className="px-0.5">
+                <div className="space-y-2 pt-3 mt-1 border-t border-[var(--border-color)]/50">
+                  <div className="px-0.5 pb-0.5">
                     <span className="text-[10px] font-medium text-[var(--text-chat-body)]">
-                      Pending Work Queue ({pendingQueue.length})
+                      Pending ({filteredPendingQueue.length}
+                      {queueFilter.type !== "all" && filteredPendingQueue.length !== pendingQueue.length
+                        ? ` / ${pendingQueue.length}`
+                        : ""}
+                      )
                     </span>
-                    <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mt-0.5">
-                      Sent or waiting — next step opens on schedule (or start follow-up early from the workspace).
-                    </p>
                   </div>
                   {pendingQueue.length === 0 ? (
                     <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">None.</p>
+                  ) : filteredPendingQueue.length === 0 ? (
+                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">
+                      No rows for this filter.
+                    </p>
                   ) : (
-                    pendingQueue.map((task) => (
-                      <TimQueueItemRow
-                        key={task.itemId}
-                        task={task}
-                        active={task.itemId === selectedId}
-                        onSelect={() => setSelectedId(task.itemId)}
-                      />
-                    ))
+                    <div className="space-y-2.5">
+                      {filteredPendingQueue.map((task) => (
+                        <TimQueueItemRow
+                          key={task.itemId}
+                          task={task}
+                          active={task.itemId === selectedId}
+                          onSelect={() => setSelectedId(task.itemId)}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
               </>
             )}
             {queueHasMore ? (
-              <div className="pt-2 px-0.5 shrink-0">
+              <div className="pt-3 px-0.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => loadMoreTasks()}
@@ -1094,7 +1140,19 @@ export default function TimMessagesPanel({
                 <TimIntakeWorkspace
                   task={selected}
                   resolving={resolving === selected.itemId}
-                  documentHeaderDetail={timPersonHeaderDetail}
+                  headerDetail={timPersonHeaderDetail}
+                  titleAccessory={
+                    IS_LOCALDEV_UI ? (
+                      <span
+                        className="font-mono text-[10px] leading-tight text-[var(--text-tertiary)] select-all break-all opacity-90"
+                        title="Workflow item id (_workflow_item.id) — copy for dev / agent context"
+                      >
+                        {selected.itemId}
+                      </span>
+                    ) : undefined
+                  }
+                  confirmedWorkflowActions={timArtifactHeaderActions}
+                  onClose={() => setSelectedId(null)}
                   onSubmitInput={async (notes) => {
                     await handleResolve(selected.itemId, "input", notes);
                   }}
@@ -1133,47 +1191,92 @@ export default function TimMessagesPanel({
                     </button>
                   </div>
                 ) : null}
-                <div className="flex-1 min-h-0 min-w-0">
-                  <ArtifactViewer
-                    key={`${selected.itemId}-${selected.stage}`}
-                    variant="inline"
-                    alwaysShowArtifactTabs
-                    allWorkflowArtifacts
-                    showArtifactChat={false}
-                    showArtifactFooter={false}
-                    pollArtifactsMs={5000}
-                    linkedInDmBodyStages={
-                      selected.workflowType === "warm-outreach" ||
-                      selected.workflowType === "linkedin-outreach"
-                        ? ["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLIED"]
-                        : undefined
-                    }
-                    showLinkedInInboundBackfillButton={
-                      selected.workflowType === "warm-outreach" ||
-                      selected.workflowType === "linkedin-outreach"
-                    }
-                    workflowItemId={selected.itemId}
-                    itemType={selected.itemType === "person" ? "person" : "content"}
-                    title={selected.workflowName}
-                    headerDetail={timPersonHeaderDetail}
-                    agentId={selected.ownerAgent || "tim"}
-                    onSubmitTask={
-                      timShowsArtifactSubmit(selected)
-                        ? async () => {
-                            await handleResolve(selected.itemId, "approve");
-                          }
-                        : undefined
-                    }
-                    confirmedWorkflowActions={timArtifactHeaderActions}
-                    onActiveArtifactChange={setFocusedArtifact}
-                    reportTimLinkedInThread={
-                      selected.workflowType === "warm-outreach" ||
-                      selected.workflowType === "linkedin-outreach"
-                    }
-                    onWarmOutreachThreadTranscriptChange={setLinkedInThreadTranscript}
-                    onClose={() => setSelectedId(null)}
-                  />
-                </div>
+                {useLinkedInInboxIntakeWorkspace ? (
+                  <div className="flex-1 min-h-0 min-w-0">
+                    <TimLinkedInInboxIntakeWorkspace
+                      task={{
+                        itemId: selected.itemId,
+                        workflowId: selected.workflowId,
+                        workflowName: selected.workflowName,
+                        stage: selected.stage,
+                        stageLabel: selected.stageLabel,
+                        humanAction: selected.humanAction,
+                        workflowType: selected.workflowType,
+                        sourceId: selected.sourceId as string,
+                      }}
+                      resolving={resolving === selected.itemId}
+                      onSubmitApprove={async (notes) => {
+                        await handleResolve(selected.itemId, "approve", notes);
+                      }}
+                      onMoved={() => void fetchTasks({ silent: true })}
+                      headerDetail={timPersonHeaderDetail}
+                      titleAccessory={
+                        IS_LOCALDEV_UI ? (
+                          <span
+                            className="font-mono text-[10px] leading-tight text-[var(--text-tertiary)] select-all break-all opacity-90"
+                            title="Workflow item id (_workflow_item.id) — copy for dev / agent context"
+                          >
+                            {selected.itemId}
+                          </span>
+                        ) : undefined
+                      }
+                      onClose={() => setSelectedId(null)}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 min-h-0 min-w-0">
+                    <ArtifactViewer
+                      key={`${selected.itemId}-${selected.stage}`}
+                      variant="inline"
+                      alwaysShowArtifactTabs
+                      allWorkflowArtifacts
+                      showArtifactChat={false}
+                      showArtifactFooter={false}
+                      pollArtifactsMs={5000}
+                      linkedInDmBodyStages={
+                        selected.workflowType === "warm-outreach" ||
+                        selected.workflowType === "linkedin-outreach"
+                          ? ["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLIED"]
+                          : undefined
+                      }
+                      contactFirstName={selected.contactFirstName ?? null}
+                      showLinkedInInboundBackfillButton={
+                        selected.workflowType === "warm-outreach" ||
+                        selected.workflowType === "linkedin-outreach"
+                      }
+                      workflowItemId={selected.itemId}
+                      itemType={selected.itemType === "person" ? "person" : "content"}
+                      title={selected.workflowName}
+                      titleAccessory={
+                        IS_LOCALDEV_UI ? (
+                          <span
+                            className="font-mono text-[10px] leading-tight text-[var(--text-tertiary)] select-all break-all opacity-90"
+                            title="Workflow item id (_workflow_item.id) — copy for dev / agent context"
+                          >
+                            {selected.itemId}
+                          </span>
+                        ) : undefined
+                      }
+                      headerDetail={timPersonHeaderDetail}
+                      agentId={selected.ownerAgent || "tim"}
+                      onSubmitTask={
+                        timShowsArtifactSubmit(selected)
+                          ? async () => {
+                              await handleResolve(selected.itemId, "approve");
+                            }
+                          : undefined
+                      }
+                      confirmedWorkflowActions={timArtifactHeaderActions}
+                      onActiveArtifactChange={setFocusedArtifact}
+                      reportTimLinkedInThread={
+                        selected.workflowType === "warm-outreach" ||
+                        selected.workflowType === "linkedin-outreach"
+                      }
+                      onWarmOutreachThreadTranscriptChange={setLinkedInThreadTranscript}
+                      onClose={() => setSelectedId(null)}
+                    />
+                  </div>
+                )}
                 </>
               )}
             </>

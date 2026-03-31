@@ -155,7 +155,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
         name: "LinkedIn Connections Check",
         schedule: "*/30 * * * *",
         description:
-          "Polls new connections, CRM note + bell (no LLM); general inbox when not on package path",
+          "Polls new connections, CRM note + bell (no LLM); connection intake queue when not on package path",
         handler: "linkedin-connections",
       },
       {
@@ -192,7 +192,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
         },
       ],
     },
-    workflowTypes: ["linkedin-outreach", "warm-outreach"],
+    workflowTypes: ["linkedin-outreach", "warm-outreach", "linkedin-connection-intake"],
     ttsVoice: "Timothy",
     delegation: {
       canDelegateTo: ["scout"],

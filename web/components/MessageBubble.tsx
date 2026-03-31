@@ -116,6 +116,14 @@ export default function MessageBubble({
                     </pre>
                   </div>
                 ) : null}
+                {timContextDebug.serverWarmAugmentation ? (
+                  <div>
+                    <div className="mb-0.5 font-semibold text-amber-200/80">Server warm context (CRM)</div>
+                    <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/35 p-2 font-mono text-[9px] text-[var(--text-chat-body)]">
+                      {timContextDebug.serverWarmAugmentation}
+                    </pre>
+                  </div>
+                ) : null}
               </div>
             </details>
           )}

@@ -19,6 +19,8 @@ import { logCommandCentralLlmUsage } from "./llm-usage-log";
 import { inferWorkflowItemsCommandFromArgs } from "./tools/workflow-items";
 import type { GroqDebugContext } from "./groq-debug-log";
 import {
+  flushGroqObservabilitySession,
+  isGroqChatDebugEnabled,
   logGroqChatHttpError,
   logGroqChatMergedResponse,
   logGroqChatOutbound,
@@ -717,7 +719,7 @@ async function groqChat(
 
   if (debug) {
     logGroqChatOutbound(
-      { agentId: debug.agentId, iteration: debug.iteration, model },
+      { agentId: debug.agentId, iteration: debug.iteration, model, sessionLines: debug.sessionLines },
       messages,
       tools?.map((t) => t.function.name)
     );
@@ -736,7 +738,7 @@ async function groqChat(
     const errText = await res.text().catch(() => "Unknown error");
     if (debug) {
       logGroqChatHttpError(
-        { agentId: debug.agentId, iteration: debug.iteration, model },
+        { agentId: debug.agentId, iteration: debug.iteration, model, sessionLines: debug.sessionLines },
         res.status,
         errText
       );
@@ -811,7 +813,7 @@ async function groqChat(
   const choice = data.choices?.[0]?.message;
   if (debug) {
     logGroqChatRawChoice(
-      { agentId: debug.agentId, iteration: debug.iteration, model },
+      { agentId: debug.agentId, iteration: debug.iteration, model, sessionLines: debug.sessionLines },
       choice?.content || "",
       choice?.tool_calls
     );
@@ -819,7 +821,7 @@ async function groqChat(
   const merged = mergeRecoveredToolCalls(choice?.content || "", choice?.tool_calls);
   if (debug) {
     logGroqChatMergedResponse(
-      { agentId: debug.agentId, iteration: debug.iteration, model },
+      { agentId: debug.agentId, iteration: debug.iteration, model, sessionLines: debug.sessionLines },
       {
         content: merged.content,
         tool_calls: merged.tool_calls,
@@ -862,13 +864,20 @@ export async function chatStreamGroq(
   let iterations = 0;
   const executedCalls = new Set<string>(); // track tool+args to prevent duplicates
 
+  const sessionStartedAt = Date.now();
+  const groqObsSession: string[] | undefined = isGroqChatDebugEnabled() ? [] : undefined;
+  let groqApiCalls = 0;
+
+  try {
   // Tool call loop (non-streaming for tool iterations)
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
+    groqApiCalls++;
 
     const response = await groqChat(model, messages, tools, config.temperature, {
       agentId,
       iteration: iterations,
+      sessionLines: groqObsSession,
     });
     logGroqUsage(agentId, model, response.usage);
 
@@ -948,7 +957,12 @@ export async function chatStreamGroq(
         JSON.stringify(execArgs).slice(0, 200)
       );
       const result = await executeTool(toolName, execArgs, userMessage, agentId);
-      logGroqToolExecution({ agentId, iteration: iterations }, toolName, execArgs, result);
+      logGroqToolExecution(
+        { agentId, iteration: iterations, sessionLines: groqObsSession },
+        toolName,
+        execArgs,
+        result
+      );
       console.log(
         `[groq] tool_result: ${toolName} =>`,
         result.slice(0, 200)
@@ -1004,9 +1018,11 @@ export async function chatStreamGroq(
   }
 
   // Fallback: final call without tools
+  groqApiCalls++;
   const finalResponse = await groqChat(model, messages, undefined, config.temperature, {
     agentId,
     iteration: "final_no_tools",
+    sessionLines: groqObsSession,
   });
   logGroqUsage(agentId, model, finalResponse.usage);
   const fullText = finalResponse.content;
@@ -1040,6 +1056,17 @@ export async function chatStreamGroq(
         ? Array.from(delegatedAgents).join(",")
         : undefined,
   };
+  } finally {
+    if (groqObsSession && groqObsSession.length > 0) {
+      flushGroqObservabilitySession({
+        agentId,
+        startedAt: sessionStartedAt,
+        groqApiCalls,
+        userMessagePreview: persistedUserText,
+        lines: groqObsSession,
+      });
+    }
+  }
 }
 
 /** Non-streaming chat (e.g. LinkedIn triage) — reuses tool loop + session persistence. */
@@ -1093,12 +1120,19 @@ export async function autonomousChatGroq(
   let messages = buildMessages(systemPrompt, recentHistory, triggerPrompt, tools.length > 0);
   let iterations = 0;
 
+  const autoSessionStarted = Date.now();
+  const autoGroqObsSession: string[] | undefined = isGroqChatDebugEnabled() ? [] : undefined;
+  let autoGroqApiCalls = 0;
+
+  try {
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
+    autoGroqApiCalls++;
 
     const response = await groqChat(model, messages, tools, config.temperature, {
       agentId,
       iteration: iterations,
+      sessionLines: autoGroqObsSession,
     });
     logGroqUsage(agentId, model, response.usage);
 
@@ -1124,7 +1158,12 @@ export async function autonomousChatGroq(
           "[autonomous-heartbeat]",
           agentId
         );
-        logGroqToolExecution({ agentId, iteration: iterations }, toolName, args, result);
+        logGroqToolExecution(
+          { agentId, iteration: iterations, sessionLines: autoGroqObsSession },
+          toolName,
+          args,
+          result
+        );
         messages.push({
           role: "tool",
           content: result,
@@ -1160,4 +1199,15 @@ export async function autonomousChatGroq(
   }
 
   return "";
+  } finally {
+    if (autoGroqObsSession && autoGroqObsSession.length > 0) {
+      flushGroqObservabilitySession({
+        agentId,
+        startedAt: autoSessionStarted,
+        groqApiCalls: autoGroqApiCalls,
+        userMessagePreview: `[autonomous] ${triggerPrompt}`,
+        lines: autoGroqObsSession,
+      });
+    }
+  }
 }

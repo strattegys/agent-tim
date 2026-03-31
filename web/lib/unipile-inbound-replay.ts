@@ -164,9 +164,59 @@ export type UnipileInboundWebhookCandidate = {
  * Lists recent LinkedIn chats, pulls messages per chat, returns **all** inbound (non-self) messages
  * sorted oldest → newest. Use {@link takeLastNInboundCandidates} then replay or export.
  */
+function parseMessageAfterMs(messageAfterIso: string | undefined): number | null {
+  if (!messageAfterIso?.trim()) return null;
+  const t = Date.parse(messageAfterIso.trim());
+  return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * List LinkedIn chats with cursor pagination (Unipile allows limit 1–250 per request).
+ */
+async function listLinkedInChatsPaged(
+  accountId: string,
+  maxTotalChats: number
+): Promise<{ ok: boolean; error?: string; chats: Record<string, unknown>[] }> {
+  const cap = Math.min(2000, Math.max(1, maxTotalChats));
+  const chats: Record<string, unknown>[] = [];
+  let cursor: string | null = null;
+  let guard = 0;
+
+  while (chats.length < cap && guard < 40) {
+    guard++;
+    const pageLimit = Math.min(250, cap - chats.length);
+    let path = `/chats?account_id=${encodeURIComponent(accountId)}&account_type=LINKEDIN&limit=${pageLimit}`;
+    if (cursor) path += `&cursor=${encodeURIComponent(cursor)}`;
+
+    const listRes = await unipileGetJson(path);
+    if (!listRes.ok) {
+      return {
+        ok: false,
+        error: `Unipile list chats failed: HTTP ${listRes.status} ${JSON.stringify(listRes.body).slice(0, 400)}`,
+        chats,
+      };
+    }
+
+    const listBody = listRes.body as Record<string, unknown>;
+    const rawItems = listBody.items || listBody.data;
+    const page = Array.isArray(rawItems) ? rawItems : [];
+    for (const c of page) chats.push(c as Record<string, unknown>);
+
+    const next = listBody.cursor;
+    const nextCursor = typeof next === "string" && next.length > 0 ? next : null;
+    if (!nextCursor || page.length === 0) break;
+    cursor = nextCursor;
+  }
+
+  return { ok: true, chats };
+}
+
 export async function gatherUnipileInboundWebhookCandidates(input: {
+  /** Total chats to scan across paginated /chats requests (max 2000). */
   maxChats: number;
   messagesPerChat: number;
+  /** If set, only inbound messages with timestamp >= this ISO instant are included. */
+  messageAfterIso?: string;
 }): Promise<{
   ok: boolean;
   error?: string;
@@ -185,24 +235,22 @@ export async function gatherUnipileInboundWebhookCandidates(input: {
     };
   }
 
-  const maxChats = Math.min(50, Math.max(1, input.maxChats));
+  const maxTotalChats = Math.min(2000, Math.max(1, input.maxChats));
   const messagesPerChat = Math.min(50, Math.max(1, input.messagesPerChat));
+  const afterMs = parseMessageAfterMs(input.messageAfterIso);
 
-  const listPath = `/chats?account_id=${encodeURIComponent(accountId)}&account_type=LINKEDIN&limit=${maxChats}`;
-  const listRes = await unipileGetJson(listPath);
-  if (!listRes.ok) {
+  const listed = await listLinkedInChatsPaged(accountId, maxTotalChats);
+  if (!listed.ok) {
     return {
       ok: false,
-      error: `Unipile list chats failed: HTTP ${listRes.status} ${JSON.stringify(listRes.body).slice(0, 400)}`,
+      error: listed.error,
       chatsListed: 0,
       skippedOutbound: 0,
       candidates: [],
     };
   }
 
-  const listBody = listRes.body as Record<string, unknown>;
-  const rawItems = listBody.items || listBody.data;
-  const chats = Array.isArray(rawItems) ? rawItems : [];
+  const chats = listed.chats;
 
   const candidates: UnipileInboundWebhookCandidate[] = [];
   let skippedOutbound = 0;
@@ -241,6 +289,7 @@ export async function gatherUnipileInboundWebhookCandidates(input: {
       const ts = messageTimestampIso(m);
       const mid = messageIdForReplay(m, chatId, i);
       const sortKey = new Date(ts).getTime() || 0;
+      if (afterMs != null && sortKey < afterMs) continue;
 
       const webhookPayload: Parameters<typeof handleUnipileWebhook>[0] = {
         event: "message_received",
@@ -281,7 +330,7 @@ export function takeLastNInboundCandidates(
   candidates: UnipileInboundWebhookCandidate[],
   n: number
 ): UnipileInboundWebhookCandidate[] {
-  const max = Math.min(50, Math.max(1, n));
+  const max = Math.min(500, Math.max(1, n));
   return candidates.slice(-max);
 }
 
@@ -298,6 +347,7 @@ export async function replayRecentUnipileInboundAsWebhooks(input: {
   messagesPerChat: number;
   maxInbound: number;
   dryRun: boolean;
+  messageAfterIso?: string;
 }): Promise<UnipileInboundReplayResult> {
   const accountId = process.env.UNIPILE_ACCOUNT_ID?.trim();
   if (!accountId || !process.env.UNIPILE_API_KEY?.trim() || !normalizeUnipileDsn(process.env.UNIPILE_DSN)) {
@@ -327,11 +377,12 @@ export async function replayRecentUnipileInboundAsWebhooks(input: {
     }
   }
 
-  const maxInbound = Math.min(50, Math.max(1, input.maxInbound));
+  const maxInbound = Math.min(500, Math.max(1, input.maxInbound));
 
   const gathered = await gatherUnipileInboundWebhookCandidates({
     maxChats: input.maxChats,
     messagesPerChat: input.messagesPerChat,
+    messageAfterIso: input.messageAfterIso,
   });
   if (!gathered.ok) {
     return {
@@ -386,6 +437,137 @@ export async function replayRecentUnipileInboundAsWebhooks(input: {
     inboundCandidates: candidates.length,
     replayed: items.filter((i) => i.ok).length,
     skippedOutbound,
+    items,
+  };
+}
+
+export type UnipileRelationReplayItem = {
+  memberId: string;
+  name: string;
+  ok: boolean;
+  error?: string;
+};
+
+/**
+ * Replays LinkedIn **connection accepts** from Unipile `GET /users/relations` through
+ * {@link handleUnipileWebhook} (`new_relation`) — same path as live webhooks (general inbox
+ * `connection_accepted`, packaged outreach hooks when applicable).
+ *
+ * Re-running creates duplicate CRM notes / queue rows for the same relation; use dryRun first.
+ */
+export async function replayUnipileRelationsAsNewRelationWebhooks(input: {
+  dryRun: boolean;
+  /** Only relations with `created_at` at or after this instant (ISO). */
+  afterIso?: string;
+  limit?: number;
+}): Promise<{
+  ok: boolean;
+  error?: string;
+  fetched: number;
+  eligible: number;
+  replayed: number;
+  items: UnipileRelationReplayItem[];
+}> {
+  const accountId = process.env.UNIPILE_ACCOUNT_ID?.trim();
+  if (!accountId || !process.env.UNIPILE_API_KEY?.trim() || !normalizeUnipileDsn(process.env.UNIPILE_DSN)) {
+    return {
+      ok: false,
+      error: "Unipile not configured (UNIPILE_API_KEY, UNIPILE_DSN, UNIPILE_ACCOUNT_ID)",
+      fetched: 0,
+      eligible: 0,
+      replayed: 0,
+      items: [],
+    };
+  }
+
+  if (!input.dryRun) {
+    const crmOk = canUnipileReplayWriteToCrm();
+    if (!crmOk.ok) {
+      return {
+        ok: false,
+        error: crmOk.message,
+        fetched: 0,
+        eligible: 0,
+        replayed: 0,
+        items: [],
+      };
+    }
+  }
+
+  const lim = Math.min(250, Math.max(1, input.limit ?? 250));
+  const res = await unipileGetJson(
+    `/users/relations?account_id=${encodeURIComponent(accountId)}&limit=${lim}`
+  );
+  if (!res.ok) {
+    return {
+      ok: false,
+      error: `Unipile relations failed: HTTP ${res.status} ${JSON.stringify(res.body).slice(0, 400)}`,
+      fetched: 0,
+      eligible: 0,
+      replayed: 0,
+      items: [],
+    };
+  }
+
+  const body = res.body as Record<string, unknown>;
+  const raw = body.items || body.data;
+  const rows = Array.isArray(raw) ? raw : [];
+  const afterMs = input.afterIso?.trim() ? Date.parse(input.afterIso.trim()) : null;
+
+  const items: UnipileRelationReplayItem[] = [];
+  let eligible = 0;
+
+  for (const row of rows) {
+    const r = row as Record<string, unknown>;
+    const memberId = pickStr(r.member_id) || pickStr(r.public_identifier) || "";
+    const fn = pickStr(r.first_name) || "";
+    const ln = pickStr(r.last_name) || "";
+    const name = [fn, ln].filter(Boolean).join(" ").trim() || "Unknown";
+    const createdRaw = r.created_at;
+    let ms = 0;
+    if (typeof createdRaw === "number" && Number.isFinite(createdRaw)) {
+      ms = createdRaw < 1e12 ? createdRaw * 1000 : createdRaw;
+    }
+    if (!memberId) continue;
+    if (afterMs != null && Number.isFinite(afterMs)) {
+      if (ms <= 0 || ms < afterMs) continue;
+    }
+    eligible++;
+
+    if (input.dryRun) {
+      items.push({ memberId, name, ok: true });
+      continue;
+    }
+    try {
+      const ts = ms > 0 ? new Date(ms).toISOString() : new Date().toISOString();
+      await handleUnipileWebhook({
+        event: "new_relation",
+        account_id: accountId,
+        account_type: "LINKEDIN",
+        account_info: { user_id: SELF_PROVIDER_ID },
+        chat_id: "relations-replay",
+        message_id: `replay-relation:${memberId}:${ms || 0}`,
+        message: "",
+        timestamp: ts,
+        relation_name: name,
+        relation_provider_id: memberId,
+      });
+      items.push({ memberId, name, ok: true });
+    } catch (e) {
+      items.push({
+        memberId,
+        name,
+        ok: false,
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    fetched: rows.length,
+    eligible,
+    replayed: items.filter((i) => i.ok).length,
     items,
   };
 }

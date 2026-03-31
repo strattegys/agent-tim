@@ -35,7 +35,7 @@ Treat the **Command Central droplet** as the **durable place** for **CRM Postgre
 
 | Data | Where it lives | LOCALPROD on your PC |
 |------|----------------|----------------------|
-| CRM + vector memory | **Postgres on the droplet** | Same DB via **SSH tunnel** → `host.docker.internal:5433` (see below). **`web/.env.local`** DB name/user/password must match the server. |
+| CRM + vector memory | **Postgres on the droplet** | Same DB via **direct Tailscale** (`100.74.54.12:5432` from inside Docker — no tunnel). **`web/.env.local`** DB name/user/password must match the server. |
 | Agent **chat transcripts** (JSONL) + **MEMORY.md** / daily summaries | **Disk** under **`COMMAND-CENTRAL/agents/`** (`.suzibot`, `.nanobot`, …) on **whichever machine runs the app** | Bind-mounted into Docker; **not** inside Postgres. The droplet has **its own** `agents/` tree — it is **not** auto-synced with your laptop. |
 | NextAuth session cookies | Browser + **`AUTH_SECRET` / `NEXTAUTH_SECRET`** | Use **stable** secrets in **`web/.env.local`**; changing them **signs everyone out** (does not delete CRM data). |
 
@@ -43,19 +43,14 @@ Treat the **Command Central droplet** as the **durable place** for **CRM Postgre
 
 ## Full stack locally (LOCALPROD in Docker Desktop)
 
-On your **PC only**, add the overlay so Docker Desktop shows project **`cc-localprod`** and containers **`cc-localprod-p3001`** (Next app), **`cc-localprod-crm-stub`** (no Postgres data — satisfies Compose only), **`cc-localprod-caddy`**.
+On your **PC only**, add the overlay so Docker Desktop shows project **`cc-localprod`** and containers **`cc-localprod-p3001`** (Next app) and **`cc-localprod-caddy`**. The bundled Compose **`crm-db`** service is **not** started (it is gated behind profile **`bundled-crm-postgres`**); CRM data is the **production droplet Postgres**, not a container on the laptop.
 
-**LOCALPROD uses the same CRM database as the Command Central droplet**, not a second Postgres on your laptop. Before `up`, start a forwarder on the host (default **`127.0.0.1:5433`** → server **`127.0.0.1:5432`**):
+**LOCALPROD uses the same CRM database as the Command Central droplet.** The Docker container connects **directly to the Tailscale IP** (`100.74.54.12:5432`) — no SSH tunnel, no bridge process, nothing to die when your PC sleeps.
 
-```powershell
-.\scripts\localprod-crm-tunnel.ps1
-```
-
-Leave that window open, then **`.\scripts\docker-local-prod-desktop-up.ps1`**. The **web** container uses **`CRM_DB_HOST=host.docker.internal`** and **`CRM_DB_PORT`** (default **5433**, overridable with **`CRM_LOCALPROD_DB_PORT`**). **`CRM_DB_PASSWORD`** / **`CRM_DB_NAME`** / **`CRM_DB_USER`** in **`web/.env.local`** must match the **droplet** CRM (same as production).
-
-From the host, **`npm run db:exec`** with **`CRM_DB_HOST=127.0.0.1`** and **`CRM_DB_PORT=5433`** (or your tunnel port) hits the same data. Caddy still serves **http://localhost** on port **80**.
-
-**Local dev** ( **`docker-compose.dev.yml`** ) continues to use **bundled** Postgres on **`127.0.0.1:25432`** — that is the laptop-only database.
+**Requirements:**
+- **Tailscale running** on your PC (`tailscale status`)
+- **`expose-crm-db-tailscale.sh`** applied on the CC droplet (deploy-web.yml does this automatically)
+- **`web/.env.local`** with `CRM_DB_PASSWORD` / `CRM_DB_NAME` / `CRM_DB_USER` matching the droplet
 
 ```powershell
 cd COMMAND-CENTRAL
@@ -74,7 +69,15 @@ Or manually:
 docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml up -d --build
 ```
 
-The overlay sets **localhost** auth URLs and bakes **LOCALPROD** into the **web** image. **Do not** copy **`docker-compose.local-prod-desktop.yml`** to the droplet — production uses **`docker-compose.yml`** only.
+The overlay sets **localhost** auth URLs, **`CRM_DB_HOST=100.74.54.12`** (override with **`CRM_LOCALPROD_DB_HOST`**), **`CRM_DB_PORT=5432`** (override with **`CRM_LOCALPROD_DB_PORT`**), and bakes **LOCALPROD** into the **web** image.
+
+**Fallback (Tailscale down):** Set **`CRM_LOCALPROD_DB_HOST=host.docker.internal`** and **`CRM_LOCALPROD_DB_PORT=5433`**, then start a tunnel: **`.\scripts\localprod-crm-tunnel.ps1`** (separate window).
+
+From the host, **`npm run db:exec`** with **`CRM_DB_HOST=127.0.0.1`** and **`CRM_DB_PORT=5433`** (or Tailscale IP + 5432) hits the same data. Caddy still serves **http://localhost** on port **80**.
+
+**Local dev** (`docker-compose.dev.yml`) continues to use **bundled** Postgres on **`127.0.0.1:25432`** — that is the laptop-only database.
+
+**Do not** copy **`docker-compose.local-prod-desktop.yml`** to the droplet — production uses **`docker-compose.yml`** only.
 
 **If chat history looks empty in LOCALPROD:** (1) Open the app at **`http://localhost:3001`** (not **`127.0.0.1`**) so session cookies match **`NEXTAUTH_URL`**. (2) Rebuild the web image after compose changes: **`.\scripts\docker-local-prod-desktop-down.ps1`** then **`.\scripts\docker-local-prod-desktop-up.ps1`**. (3) If **`web/.env.local`** sets **`CC_AGENT_CHAT_PROFILE`** (e.g. from a shared Bitwarden pull for dev), the overlay now forces it **empty** for LOCALPROD so paths match **`agents/.suzibot/.../sessions/web_govind.jsonl`**.
 

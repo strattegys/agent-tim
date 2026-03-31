@@ -314,7 +314,9 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     label: "LinkedIn General Inbox",
     itemType: "person",
     description:
-      "Inbound LinkedIn messages or connection events that did not match an active packaged workflow step (e.g. warm-outreach at Messaged). Govind triages from Tim’s active queue; Submit dismisses the row when handled.",
+      "Inbound LinkedIn messages that did not match an active packaged workflow step (e.g. warm-outreach at Messaged). " +
+      "Connection acceptances without a package path use the separate LinkedIn connection intake workflow. " +
+      "Govind triages from Tim’s active queue; Submit dismisses the row when handled.",
     defaultBoard: {
       stages: [
         {
@@ -330,6 +332,34 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
       ],
       transitions: {
         LINKEDIN_INBOUND: [],
+      },
+    },
+  },
+
+  // ─── LinkedIn connection accepted (non-package) — route into a package workflow or dismiss ─
+
+  "linkedin-connection-intake": {
+    id: "linkedin-connection-intake",
+    label: "LinkedIn — Connection intake",
+    itemType: "person",
+    description:
+      "Someone accepted your LinkedIn invitation but no packaged linkedin-outreach row was waiting on them. " +
+      "You decide the next step: add them to a package workflow (warm-outreach, linkedin-outreach, etc.), or dismiss.",
+    defaultBoard: {
+      stages: [
+        {
+          key: "CONNECTION_ACCEPTED",
+          label: "Connection — next step",
+          color: "#16A34A",
+          instructions:
+            "Tim reviews who accepted, CRM context, and active package workflows. Recommend whether to attach them to warm-outreach, linkedin-outreach, or another Tim-owned pipeline, or to leave them CRM-only.",
+          requiresHuman: true,
+          humanAction:
+            "Decide what to do next: discuss with Tim for a recommendation, then either Submit when handled, Dismiss if no follow-up, or add this person to a package workflow (POST /api/crm/workflow-items with the target workflowId + stage + sourceId, optional closeIntakeItemId to clear this row).",
+        },
+      ],
+      transitions: {
+        CONNECTION_ACCEPTED: [],
       },
     },
   },

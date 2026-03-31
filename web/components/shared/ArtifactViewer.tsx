@@ -3,6 +3,7 @@
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
   useMemo,
@@ -65,6 +66,8 @@ interface ArtifactViewerProps {
   focusStage?: string;
   /** Title to display in header (e.g. workflow name) */
   title?: string;
+  /** Shown beside the header title (e.g. LOCALDEV workflow item UUID on Tim work panel). */
+  titleAccessory?: ReactNode;
   /** Agent that owns this artifact (for chat header) */
   agentId?: string;
   /** If set, show a Submit button that resolves the active task then closes */
@@ -102,9 +105,12 @@ interface ArtifactViewerProps {
   reportTimLinkedInThread?: boolean;
   onWarmOutreachThreadTranscriptChange?: (transcript: string | null) => void;
   /**
-   * Tim warm/LinkedIn outreach: on REPLIED tab, show a header control to pull inbound text from Unipile into CRM.
+   * Tim warm/LinkedIn outreach: header control to pull the latest LinkedIn thread from Unipile (updates CRM + reply draft).
+   * Shown for Messaged, Reply draft, and Contact replied stages.
    */
   showLinkedInInboundBackfillButton?: boolean;
+  /** CRM / intake first name — personalizes inbound copy (“What Mike said”, “when Mike answers”). */
+  contactFirstName?: string | null;
   onClose: () => void;
   /** Shown under the header title (e.g. Tim warm-outreach contact name / company / title). */
   headerDetail?: ReactNode;
@@ -129,6 +135,7 @@ export default function ArtifactViewer({
   artifact: preloaded,
   itemType = "content",
   title,
+  titleAccessory,
   agentId,
   onSubmitTask,
   confirmedWorkflowActions,
@@ -144,9 +151,24 @@ export default function ArtifactViewer({
   reportTimLinkedInThread = false,
   onWarmOutreachThreadTranscriptChange,
   showLinkedInInboundBackfillButton = false,
+  contactFirstName: contactFirstNameProp,
   onClose,
   headerDetail,
 }: ArtifactViewerProps) {
+  const warmContactFirst = (contactFirstNameProp ?? "").trim();
+  const warmInboundHeading =
+    warmContactFirst.length > 0
+      ? `What ${warmContactFirst} said (inbound LinkedIn)`
+      : "What they said (inbound LinkedIn)";
+  const warmWhenAnswersPhrase =
+    warmContactFirst.length > 0
+      ? `mark Replied when ${warmContactFirst} answers`
+      : "mark Replied when they answer";
+  const warmTheirDmMissingPhrase =
+    warmContactFirst.length > 0
+      ? `${warmContactFirst}'s exact DM is not saved on this artifact yet.`
+      : "Their exact DM is not saved on this artifact yet.";
+
   const isInline = variant === "inline";
   const chatBelow = isInline && chatPlacement === "bottom" && showArtifactChat;
   const isPerson = itemType === "person";
@@ -174,6 +196,7 @@ export default function ArtifactViewer({
   const [warmInlineDraftDirty, setWarmInlineDraftDirty] = useState(false);
   const warmInlineDraftDirtyRef = useRef(false);
   const lastWarmDraftArtifactIdRef = useRef<string | null>(null);
+  const warmInlineReplyTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -259,6 +282,13 @@ export default function ArtifactViewer({
         setIsEditing(true);
         return;
       }
+      if (stageU === "REPLY_DRAFT") {
+        const plain = extractPlainDmFromDraftMarkdown(a.content).trim();
+        warmDmSplitRef.current = null;
+        setEditContent(plain.length > 0 ? plain : a.content);
+        setIsEditing(true);
+        return;
+      }
     }
     warmDmSplitRef.current = null;
     setEditContent(a.content);
@@ -296,9 +326,16 @@ export default function ArtifactViewer({
   const saveWarmInlineDraft = useCallback(async (): Promise<boolean> => {
     const a = artifacts[activeIdx];
     if (!a) return true;
+    const stageU = (a.stage || "").toUpperCase();
     const split = splitWarmLinkedInDmArtifact(a.content);
-    if (!split) return true;
-    const nextContent = recomposeWarmLinkedInDmArtifact(split, warmInlineDraftBody);
+    let nextContent: string;
+    if (split) {
+      nextContent = recomposeWarmLinkedInDmArtifact(split, warmInlineDraftBody);
+    } else if (stageU === "REPLY_DRAFT") {
+      nextContent = warmInlineDraftBody.trim();
+    } else {
+      return true;
+    }
     if (nextContent === a.content) {
       setWarmInlineDraftDirty(false);
       warmInlineDraftDirtyRef.current = false;
@@ -583,20 +620,38 @@ export default function ArtifactViewer({
     if (!active || !isInline || usePeopleView) return;
     const st = (active.stage || "").toUpperCase();
     if (st !== "MESSAGE_DRAFT" && st !== "REPLY_DRAFT") return;
-    if (!splitWarmLinkedInDmArtifact(active.content)) return;
 
-    if (lastWarmDraftArtifactIdRef.current !== active.id) {
-      lastWarmDraftArtifactIdRef.current = active.id;
-      const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
-      setWarmInlineDraftBody(plain);
-      setWarmInlineDraftDirty(false);
-      warmInlineDraftDirtyRef.current = false;
+    const split = splitWarmLinkedInDmArtifact(active.content);
+    if (split) {
+      if (lastWarmDraftArtifactIdRef.current !== active.id) {
+        lastWarmDraftArtifactIdRef.current = active.id;
+        const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
+        setWarmInlineDraftBody(plain);
+        setWarmInlineDraftDirty(false);
+        warmInlineDraftDirtyRef.current = false;
+        return;
+      }
+      if (!warmInlineDraftDirtyRef.current) {
+        const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
+        setWarmInlineDraftBody((prev) => (prev !== plain ? plain : prev));
+      }
       return;
     }
 
-    if (!warmInlineDraftDirtyRef.current) {
-      const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
-      setWarmInlineDraftBody((prev) => (prev !== plain ? plain : prev));
+    if (st === "REPLY_DRAFT") {
+      if (lastWarmDraftArtifactIdRef.current !== active.id) {
+        lastWarmDraftArtifactIdRef.current = active.id;
+        const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
+        setWarmInlineDraftBody(plain.length > 0 ? plain : active.content.trim());
+        setWarmInlineDraftDirty(false);
+        warmInlineDraftDirtyRef.current = false;
+        return;
+      }
+      if (!warmInlineDraftDirtyRef.current) {
+        const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
+        const next = plain.length > 0 ? plain : active.content.trim();
+        setWarmInlineDraftBody((prev) => (prev !== next ? next : prev));
+      }
     }
   }, [active, isInline, usePeopleView]);
 
@@ -624,12 +679,19 @@ export default function ArtifactViewer({
     (activeStageUpper === "MESSAGE_DRAFT" || activeStageUpper === "REPLY_DRAFT") &&
     Boolean(linkedInDmBodyStages?.some((s) => (s || "").toUpperCase() === activeStageUpper));
 
+  const stageInLinkedInDmBody =
+    Boolean(
+      active &&
+        linkedInDmBodyStages?.length &&
+        linkedInDmBodyStages.some((s) => (s || "").toUpperCase() === activeStageUpper),
+    );
   const isWarmInlineSendComposer =
     isInline &&
     !usePeopleView &&
     !isEditing &&
-    Boolean(linkedInDmSplit) &&
-    (activeStageUpper === "MESSAGE_DRAFT" || activeStageUpper === "REPLY_DRAFT");
+    stageInLinkedInDmBody &&
+    (activeStageUpper === "MESSAGE_DRAFT" || activeStageUpper === "REPLY_DRAFT") &&
+    (activeStageUpper === "REPLY_DRAFT" || Boolean(linkedInDmSplit));
 
   const threadTurnsBeforeDraft = useMemo(() => {
     if (!shouldBuildWarmDraftThread || !active) return [];
@@ -658,7 +720,7 @@ export default function ArtifactViewer({
         {threadTurnsBeforeDraft.length === 0 ? (
           <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
             {activeStageUpper === "REPLY_DRAFT"
-              ? "No earlier sent messages or captured replies on this item yet. Send the first message, mark Replied when they answer, or use Load from LinkedIn on the Contact replied card."
+              ? `No earlier sent messages or captured replies on this item yet. Send the first message, ${warmWhenAnswersPhrase}, or use Update LinkedIn in the header to pull the thread from Unipile.`
               : "No sent LinkedIn messages on this item yet — this is the first outbound."}
           </p>
         ) : (
@@ -677,7 +739,11 @@ export default function ArtifactViewer({
                 >
                   <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                     <p className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                      {turn.role === "you" ? "You" : "Them"}
+                      {turn.role === "you"
+                        ? "You"
+                        : warmContactFirst.length > 0
+                          ? warmContactFirst
+                          : "Them"}
                     </p>
                     <time
                       dateTime={turn.createdAt}
@@ -717,12 +783,16 @@ export default function ArtifactViewer({
   const warmInlineGuidanceMarkdown =
     isInline && !usePeopleView && linkedInDmSplit?.prefix?.trim() ? linkedInDmSplit.prefix.trim() : "";
   const warmEditGuidanceMarkdown =
-    isInline && !usePeopleView && isEditing && warmDmSplitRef.current?.prefix?.trim()
+    isInline &&
+    !usePeopleView &&
+    isEditing &&
+    activeStageUpper !== "REPLY_DRAFT" &&
+    warmDmSplitRef.current?.prefix?.trim()
       ? warmDmSplitRef.current.prefix.trim()
       : "";
   const warmOutboundPlainTitle =
     active?.stage?.toUpperCase() === "REPLIED"
-      ? "What they said (inbound LinkedIn)"
+      ? warmInboundHeading
       : active?.stage?.toUpperCase() === "REPLY_DRAFT"
         ? "Draft to send (LinkedIn plain text)"
         : "Outbound message (LinkedIn plain text)";
@@ -731,6 +801,12 @@ export default function ArtifactViewer({
     !!active &&
     (active.stage || "").toUpperCase() === "REPLIED" &&
     Boolean(linkedInDmBodyStages?.some((s) => s.toUpperCase() === "REPLIED"));
+
+  /** Stages where Unipile backfill is useful (not only when viewing the Replied artifact tab). */
+  const LINKEDIN_THREAD_SYNC_STAGES = new Set(["MESSAGED", "REPLY_DRAFT", "REPLIED"]);
+  const showLinkedInThreadSyncButton =
+    Boolean(showLinkedInInboundBackfillButton && workflowItemId && active && !isEditing) &&
+    LINKEDIN_THREAD_SYNC_STAGES.has(activeStageUpper);
 
   const warmRepliedInbound =
     isWarmRepliedArtifactTab && active ? extractWarmRepliedInboundText(active.content) : null;
@@ -748,15 +824,15 @@ export default function ArtifactViewer({
       <div className="flex min-h-0 flex-col gap-4">
         <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
           <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-            What they said (inbound LinkedIn)
+            {warmInboundHeading}
           </p>
           <div className="text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-chat-body)]">
             {warmRepliedInbound ? (
               warmRepliedInbound
             ) : (
               <span className="text-[var(--text-secondary)]">
-                Their exact DM is not saved on this artifact yet. Use{" "}
-                <strong className="font-medium text-[var(--text-chat-body)]">Load from LinkedIn</strong> in the header
+                {warmTheirDmMissingPhrase} Use{" "}
+                <strong className="font-medium text-[var(--text-chat-body)]">Update LinkedIn</strong> in the header
                 (pulls from Unipile into CRM), run{" "}
                 <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[11px]">npm run backfill:jebin</code>{" "}
                 from <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[11px]">web/</code>, or read the
@@ -832,40 +908,123 @@ export default function ArtifactViewer({
       </div>
     ) : null;
 
+  const warmInlineReplyDraftComposer = activeStageUpper === "REPLY_DRAFT";
+  const warmInlineShowGuidanceAboveBody =
+    !warmInlineReplyDraftComposer && Boolean(warmInlineGuidanceMarkdown);
+
   const warmInlineSendComposerEl =
-    isWarmInlineSendComposer && active && linkedInDmSplit ? (
+    isWarmInlineSendComposer &&
+    active &&
+    (linkedInDmSplit != null || warmInlineReplyDraftComposer) ? (
       <div className="flex min-h-0 flex-col gap-4">
-        {warmInlineGuidanceMarkdown ? (
-          <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
-            <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-              Context & guidance
-            </p>
-            <div className="max-w-none text-[13px] leading-relaxed text-[var(--text-chat-body)]">
-              <MarkdownRenderer content={warmInlineGuidanceMarkdown} />
+        {warmInlineReplyDraftComposer ? (
+          <>
+            <div className="min-h-0 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                  {warmOutboundPlainTitle}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex shrink-0 items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  {uploading ? "Uploading…" : "Attach Image"}
+                </button>
+              </div>
+              <textarea
+                ref={warmInlineReplyTextareaRef}
+                value={warmInlineDraftBody}
+                onChange={(e) => {
+                  setWarmInlineDraftBody(e.target.value);
+                  setWarmInlineDraftDirty(true);
+                  warmInlineDraftDirtyRef.current = true;
+                }}
+                className="min-h-[220px] w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-3 py-2.5 text-sm leading-relaxed text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-tertiary)] focus:ring-1 focus:ring-[var(--border-color)]"
+                placeholder="Your reply (plain text)…"
+              />
+              <p className="text-[10px] leading-snug text-[var(--text-tertiary)]">
+                Submit saves your text to the draft (if you changed it), then runs the queue action. Save draft persists
+                only.
+              </p>
             </div>
-          </div>
-        ) : null}
-        <div className="min-h-0 space-y-3 border-t border-[var(--border-color)]/50 pt-3">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-            {warmOutboundPlainTitle}
-          </p>
-          <textarea
-            value={warmInlineDraftBody}
-            onChange={(e) => {
-              setWarmInlineDraftBody(e.target.value);
-              setWarmInlineDraftDirty(true);
-              warmInlineDraftDirtyRef.current = true;
-            }}
-            className="min-h-[180px] w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-3 py-2.5 text-sm leading-relaxed text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-tertiary)] focus:ring-1 focus:ring-[var(--border-color)]"
-            placeholder="Compose the LinkedIn message (plain text)…"
-          />
-          <p className="text-[10px] leading-snug text-[var(--text-tertiary)]">
-            Submit saves your text to the draft (if you changed it), then runs the queue action. Save draft persists only.
-          </p>
-        </div>
-        {warmThreadHistoryEl}
+            {warmThreadHistoryEl}
+          </>
+        ) : (
+          <>
+            {warmInlineShowGuidanceAboveBody ? (
+              <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                  Context & guidance
+                </p>
+                <div className="max-w-none text-[13px] leading-relaxed text-[var(--text-chat-body)]">
+                  <MarkdownRenderer content={warmInlineGuidanceMarkdown} />
+                </div>
+              </div>
+            ) : null}
+            <div
+              className={`min-h-0 space-y-3 ${
+                warmInlineShowGuidanceAboveBody ? "border-t border-[var(--border-color)]/50 pt-3" : ""
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                  {warmOutboundPlainTitle}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex shrink-0 items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-50"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  {uploading ? "Uploading…" : "Attach Image"}
+                </button>
+              </div>
+              <textarea
+                value={warmInlineDraftBody}
+                onChange={(e) => {
+                  setWarmInlineDraftBody(e.target.value);
+                  setWarmInlineDraftDirty(true);
+                  warmInlineDraftDirtyRef.current = true;
+                }}
+                className="min-h-[180px] w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-3 py-2.5 text-sm leading-relaxed text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-tertiary)] focus:ring-1 focus:ring-[var(--border-color)]"
+                placeholder="Compose the LinkedIn message (plain text)…"
+              />
+              <p className="text-[10px] leading-snug text-[var(--text-tertiary)]">
+                Submit saves your text to the draft (if you changed it), then runs the queue action. Save draft persists
+                only.
+              </p>
+            </div>
+            {warmThreadHistoryEl}
+          </>
+        )}
       </div>
     ) : null;
+
+  useLayoutEffect(() => {
+    if (loading || !isWarmInlineSendComposer || !active) return;
+    if ((active.stage || "").toUpperCase() !== "REPLY_DRAFT") return;
+    const ta = warmInlineReplyTextareaRef.current;
+    if (!ta) return;
+    ta.focus();
+    const len = ta.value.length;
+    try {
+      ta.setSelectionRange(len, len);
+    } catch {
+      /* ignore */
+    }
+  }, [loading, isWarmInlineSendComposer, active?.id, active?.stage]);
 
   const shell = (
     <div
@@ -902,17 +1061,15 @@ export default function ArtifactViewer({
                   </>
                 )}
               </svg>
-              <span className="min-w-0 text-sm font-medium leading-snug text-[var(--text-chat-body)]">
-                {usePeopleView ? "People Pipeline" : title || active?.name || "Artifacts"}
-              </span>
+              <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+                <span className="min-w-0 text-sm font-medium leading-snug text-[var(--text-chat-body)]">
+                  {usePeopleView ? "People Pipeline" : title || active?.name || "Artifacts"}
+                </span>
+                {titleAccessory ? <span className="min-w-0 shrink">{titleAccessory}</span> : null}
+              </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              {!usePeopleView &&
-                active &&
-                !isEditing &&
-                showLinkedInInboundBackfillButton &&
-                workflowItemId &&
-                isWarmRepliedArtifactTab && (
+              {!usePeopleView && showLinkedInThreadSyncButton && (
                   <button
                     type="button"
                     disabled={
@@ -924,13 +1081,15 @@ export default function ArtifactViewer({
                     }
                     title={
                       hasUnsavedArtifactEdit
-                        ? "Save or cancel your edits before loading from LinkedIn."
-                        : "Fetch their latest inbound message from Unipile into this CRM artifact"
+                        ? "Save or cancel your edits before updating from LinkedIn."
+                        : warmContactFirst.length > 0
+                          ? `Fetch the latest LinkedIn thread with ${warmContactFirst} from Unipile — refreshes CRM (including your reply draft) when there is new activity`
+                          : "Fetch the latest LinkedIn messages from Unipile — refreshes CRM (including reply draft) when new activity exists"
                     }
                     onClick={handleLinkedInInboundBackfill}
                     className="rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-50"
                   >
-                    {linkedInBackfillBusy ? "Loading…" : "Load from LinkedIn"}
+                    {linkedInBackfillBusy ? "Updating…" : "Update LinkedIn"}
                   </button>
                 )}
               {!usePeopleView && active && !isEditing && warmInlineDraftNeedsSave && (
@@ -975,18 +1134,21 @@ export default function ArtifactViewer({
                 onChange={handleImageUpload}
                 className="hidden"
               />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="flex items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-                {uploading ? "Uploading..." : "Attach Image"}
-              </button>
+              {!(isWarmInlineSendComposer && active) ? (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="flex items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-50"
+                >
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <polyline points="21 15 16 10 5 21" />
+                  </svg>
+                  {uploading ? "Uploading..." : "Attach Image"}
+                </button>
+              ) : null}
               {(confirmedWorkflowActions ?? []).map((a) => {
                 const tone =
                   a.variant === "danger"

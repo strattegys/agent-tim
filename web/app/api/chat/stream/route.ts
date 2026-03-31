@@ -1,4 +1,5 @@
 import { type NextRequest } from "next/server";
+import { auth } from "@/lib/auth";
 import { chatStream } from "@/lib/gemini";
 import { chatStreamAnthropic } from "@/lib/anthropic-chat";
 import { chatStreamGroq } from "@/lib/groq-chat";
@@ -11,6 +12,10 @@ import {
   buildTimContextDebugSnapshot,
   isTimChatContextDebugEnabled,
 } from "@/lib/tim-chat-debug";
+import {
+  buildTimWarmGroqAugmentationText,
+  workflowItemExists,
+} from "@/lib/tim-warm-groq-context";
 import { initCronJobs } from "@/lib/cron";
 
 if (process.env.npm_lifecycle_event !== "build") {
@@ -24,14 +29,21 @@ if (process.env.npm_lifecycle_event !== "build") {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { message, agent, workQueueContext, uiContext, sessionHistoryMaxMessages: rawHistoryCap } =
-      body as {
-        message?: string;
-        agent?: string;
-        workQueueContext?: string;
-        uiContext?: string;
-        sessionHistoryMaxMessages?: number;
-      };
+    const {
+      message,
+      agent,
+      workQueueContext,
+      uiContext,
+      sessionHistoryMaxMessages: rawHistoryCap,
+      timWorkflowItemId: rawTimWorkflowItemId,
+    } = body as {
+      message?: string;
+      agent?: string;
+      workQueueContext?: string;
+      uiContext?: string;
+      sessionHistoryMaxMessages?: number;
+      timWorkflowItemId?: string;
+    };
     const agentId = agent || "tim";
 
     if (!message || typeof message !== "string") {
@@ -44,9 +56,28 @@ export async function POST(request: NextRequest) {
     const config = getAgentConfig(agentId);
     const tim = typeof workQueueContext === "string" ? workQueueContext.trim() : "";
     const ui = typeof uiContext === "string" ? uiContext.trim() : "";
-    // Do not truncate here: Tim’s work context ends with the CRM LinkedIn thread; an old
-    // .slice(0, 12_000) cut the tail off before the model saw it. `appendEphemeralContext` caps size.
-    const mergedContext = [tim, ui].filter(Boolean).join("\n\n---\n\n");
+
+    let serverWarmAug = "";
+    const wid =
+      agentId === "tim" && typeof rawTimWorkflowItemId === "string"
+        ? rawTimWorkflowItemId.trim()
+        : "";
+    if (wid.length >= 20 && wid.length <= 64) {
+      const session = await auth();
+      if (session) {
+        try {
+          if (await workflowItemExists(wid)) {
+            const aug = await buildTimWarmGroqAugmentationText(wid);
+            if (aug) serverWarmAug = aug;
+          }
+        } catch (e) {
+          console.warn("[api/chat/stream] Tim warm Groq augmentation skipped:", e);
+        }
+      }
+    }
+
+    // Do not truncate here: `appendEphemeralContext` caps size. Server warm block adds CRM thread + brief + KB.
+    const mergedContext = [tim, ui, serverWarmAug].filter(Boolean).join("\n\n---\n\n");
 
     let sessionHistoryMaxMessages: number | undefined;
     if (
@@ -71,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     const timContextDebug =
       agentId === "tim" && isTimChatContextDebugEnabled()
-        ? buildTimContextDebugSnapshot(tim, ui)
+        ? buildTimContextDebugSnapshot(tim, ui, serverWarmAug)
         : null;
 
     const chatFn =

@@ -22,6 +22,7 @@ const STAGE_ACTION_LABELS: Record<string, string> = {
   MESSAGED: "Review Outreach Message",
   REPLY_DRAFT: "Review Reply Draft",
   LINKEDIN_INBOUND: "Triage LinkedIn inbound",
+  CONNECTION_ACCEPTED: "Route connection — next step",
 };
 
 /** Stages where the task is an input form (no artifact to view, just submit) */

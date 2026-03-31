@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { MarkdownRenderer, artifactTabLabel } from "@/components/shared/ArtifactViewer";
+import {
+  MarkdownRenderer,
+  artifactTabLabel,
+  type ArtifactConfirmedWorkflowAction,
+} from "@/components/shared/ArtifactViewer";
 
 type ArtifactRow = { id: string; stage: string; name: string; content: string; createdAt: string };
 
@@ -45,8 +49,14 @@ interface TimIntakeWorkspaceProps {
   task: MessagingTask;
   resolving: boolean;
   onSubmitInput: (notes: string) => Promise<void>;
-  /** Same document icon row as ArtifactViewer — warm-outreach contact lines under the workflow title. */
-  documentHeaderDetail?: ReactNode;
+  /** Under the title row — same as ArtifactViewer `headerDetail` (e.g. Tim name / LinkedIn / company / title). */
+  headerDetail?: ReactNode;
+  /** Shown next to the workflow title (e.g. LOCALDEV item id). */
+  titleAccessory?: ReactNode;
+  /** Confirmed secondary actions (Replied, End sequence, …) — same pattern as ArtifactViewer header. */
+  confirmedWorkflowActions?: ArtifactConfirmedWorkflowAction[];
+  /** Optional close control (inline work panel). */
+  onClose?: () => void;
   /** Sidebar agent name in the idea-intake copy (default Tim; use Ghost for Ghost’s queue). */
   chatAgentLabel?: string;
 }
@@ -58,13 +68,17 @@ export default function TimIntakeWorkspace({
   task,
   resolving,
   onSubmitInput,
-  documentHeaderDetail,
+  headerDetail,
+  titleAccessory,
+  confirmedWorkflowActions,
+  onClose,
   chatAgentLabel = "Tim",
 }: TimIntakeWorkspaceProps) {
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"intake" | string>("intake");
   const [intakeText, setIntakeText] = useState("");
+  const [busyWorkflowActionId, setBusyWorkflowActionId] = useState<string | null>(null);
 
   const isAwaiting = task.stage === "AWAITING_CONTACT";
   const intakeTabLabel = isAwaiting ? "Contact details" : "Article idea";
@@ -122,11 +136,14 @@ export default function TimIntakeWorkspace({
         : "border-[var(--border-color)]/60 bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-secondary)]"
     }`;
 
+  const canSubmit = intakeText.trim().length > 0;
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] shadow-sm">
-      {documentHeaderDetail != null ? (
-        <div className="shrink-0 border-b border-[var(--border-color)]">
-          <div className="flex items-start gap-3 px-5 py-2.5">
+      {/* Match ArtifactViewer: title + actions, then full-width detail strip */}
+      <div className="shrink-0 border-b border-[var(--border-color)]">
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-5 py-2.5">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             <svg
               className="mt-0.5 shrink-0 opacity-70"
               width="18"
@@ -140,36 +157,97 @@ export default function TimIntakeWorkspace({
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
               <polyline points="14 2 14 8 20 8" />
             </svg>
-            <span className="min-w-0 text-sm font-medium leading-snug text-[var(--text-chat-body)]">
-              {task.workflowName}
-            </span>
-          </div>
-          <div className="w-full min-w-0 border-t border-[var(--border-color)]/50 px-5 py-2.5">
-            <div className="w-full min-w-0 text-[var(--text-tertiary)] [&_a]:text-[var(--text-secondary)] [&_a:hover]:text-[var(--text-primary)]">
-              {documentHeaderDetail}
+            <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span className="min-w-0 text-sm font-medium leading-snug text-[var(--text-chat-body)]">
+                {task.workflowName}
+              </span>
+              {titleAccessory ? <span className="min-w-0 shrink">{titleAccessory}</span> : null}
             </div>
           </div>
-        </div>
-      ) : null}
-
-      <div className="flex min-h-0 flex-1 flex-row">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--border-color)]">
-          <div className="flex shrink-0 items-center justify-end gap-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {(confirmedWorkflowActions ?? []).map((a) => {
+              const tone =
+                a.variant === "danger"
+                  ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                  : a.variant === "amber"
+                    ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                    : "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]";
+              const wfBusy = busyWorkflowActionId !== null;
+              return (
+                <button
+                  key={a.id}
+                  type="button"
+                  disabled={wfBusy || resolving}
+                  onClick={async () => {
+                    if (!window.confirm(a.confirmMessage)) return;
+                    setBusyWorkflowActionId(a.id);
+                    try {
+                      await a.onConfirm();
+                    } finally {
+                      setBusyWorkflowActionId(null);
+                    }
+                  }}
+                  className={`rounded border px-2.5 py-1 text-[10px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 ${tone}`}
+                >
+                  {busyWorkflowActionId === a.id ? "…" : a.label}
+                </button>
+              );
+            })}
             <button
               type="button"
-              disabled={resolving || !intakeText.trim()}
-              onClick={() => onSubmitInput(intakeText.trim())}
-              title={!intakeText.trim() ? "Add text above before submitting" : undefined}
-              className="rounded-md border border-[var(--accent-green)]/35 bg-[var(--accent-green)]/8 px-4 py-2 text-[11px] font-medium text-[var(--text-secondary)] hover:bg-[var(--accent-green)]/12 hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-40"
+              disabled={resolving || !canSubmit}
+              title={!canSubmit ? "Add contact or idea text before submitting" : undefined}
+              onClick={() => void onSubmitInput(intakeText.trim())}
+              className="rounded border border-[var(--accent-green)]/35 bg-[var(--accent-green)]/8 px-3 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-green)]/12 hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-50"
             >
               {resolving ? "Submitting…" : "Submit"}
             </button>
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                aria-label="Close"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            ) : null}
           </div>
+        </div>
+        {headerDetail ? (
+          <div className="w-full min-w-0 border-t border-[var(--border-color)]/50 px-5 py-2.5">
+            <div className="w-full min-w-0 text-[var(--text-tertiary)] [&_a]:text-[var(--text-secondary)] [&_a:hover]:text-[var(--text-primary)]">
+              {headerDetail}
+            </div>
+          </div>
+        ) : null}
+      </div>
 
+      <div className="flex min-h-0 flex-1 flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--border-color)]">
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             {activeTab === "intake" ? (
               <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-                <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+                <div className="flex shrink-0 flex-col gap-2">
+                  <label className="text-[10px] font-medium text-[var(--text-tertiary)]">
+                    {isAwaiting ? "Paste contact & context" : "Your idea"}
+                  </label>
+                  <textarea
+                    value={intakeText}
+                    onChange={(e) => setIntakeText(e.target.value)}
+                    placeholder={
+                      isAwaiting
+                        ? "Name, LinkedIn URL, how you know them, notes…"
+                        : "Topic, angle, audience, links…"
+                    }
+                    className="min-h-[5.5rem] h-[7rem] max-h-[min(11rem,32svh)] w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-[13px] text-[var(--text-chat-body)] placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-color)] focus:outline-none"
+                  />
+                </div>
+
+                <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
                   <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
                     What to do
                   </p>
@@ -184,22 +262,6 @@ export default function TimIntakeWorkspace({
                       {task.humanAction}
                     </p>
                   ) : null}
-                </div>
-
-                <div className="flex min-h-0 flex-1 flex-col gap-2">
-                  <label className="text-[10px] font-medium text-[var(--text-tertiary)]">
-                    {isAwaiting ? "Paste contact & context" : "Your idea"}
-                  </label>
-                  <textarea
-                    value={intakeText}
-                    onChange={(e) => setIntakeText(e.target.value)}
-                    placeholder={
-                      isAwaiting
-                        ? "Name, LinkedIn URL, how you know them, notes…"
-                        : "Topic, angle, audience, links…"
-                    }
-                    className="min-h-[200px] w-full flex-1 resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 text-[13px] text-[var(--text-chat-body)] placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-color)] focus:outline-none"
-                  />
                 </div>
               </div>
             ) : loading ? (

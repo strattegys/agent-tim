@@ -1,10 +1,15 @@
-# Copy Command Central CRM Postgres from production (droplet crm-db) into a local Docker CRM DB.
+# Copy Command Central CRM Postgres from production (droplet crm-db) into a **local bundled** Docker CRM DB.
+# Reverse (dev -> prod): scripts\copy-dev-crm-to-prod.ps1
 # Requires: SSH to CC node (Tailscale default), Docker Desktop, web/.env.local with CRM_DB_PASSWORD.
 #
-#   .\scripts\copy-prod-crm-to-dev.ps1                          # LOCALDEV (cc-localdev)
-#   .\scripts\copy-prod-crm-to-dev.ps1 -Target LocalProd        # LOCALPROD (cc-localprod)
-#   .\scripts\copy-prod-crm-to-dev.ps1 -Target Both             # same dump into both stacks
+#   .\scripts\copy-prod-crm-to-dev.ps1                          # LOCALDEV (cc-localdev) — default
+#   .\scripts\copy-prod-crm-to-dev.ps1 -Target Both             # LOCALDEV only (LOCALPROD uses tunneled prod DB; see below)
 #   .\scripts\copy-prod-crm-to-dev.ps1 -SshHost 137.184.187.233
+#
+# LOCALPROD (cc-localprod) does **not** run Compose Postgres by default — the app uses the **main** DB via tunnel.
+# To restore a snapshot into a laptop Postgres for experiments: use LOCALDEV, or start LOCALPROD with
+#   docker compose ... --profile bundled-crm-postgres up -d
+# then pg_restore into the `crm-db` container yourself (container name from `docker ps`).
 #
 # Stops the matching web container(s) briefly during restore.
 
@@ -25,14 +30,17 @@ if (-not (Test-Path -LiteralPath $dataDir)) {
 }
 $LocalDump = [System.IO.Path]::GetFullPath((Join-Path $dataDir "crm-prod-snapshot.dump"))
 
+if ($Target -eq "LocalProd") {
+  Write-Error @"
+LOCALPROD Docker stack has no bundled Postgres by default (web uses the tunneled droplet CRM).
+Use -Target LocalDev to restore into cc-localdev, or start LOCALPROD with --profile bundled-crm-postgres and restore manually.
+"@
+}
+
 $targets = @()
 if ($Target -eq "Both") {
-  $targets = @(
-    @{ Db = "cc-localdev-crm-db"; Web = "cc-localdev-p3010"; Label = "LOCALDEV" },
-    @{ Db = "cc-localprod-crm-db"; Web = "cc-localprod-p3001"; Label = "LOCALPROD" }
-  )
-} elseif ($Target -eq "LocalProd") {
-  $targets = @( @{ Db = "cc-localprod-crm-db"; Web = "cc-localprod-p3001"; Label = "LOCALPROD" } )
+  Write-Warning "LOCALPROD skipped: no local crm-db in default LOCALPROD stack (tunneled main DB only). Restoring into LOCALDEV only."
+  $targets = @( @{ Db = "cc-localdev-crm-db"; Web = "cc-localdev-p3010"; Label = "LOCALDEV" } )
 } else {
   $targets = @( @{ Db = "cc-localdev-crm-db"; Web = "cc-localdev-p3010"; Label = "LOCALDEV" } )
 }

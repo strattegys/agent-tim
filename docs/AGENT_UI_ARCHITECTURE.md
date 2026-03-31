@@ -38,10 +38,10 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 **Work tabs (inside the work panel):**
 
 - When an agent needs **more than one** operational view, add a **tab bar inside the work panel** (immediately below the agent header, above the tab’s content).
-- Each tab can have a **different purpose** (e.g. Tim: **Active Work Queue** vs **Pending Work Queue**; Friday: Observation Post vs Human tasks vs Tools). They are **all part of the same work panel**—only the active tab’s content is shown.
+- Each tab can have a **different purpose** (e.g. Tim: **Active Work Queue** vs **Pending Work Queue**; Friday: **Workflows** vs Human tasks vs Tools). They are **all part of the same work panel**—only the active tab’s content is shown.
 - Examples:
   - **Penny** — `PennyDashboardPanel`: Package queue (Active / Paused / Completed) | Package Planner | Package Templates | Workflow Templates
-  - **Friday** — `FridayDashboardPanel`: Observation Post | Human tasks | Tools
+  - **Friday** — `FridayDashboardPanel`: Workflows (CRM pipeline overview + drill-down Kanban) | Human tasks | Tools
   - **Tim** — `TimAgentPanel`: Active Work Queue | Pending Work Queue
   - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes | Intake — sub-tab row uses a shared header (`SuziWorkSubTabHeader`): green **command hints** per tab (agent-first copy), optional small orange **human fallback** action only when that tab already has an equivalent (e.g. Intake add modal), and **tap-to-focus** cards (green border) on Intake, Punch List, Reminders, and Notes so the selection is injected into Suzi chat context (`web/lib/suzi-work-panel.ts`).
 
@@ -61,7 +61,7 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 
 | Agent  | Work entry (header shortcut)     | Work panel component        | Work tabs (examples)                                      | Knowledge (book)        |
 |--------|----------------------------------|-----------------------------|-----------------------------------------------------------|-------------------------|
-| Friday | Dashboard (grid icon)            | `FridayDashboardPanel`      | Observation Post, Human tasks, Tools                     | Placeholder             |
+| Friday | Dashboard (grid icon)            | `FridayDashboardPanel`      | Workflows, Human tasks, Tools                            | Placeholder             |
 | Penny  | Dashboard (grid icon)            | `PennyDashboardPanel`       | Package queue, Package Planner, Package Templates, Workflow Templates | Placeholder             |
 | Tim    | Work panel (list icon)           | `TimAgentPanel`             | Active Work Queue, Pending Work Queue                     | Tim KB placeholder      |
 | Marni  | Work panel (list icon)         | `MarniWorkPanel` → Kanban   | _(none — single queue)_                                   | Full Marni KB           |
@@ -80,7 +80,7 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 
 ## Deep links
 
-Query params such as `?agent=friday&panel=…` map to `RightPanel` where supported. For example, `panel=tasks` for Friday is interpreted as **dashboard + Human tasks tab** so bookmarks and links keep working without a separate top-level `tasks` panel.
+Query params such as `?agent=friday&panel=…` map to `RightPanel` where supported. For example, `panel=tasks` for Friday is interpreted as **dashboard + Human tasks tab**; `panel=workflows` or legacy `panel=observation` opens the **Workflows** tab. `npm run dev:friday` (port 3011) sets `NEXT_PUBLIC_CC_FRIDAY_DEV=1` so the shell opens on Friday’s dashboard for workflow UI work.
 
 For **Suzi**, `?agent=suzi&panel=reminders&suziSub=intake` opens the work panel and selects the **Intake** sub-tab (e.g. after PWA share redirect).
 

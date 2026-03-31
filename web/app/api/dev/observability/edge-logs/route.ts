@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { observabilityApiAllowed } from "@/lib/observability-gate";
+import {
+  observabilityApiAllowed,
+  OBSERVABILITY_API_DISABLED_ERROR,
+} from "@/lib/observability-gate";
 import {
   clearEdgeApiRequests,
   getEdgeApiRequests,
@@ -15,7 +18,7 @@ export const runtime = "edge";
 export async function GET(req: NextRequest) {
   if (!observabilityApiAllowed()) {
     return NextResponse.json(
-      { error: "Not available (use development or DEV_UNIPILE_INBOUND_REPLAY=1)" },
+      { error: OBSERVABILITY_API_DISABLED_ERROR },
       { status: 404 }
     );
   }
@@ -40,7 +43,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!observabilityApiAllowed()) {
     return NextResponse.json(
-      { error: "Not available (use development or DEV_UNIPILE_INBOUND_REPLAY=1)" },
+      { error: OBSERVABILITY_API_DISABLED_ERROR },
       { status: 404 }
     );
   }

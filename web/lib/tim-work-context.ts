@@ -11,6 +11,10 @@ export type TimWorkQueueSelection = {
   stageLabel: string;
   itemTitle: string;
   workflowName: string;
+  /** Registry workflow type when known (e.g. linkedin-connection-intake). */
+  workflowType?: string;
+  /** Postgres person id when source is a person row. */
+  sourceId?: string | null;
   humanAction: string;
   /** Warm-outreach MESSAGED: waiting for follow-up window, not a draft-submit step */
   waitingFollowUp: boolean;
@@ -23,6 +27,11 @@ export type TimWorkQueueSelection = {
    * Same builder as server-side REPLY_DRAFT autogen — so Tim chat sees the thread, not only the open tab.
    */
   linkedInThreadTranscript?: string | null;
+  /**
+   * When true, thread + package + enrichment are supplied in **SERVER WARM CONTEXT** (`/api/chat/stream`);
+   * omit the client-side LinkedIn block here to avoid duplicate thread text in Groq.
+   */
+  omitLinkedInThreadFromChat?: boolean;
 };
 
 export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
@@ -39,7 +48,9 @@ export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
     ``,
   ];
 
-  const threadRaw = (s.linkedInThreadTranscript ?? "").trim();
+  const threadRaw = s.omitLinkedInThreadFromChat
+    ? ""
+    : (s.linkedInThreadTranscript ?? "").trim();
   if (threadRaw.length > 0) {
     const cap = 6500;
     const thread =
@@ -88,6 +99,21 @@ export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
     `Human-task stage: ${s.stageLabel} (${s.stage})`,
   );
   if (s.humanAction?.trim()) lines.push(`Human task: ${s.humanAction.trim()}`);
+
+  const wt = (s.workflowType || "").trim();
+  const st = (s.stage || "").trim().toUpperCase();
+  const personId = (s.sourceId || "").trim();
+  const isLinkedInIntakeMove =
+    (wt === "linkedin-connection-intake" && st === "CONNECTION_ACCEPTED") ||
+    (wt === "linkedin-general-inbox" && st === "LINKEDIN_INBOUND");
+  if (isLinkedInIntakeMove && personId) {
+    lines.push(
+      ``,
+      `## Move to a package workflow (voice or tools)`,
+      `When Govind asks to put this contact on a package pipeline (warm-outreach, linkedin-outreach, etc.), use **workflow_items** **add-person-to-workflow**: **arg1** = target workflow uuid (ACTIVE Tim package pipeline — not LinkedIn intake), **arg2** = person id \`${personId}\`, **arg3** = board stage key (e.g. \`TARGET\`, \`AWAITING_CONTACT\`, \`INITIATED\`; omit only if the first board stage is correct), **arg4** = this queue item id \`${s.itemId}\` to close this intake row after the new row is created.`,
+      `To discover workflow ids, use **twenty_crm** or ask Govind to pick from the UI; you can also use **workflow_manager** \`list-workflows\` / \`get-workflow\` if that tool is available in this session.`,
+    );
+  }
 
   return lines.join("\n");
 }

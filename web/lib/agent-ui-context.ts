@@ -17,7 +17,7 @@ export type AgentUiRightPanel =
   | "marni-work"
   | "agent-knowledge";
 
-export type FridayDashboardTab = "observation" | "tasks" | "tools";
+export type FridayDashboardTab = "workflows" | "tasks" | "tools";
 export type PennyDashboardTab = "queue" | "packages" | "pkg-templates" | "wf-templates";
 
 export interface AgentUiContextInput {
@@ -120,13 +120,13 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   }
 
   if (rightPanel === "dashboard" && agentId === "friday") {
-    const tab = input.fridayTab ?? "observation";
+    const tab = input.fridayTab ?? "workflows";
     const label =
       tab === "tasks"
         ? "Human tasks"
         : tab === "tools"
           ? "Tools registry"
-          : "Observation Post (logging / env)";
+          : "Workflows (pipeline overview + CRM)";
     return (
       "## Friday — UI (this message only)\n" +
       `Right panel tab: **${label}**. Tools: workflow_manager, web_search, memory.`

@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import HumanTasksPanel from "./HumanTasksPanel";
 import ToolsPanel from "./ToolsPanel";
-import ObservationPostPanel from "./ObservationPostPanel";
+import WorkflowOpsPanel from "./WorkflowOpsPanel";
 
-type Tab = "observation" | "tasks" | "tools";
+type Tab = "workflows" | "tasks" | "tools";
 
 interface FridayDashboardPanelProps {
   onClose?: () => void;
@@ -24,9 +24,9 @@ export default function FridayDashboardPanel({
   onDashboardTabChange,
 }: FridayDashboardPanelProps) {
   const [tab, setTab] = useState<Tab>(() =>
-    initialWorkTab === "tasks" || initialWorkTab === "tools" || initialWorkTab === "observation"
+    initialWorkTab === "tasks" || initialWorkTab === "tools" || initialWorkTab === "workflows"
       ? initialWorkTab
-      : "observation"
+      : "workflows"
   );
 
   useEffect(() => {
@@ -35,8 +35,8 @@ export default function FridayDashboardPanel({
 
   const TABS: { key: Tab; label: string; count?: string }[] = [
     {
-      key: "observation",
-      label: "Observation Post",
+      key: "workflows",
+      label: "Workflows",
     },
     {
       key: "tasks",
@@ -74,8 +74,8 @@ export default function FridayDashboardPanel({
         })}
       </div>
 
-      {tab === "observation" ? (
-        <ObservationPostPanel />
+      {tab === "workflows" ? (
+        <WorkflowOpsPanel />
       ) : tab === "tools" ? (
         <ToolsPanel />
       ) : (

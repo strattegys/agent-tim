@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { Client } from "pg";
 import { auth } from "@/lib/auth";
-import { CRM_WORKSPACE_SCHEMA, resetCrmPoolForReconnect } from "@/lib/db";
+import { CRM_WORKSPACE_SCHEMA, crmResolvedHostPort, resetCrmPoolForReconnect } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -40,8 +40,7 @@ export async function POST() {
 
   await resetCrmPoolForReconnect();
 
-  const host = process.env.CRM_DB_HOST || "127.0.0.1";
-  const port = parseInt(process.env.CRM_DB_PORT || "5432", 10);
+  const { host, port } = crmResolvedHostPort();
   const target = `${host}:${port}`;
 
   const client = new Client({

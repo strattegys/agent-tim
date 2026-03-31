@@ -531,6 +531,7 @@ export default function GhostMessagesPanel({
                   task={selected}
                   resolving={resolving === selected.itemId}
                   chatAgentLabel="Ghost"
+                  onClose={() => setSelectedId(null)}
                   onSubmitInput={async (notes) => {
                     await handleResolve(selected.itemId, "input", notes);
                   }}

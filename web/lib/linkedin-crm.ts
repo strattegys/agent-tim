@@ -7,7 +7,7 @@ import fs from "fs";
 import { execFileSync } from "child_process";
 import { join } from "path";
 import { normalizeUnipileDsn } from "./unipile-profile";
-import { recordGeneralLinkedInInbound } from "./linkedin-general-inbox";
+import { recordLinkedInConnectionAccepted } from "./linkedin-connection-intake";
 import { recordUsageEvent } from "./usage-events";
 
 const UNIPILE_API_KEY = process.env.UNIPILE_API_KEY || "";
@@ -466,21 +466,18 @@ export async function checkNewConnections(): Promise<number> {
       );
     }
 
-    if (contactId) {
-      try {
-        const gen = await recordGeneralLinkedInInbound({
-          crmContactId: contactId,
-          senderProviderId: conn.public_identifier || conn.member_id,
-          senderDisplayName: fullName,
-          eventKind: "connection_accepted",
-          timestampIso: new Date(conn.created_at).toISOString(),
-        });
-        if (!gen.ok && gen.reason) {
-          console.log(`[linkedin-crm] Tim general inbox skipped: ${gen.reason}`);
-        }
-      } catch (e) {
-        console.error("[linkedin-crm] recordGeneralLinkedInInbound error:", e);
+    try {
+      const gen = await recordLinkedInConnectionAccepted({
+        crmContactId: contactId || "",
+        senderProviderId: conn.public_identifier || conn.member_id,
+        senderDisplayName: fullName,
+        timestampIso: new Date(conn.created_at).toISOString(),
+      });
+      if (!gen.ok && gen.reason) {
+        console.log(`[linkedin-crm] Tim connection intake skipped: ${gen.reason}`);
       }
+    } catch (e) {
+      console.error("[linkedin-crm] recordLinkedInConnectionAccepted error:", e);
     }
 
     posted++;

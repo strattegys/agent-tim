@@ -15,7 +15,14 @@ import {
   extractLastWarmInboundFromArtifactRows,
   extractPlainDmFromDraftMarkdown,
 } from "@/lib/warm-outreach-draft";
-import { insertPackageBriefArtifactIfPresent, PACKAGE_BRIEF_STAGE } from "@/lib/package-brief-artifact";
+import { insertPackageBriefArtifactIfPresent } from "@/lib/package-brief-artifact";
+import {
+  buildTimWarmKnowledgeContextText,
+  getCrmPersonIdForWorkflowItem,
+  getWarmContactNotes,
+  getWarmPackageBriefForItem,
+  getWarmWorkflowPersonFirstName,
+} from "@/lib/tim-warm-groq-context";
 import {
   scheduleNextWarmDiscoveryAfterIntake,
   spawnAfterWarmOutreachEnded,
@@ -143,15 +150,17 @@ export async function POST(req: NextRequest) {
       const st = (item.stage || "").trim().toUpperCase();
       const allowGeneralInbox =
         wfTypeId === "linkedin-general-inbox" && st === "LINKEDIN_INBOUND";
+      const allowConnectionIntake =
+        wfTypeId === "linkedin-connection-intake" && st === "CONNECTION_ACCEPTED";
       const allowWarmMistake =
         wfTypeId === "warm-outreach" &&
         (st === "REPLY_DRAFT" || st === "REPLIED") &&
         confirmDismiss === true;
-      if (!allowGeneralInbox && !allowWarmMistake) {
+      if (!allowGeneralInbox && !allowConnectionIntake && !allowWarmMistake) {
         return NextResponse.json(
           {
             error:
-              "dismiss: use for LinkedIn general inbox (triage stage), or warm-outreach Reply Draft / Replied with confirmDismiss: true",
+              "dismiss: use for LinkedIn general inbox (triage), connection intake (CONNECTION_ACCEPTED), or warm-outreach Reply Draft / Replied with confirmDismiss: true",
           },
           { status: 400 }
         );
@@ -335,7 +344,31 @@ export async function POST(req: NextRequest) {
     }
 
     if (!targetStage) {
-      // Terminal human stage — soft-delete the item to mark as resolved
+      // Terminal human stage — persist any notes as an artifact before removing the queue row
+      // (LinkedIn intake / general inbox previously dropped notes on approve because we returned early.)
+      if (notes || data) {
+        let artifactContent = "";
+        if (notes) artifactContent += notes;
+        if (data) {
+          if (artifactContent) artifactContent += "\n\n---\n\n";
+          for (const [key, val] of Object.entries(data)) {
+            artifactContent += `**${key}:** ${val}\n`;
+          }
+        }
+        await query(
+          `INSERT INTO "_artifact" ("workflowItemId", "workflowId", stage, name, type, content, "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+          [
+            itemId,
+            item.workflowId,
+            item.stage,
+            `Human ${action}: ${item.stage}`,
+            "markdown",
+            artifactContent,
+          ]
+        );
+      }
+
       await query(
         `UPDATE "_workflow_item" SET "deletedAt" = NOW(), "humanTaskOpen" = false WHERE id = $1`,
         [itemId]
@@ -1035,35 +1068,6 @@ async function autoAdvanceItem(
   return currentStage;
 }
 
-async function getWarmContactNotes(itemId: string): Promise<string> {
-  const rows = await query<{ content: string }>(
-    `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'AWAITING_CONTACT' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
-    [itemId]
-  );
-  return rows[0]?.content?.trim() || "";
-}
-
-/** PACKAGE_BRIEF artifact first, else live `spec.brief` from the package row. */
-async function getWarmPackageBriefForItem(itemId: string): Promise<string> {
-  const art = await query<{ content: string }>(
-    `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
-    [itemId, PACKAGE_BRIEF_STAGE]
-  );
-  const fromArtifact = art[0]?.content?.trim();
-  if (fromArtifact) return fromArtifact;
-
-  const pkgRows = await query<{ brief: string | null }>(
-    `SELECT (pkg.spec->>'brief') AS brief
-     FROM "_workflow_item" wi
-     INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
-     LEFT JOIN "_package" pkg ON pkg.id = w."packageId" AND pkg."deletedAt" IS NULL
-     WHERE wi.id = $1 AND wi."deletedAt" IS NULL`,
-    [itemId]
-  );
-  const raw = (pkgRows[0]?.brief || "").trim();
-  return raw;
-}
-
 /** LinkedIn URL + optional Unipile member id from CRM person linked to this workflow item. */
 async function getWarmPersonLinkedInRecord(itemId: string): Promise<{
   linkedinUrl: string | null;
@@ -1110,21 +1114,6 @@ async function getWarmLinkedInIdentifierFromPerson(
     linkedinProviderId: r.linkedinProviderId,
     notesFallback: notesForFallback,
   });
-}
-
-/** First name from Postgres person on this item — excludes warm-outreach placeholder row. */
-async function getWarmWorkflowPersonFirstName(itemId: string): Promise<string> {
-  const rows = await query<{ tf: string | null; tl: string | null }>(
-    `SELECT TRIM(COALESCE(p."nameFirstName",'')) AS tf, TRIM(COALESCE(p."nameLastName",'')) AS tl
-     FROM "_workflow_item" wi
-     INNER JOIN person p ON p.id = wi."sourceId" AND p."deletedAt" IS NULL
-     WHERE wi.id = $1 AND wi."sourceType" = 'person' AND wi."deletedAt" IS NULL`,
-    [itemId]
-  );
-  const tf = (rows[0]?.tf || "").trim();
-  const tl = (rows[0]?.tl || "").trim();
-  if (tf === "Next" && tl === "Contact") return "";
-  return tf;
 }
 
 /** Suppress accidental double-submit (double-click, duplicate POST) within a short window. */
@@ -1301,7 +1290,8 @@ async function generateWarmMessageDraftLLM(
   seq: number,
   workflowName: string,
   packageBrief: string,
-  crmContactFirstName: string
+  crmContactFirstName: string,
+  timKnowledgeContext: string
 ): Promise<string | null> {
   const role =
     seq === 1
@@ -1315,6 +1305,8 @@ async function generateWarmMessageDraftLLM(
   const system = `You draft LinkedIn DMs for Govind Davis, first person as Govind. ${role}
 ${nameBlock}
 Honor the PACKAGE BRIEF in the user message for tone, boundaries, and what to emphasize. The package brief may contain example names of other people — never address the recipient by those names.
+
+**Tim knowledge (memory + corpus):** Supporting voice, angles, and boundaries only — must not override the sequence role (opener vs bump vs nudge) or the package brief.
 
 Output Markdown:
 # Warm DM — [label]
@@ -1332,7 +1324,10 @@ Enrichment report:
 ${enrichment.slice(0, 8000)}
 
 Govind's raw notes:
-${notes || "(none)"}`;
+${notes || "(none)"}
+
+Tim knowledge (vector memory + Knowledge Studio — supporting only):
+${timKnowledgeContext.trim() || "(none retrieved)"}`;
   return groqCompletion(system, user, { max_tokens: 1200, temperature: 0.45 });
 }
 
@@ -1626,6 +1621,20 @@ ${synthesis}${crmSection}`;
     const enrichment = enrichRows[0]?.content || "";
     const contactFirst = await getWarmWorkflowPersonFirstName(itemId);
 
+    const threadRowsForKb = await query<{ stage: string; content: string; createdAt: string }>(
+      `SELECT stage, content, "createdAt" FROM "_artifact" WHERE "workflowItemId" = $1 AND stage IN ('MESSAGE_DRAFT', 'REPLY_DRAFT', 'MESSAGED', 'REPLY_SENT', 'REPLIED') AND "deletedAt" IS NULL ORDER BY "createdAt" ASC`,
+      [itemId]
+    );
+    const theirLatestForKb = extractLastWarmInboundFromArtifactRows(threadRowsForKb);
+    const crmPersonIdForKb = await getCrmPersonIdForWorkflowItem(itemId);
+    const timKnowledgeForMessage = await buildTimWarmKnowledgeContextText({
+      crmPersonId: crmPersonIdForKb,
+      contactFirst,
+      theirLatest: theirLatestForKb,
+      notes,
+      packageBrief,
+    });
+
     if (!useFakeData) {
       const llm = await generateWarmMessageDraftLLM(
         notes,
@@ -1633,7 +1642,8 @@ ${synthesis}${crmSection}`;
         seq,
         workflowName,
         packageBrief,
-        contactFirst
+        contactFirst,
+        timKnowledgeForMessage
       );
       if (llm) {
         const names: Record<number, string> = {
@@ -1709,58 +1719,14 @@ ${synthesis}${crmSection}`;
     const structuredThread = buildStructuredWarmThreadTranscriptForLlm(threadRows);
     const theirLatest = extractLastWarmInboundFromArtifactRows(threadRows);
 
-    const wiPerson = await query<{ sourceId: string; sourceType: string }>(
-      `SELECT "sourceId", "sourceType" FROM "_workflow_item" WHERE id = $1 AND "deletedAt" IS NULL`,
-      [itemId]
-    );
-    const crmPersonId =
-      (wiPerson[0]?.sourceType || "").toLowerCase() === "person"
-        ? (wiPerson[0]?.sourceId || "").trim() || null
-        : null;
-
-    const memoryQuery = [contactFirst, theirLatest, notes, packageBrief]
-      .filter((s) => String(s).trim().length > 0)
-      .join("\n")
-      .slice(0, 2000);
-
-    const kbParts: string[] = [];
-
-    if (memoryQuery.trim().length >= 12) {
-      try {
-        const { searchMemories } = await import("@/lib/vector-memory");
-        const mem = await searchMemories("tim", memoryQuery, { topK: 10 });
-        if (mem.length > 0) {
-          kbParts.push(
-            "### Vector memory\n" + mem.map((m) => `- [${m.category}] ${m.content}`).join("\n")
-          );
-        }
-      } catch (e) {
-        console.warn("[warm-outreach REPLY_DRAFT] Tim vector memory search skipped:", e);
-      }
-
-      try {
-        const { searchAgentKnowledge, isMarniKbDatabaseConfigured } = await import("@/lib/marni-kb");
-        if (isMarniKbDatabaseConfigured()) {
-          let chunks = await searchAgentKnowledge("tim", memoryQuery, {
-            topK: 8,
-            personId: crmPersonId,
-          });
-          if (chunks.length === 0 && crmPersonId) {
-            chunks = await searchAgentKnowledge("tim", memoryQuery, { topK: 6 });
-          }
-          if (chunks.length > 0) {
-            kbParts.push(
-              "### Knowledge Studio (CRM / LinkedIn sync)\n" +
-                chunks.map((c) => c.content.trim().slice(0, 900)).join("\n\n---\n\n")
-            );
-          }
-        }
-      } catch (e) {
-        console.warn("[warm-outreach REPLY_DRAFT] Tim Knowledge Studio search skipped:", e);
-      }
-    }
-
-    const timKnowledgeContext = kbParts.join("\n\n");
+    const crmPersonId = await getCrmPersonIdForWorkflowItem(itemId);
+    const timKnowledgeContext = await buildTimWarmKnowledgeContextText({
+      crmPersonId,
+      contactFirst,
+      theirLatest,
+      notes,
+      packageBrief,
+    });
 
     const llm = await generateWarmReplyDraftLLM(
       notes,

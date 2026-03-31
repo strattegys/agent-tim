@@ -10,6 +10,12 @@
  *   npm run dev:unipile-replay-queue -- --max-inbound 10 --max-chats 30
  *   npm run dev:unipile-replay-queue -- --export-sample tmp/unipile-inbound-last10.json
  *
+ *   Week-style backfill (paginated chats, filter inbound messages since start of UTC day N days ago):
+ *   npm run dev:unipile-sync-recent-dry
+ *   npm run dev:unipile-sync-recent
+ *   npm run dev:unipile-replay-queue -- --days 3 --max-chats 400 --max-inbound 150 --relations
+ *   npm run dev:unipile-replay-queue -- --since 2026-03-29T00:00:00.000Z --max-inbound 80
+ *
  * Writes require CRM_DB_HOST=127.0.0.1 (or localhost / ::1). Tunnel/Docker host.docker.internal
  * to production is blocked unless you set UNIPILE_REPLAY_ALLOW_REMOTE_CRM=1 for that shell only.
  */
@@ -53,16 +59,29 @@ function argStr(name: string): string | null {
 
 applyEnvLocal();
 
+function utcStartOfDayDaysAgo(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  d.setUTCHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
 const dryRun = process.argv.includes("--dry-run");
+const runRelations = process.argv.includes("--relations");
 const maxInbound = argNum("--max-inbound", 10);
 const maxChats = argNum("--max-chats", 30);
 const messagesPerChat = argNum("--messages-per-chat", 25);
 const exportSamplePath = argStr("--export-sample");
+const daysBack = argNum("--days", 0);
+const sinceIso = argStr("--since");
+const messageAfterIso =
+  (sinceIso?.trim() || (daysBack > 0 ? utcStartOfDayDaysAgo(daysBack) : null)) ?? undefined;
 
 async function main() {
   const {
     gatherUnipileInboundWebhookCandidates,
     replayRecentUnipileInboundAsWebhooks,
+    replayUnipileRelationsAsNewRelationWebhooks,
     takeLastNInboundCandidates,
   } = await import("../lib/unipile-inbound-replay");
 
@@ -71,11 +90,14 @@ async function main() {
       ? exportSamplePath
       : path.join(process.cwd(), exportSamplePath);
     console.log("[replay] EXPORT SAMPLE — no CRM writes");
-    console.log(`[replay] maxChats=${maxChats} messagesPerChat=${messagesPerChat} maxInbound=${maxInbound}\n`);
+    console.log(
+      `[replay] maxChats=${maxChats} messagesPerChat=${messagesPerChat} maxInbound=${maxInbound} messageAfter=${messageAfterIso ?? "(none)"}\n`
+    );
 
     const gathered = await gatherUnipileInboundWebhookCandidates({
       maxChats,
       messagesPerChat,
+      messageAfterIso,
     });
     if (!gathered.ok) {
       console.error(gathered.error);
@@ -108,7 +130,7 @@ async function main() {
       : "[replay] LIVE — writing CRM notes and Tim queue via handleUnipileWebhook"
   );
   console.log(
-    `[replay] maxChats=${maxChats} messagesPerChat=${messagesPerChat} maxInbound=${maxInbound}\n`
+    `[replay] maxChats=${maxChats} messagesPerChat=${messagesPerChat} maxInbound=${maxInbound} messageAfter=${messageAfterIso ?? "(none)"} relations=${runRelations}\n`
   );
 
   const result = await replayRecentUnipileInboundAsWebhooks({
@@ -116,11 +138,24 @@ async function main() {
     messagesPerChat,
     maxInbound,
     dryRun,
+    messageAfterIso,
   });
 
-  console.log(JSON.stringify(result, null, 2));
+  console.log("[replay] messages:", JSON.stringify(result, null, 2));
   if (!result.ok) {
     process.exit(1);
+  }
+
+  if (runRelations) {
+    const rel = await replayUnipileRelationsAsNewRelationWebhooks({
+      dryRun,
+      afterIso: messageAfterIso,
+      limit: 250,
+    });
+    console.log("[replay] relations:", JSON.stringify(rel, null, 2));
+    if (!rel.ok) {
+      process.exit(1);
+    }
   }
 }
 

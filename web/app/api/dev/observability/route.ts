@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { observabilityApiAllowed } from "@/lib/observability-gate";
+import {
+  observabilityApiAllowed,
+  OBSERVABILITY_API_DISABLED_ERROR,
+} from "@/lib/observability-gate";
 import {
   getObservabilityToggleRows,
   setObservabilityToggle,
@@ -20,10 +23,7 @@ function envTruthy(name: string): boolean {
  */
 export async function GET() {
   if (!observabilityApiAllowed()) {
-    return NextResponse.json(
-      { error: "Not available (use development or DEV_UNIPILE_INBOUND_REPLAY=1)" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: OBSERVABILITY_API_DISABLED_ERROR }, { status: 404 });
   }
 
   const session = await auth();
@@ -34,9 +34,16 @@ export async function GET() {
   const toggles = getObservabilityToggleRows();
   const readOnly = [
     {
+      key: "OBSERVATION_POST_API",
+      label: "Observation Post API gate",
+      description:
+        "When set (e.g. on Docker local prod), enables Friday Observation Post and /api/dev/observability* while NODE_ENV=production.",
+      on: envTruthy("OBSERVATION_POST_API"),
+    },
+    {
       key: "DEV_UNIPILE_INBOUND_REPLAY",
       label: "Unipile inbound replay API",
-      description: "Allows POST /api/dev/replay-unipile-inbound when not in NODE_ENV=development.",
+      description: "Also opens the same gate as Observation Post; enables POST /api/dev/replay-unipile-inbound.",
       on: envTruthy("DEV_UNIPILE_INBOUND_REPLAY"),
     },
     {
@@ -52,10 +59,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   if (!observabilityApiAllowed()) {
-    return NextResponse.json(
-      { error: "Not available (use development or DEV_UNIPILE_INBOUND_REPLAY=1)" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: OBSERVABILITY_API_DISABLED_ERROR }, { status: 404 });
   }
 
   const session = await auth();

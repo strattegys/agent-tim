@@ -1,4 +1,5 @@
 import fs from "fs";
+import { getLocalRuntimeLabel } from "./app-brand";
 import { devQuery, devTransaction } from "./dev-store";
 
 function isInsideLinuxDocker(): boolean {
@@ -105,6 +106,9 @@ function getPool(): import("pg").Pool {
   const { Pool } = require("pg") as typeof import("pg");
   if (!_pool) {
     _pool = new Pool(crmPoolOptions());
+    _pool.on("error", (err: Error) => {
+      console.warn("[db] Pool idle-client error (stale connection removed):", err.message);
+    });
   }
   return _pool;
 }
@@ -123,6 +127,65 @@ export async function resetCrmPoolForReconnect(): Promise<void> {
   } catch {
     /* pool may already be closed */
   }
+}
+
+/** Resolved host + port the pool will actually connect to (same logic as crmPoolOptions). */
+export function crmResolvedHostPort(): { host: string; port: number } {
+  const opts = crmPoolOptions();
+  return { host: opts.host, port: opts.port };
+}
+
+/**
+ * Human-readable CRM target for Status rail / system-status (no secrets).
+ * Leads with **LIVE CRM** vs **PRACTICE CRM** so architects see real vs sandbox at a glance.
+ */
+export function getCrmDataPlatformConnectionLabel(): string {
+  if (!process.env.CRM_DB_PASSWORD?.trim()) {
+    return "CRM not set up";
+  }
+
+  const configuredRaw = (process.env.CRM_DB_HOST || "127.0.0.1").trim();
+  const ch = configuredRaw.toLowerCase();
+  const { host, port } = crmResolvedHostPort();
+  const hh = host.toLowerCase();
+  const localRuntime = getLocalRuntimeLabel();
+
+  if (ch === "crm-db" && isInsideLinuxDocker()) {
+    if (localRuntime === "LOCALDEV") {
+      return "PRACTICE CRM — local Docker only (not live pipelines)";
+    }
+    return "LIVE CRM — same database the hosted app uses";
+  }
+
+  if (ch === "crm-db" && !isInsideLinuxDocker()) {
+    return "PRACTICE CRM — small database on this machine";
+  }
+
+  if ((hh === "127.0.0.1" || hh === "localhost" || hh === "::1") && port === 25432) {
+    return "PRACTICE CRM — small database on this machine";
+  }
+
+  if (
+    (hh === "127.0.0.1" || hh === "localhost" || hh === "::1" || hh === "host.docker.internal") &&
+    port === 5433
+  ) {
+    return "LIVE CRM — dev screen, but data is the real cloud database (via this PC)";
+  }
+
+  if (/^100\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hh)) {
+    return "LIVE CRM — direct to cloud over your private network";
+  }
+
+  const ts = process.env.CRM_DB_TAILSCALE_HOST?.trim().toLowerCase();
+  if (ts && hh === ts) {
+    return "LIVE CRM — direct to cloud over your private network";
+  }
+
+  if (localRuntime === "LOCALPROD") {
+    return `LIVE CRM — LOCALPROD (${host}:${port})`;
+  }
+
+  return `Other CRM target — ${host}:${port}`;
 }
 
 /** Twenty / CRM workspace schema (Kanban, workflows, person, _workflow_item, …). */
@@ -157,6 +220,9 @@ async function runPooledQuery<T extends Record<string, unknown>>(
   }
 }
 
+const CRM_TRANSIENT_MAX_RETRIES = 3;
+const CRM_TRANSIENT_BASE_DELAY_MS = 500;
+
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   sql: string,
   params?: unknown[]
@@ -175,13 +241,21 @@ export async function query<T extends Record<string, unknown> = Record<string, u
     return devQuery(sql, params) as Promise<T[]>;
   }
 
-  try {
-    return await runPooledQuery<T>(sql, params);
-  } catch (e) {
-    if (!isTransientCrmConnectionError(e)) throw e;
-    await resetCrmPoolForReconnect();
-    return runPooledQuery<T>(sql, params);
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= CRM_TRANSIENT_MAX_RETRIES; attempt++) {
+    try {
+      return await runPooledQuery<T>(sql, params);
+    } catch (e) {
+      if (!isTransientCrmConnectionError(e)) throw e;
+      lastError = e;
+      await resetCrmPoolForReconnect();
+      if (attempt < CRM_TRANSIENT_MAX_RETRIES) {
+        const delayMs = Math.min(CRM_TRANSIENT_BASE_DELAY_MS * Math.pow(2, attempt), 4000);
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
   }
+  throw lastError;
 }
 
 /** Run multiple statements in a transaction. Returns the result of the callback. */

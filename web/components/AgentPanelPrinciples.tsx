@@ -25,7 +25,9 @@ export function AgentPanelPrinciples() {
             className="text-[var(--accent-green)]"
             aria-hidden
           >
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <g transform="translate(12 12) scale(0.94) translate(-12 -12)">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </g>
           </svg>
         </div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--accent-green)] leading-tight text-center whitespace-nowrap">
@@ -73,8 +75,7 @@ export function AgentPanelPrinciples() {
             className="text-[#c9a227]"
             aria-hidden
           >
-            <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-            <polyline points="16 7 22 7 22 13" />
+            <polygon points="12 3 14.64 5.64 18.36 5.64 18.36 9.36 21 12 18.36 14.64 18.36 18.36 14.64 18.36 12 21 9.36 18.36 5.64 18.36 5.64 14.64 3 12 5.64 9.36 5.64 5.64 9.36 5.64" />
           </svg>
         </div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-[#c9a227] leading-tight text-center whitespace-nowrap">

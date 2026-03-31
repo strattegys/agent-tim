@@ -10,6 +10,7 @@ import { KnowledgeRagIcon } from "@/components/icons/KnowledgeRagIcon";
 import { MemoryBrainIcon } from "@/components/icons/MemoryBrainIcon";
 import { getAgentSpec } from "@/lib/agent-registry";
 import { isKbStudioAgentId } from "@/lib/kb-studio";
+import TimLabLogDock from "@/components/TimLabLogDock";
 
 const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "workflow", "schedule"];
 
@@ -160,6 +161,8 @@ interface StatusRailProps {
   agents: AgentConfig[];
   /** When provided, rail uses parent-fed alerts and skips /api/notifications polling. */
   sharedNotifications?: DashboardNotification[];
+  /** Desktop Tim lab: bottom dock for Unipile + Groq log buffers. */
+  timLabDock?: boolean;
 }
 
 function formatAlertTime(ts: string) {
@@ -264,6 +267,7 @@ function perAgentOverviewTitle(a: AgentConfig, row: StatusRailAgentRow | undefin
 export default function StatusRail({
   agents,
   sharedNotifications,
+  timLabDock = false,
 }: StatusRailProps) {
   const [services, setServices] = useState<ServiceRow[] | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
@@ -271,7 +275,6 @@ export default function StatusRail({
   const [reconnectBusy, setReconnectBusy] = useState(false);
   const [reconnectNote, setReconnectNote] = useState<string | null>(null);
   const [agentOps, setAgentOps] = useState<Record<string, StatusRailAgentRow> | null>(null);
-
   const teamAgents = agents.filter((a) => a.category !== "Toys");
 
   const consolidatedSystemRows = useMemo(
@@ -365,10 +368,11 @@ export default function StatusRail({
   }, [dataPlatformDown, fetchStatus]);
 
   useEffect(() => {
+    if (timLabDock) return;
     fetchAgentOps();
     const i = setInterval(fetchAgentOps, 60000);
     return () => clearInterval(i);
-  }, [fetchAgentOps]);
+  }, [timLabDock, fetchAgentOps]);
 
   const onReconnectDataPlatform = useCallback(async () => {
     setReconnectBusy(true);
@@ -393,55 +397,68 @@ export default function StatusRail({
     }
   }, [fetchStatus, fetchAgentOps]);
 
+  const systemStatusSection = (
+    <section>
+      <ul className="font-mono text-[10px] space-y-1">
+        {consolidatedSystemRows.map((s) => (
+          <li key={s.id} className="flex items-start gap-1.5 min-w-0" title={s.detail}>
+            <span className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${statusDotClass(s.status)}`} />
+            <span className="min-w-0 flex-1">
+              <span className="text-[var(--text-secondary)] block truncate">{s.label}</span>
+              <span className="text-[var(--text-tertiary)] break-words whitespace-pre-line leading-snug">
+                {s.id === "website_projects" || s.id === "integrations_services"
+                  ? s.detail
+                  : serviceSubline(s)}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        disabled={reconnectBusy}
+        onClick={onReconnectDataPlatform}
+        className="mt-2 w-full rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] disabled:opacity-50"
+        title="Clears stale CRM connection pool and probes Postgres. Docker dev: tunnel must listen on 0.0.0.0:5433 on Windows — run npm run db:reconnect from COMMAND-CENTRAL/web (this button cannot start SSH)."
+      >
+        {reconnectBusy ? "Checking…" : "Refresh Data Platform"}
+      </button>
+      {reconnectNote ? (
+        <p
+          className="mt-1.5 text-[9px] leading-snug text-[var(--text-tertiary)] break-words line-clamp-12"
+          title={reconnectNote}
+        >
+          {reconnectNote}
+        </p>
+      ) : null}
+    </section>
+  );
+
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
-      aria-label="System monitor"
+      aria-label={timLabDock ? "Tim lab" : "System monitor"}
     >
       <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5 min-w-0">
         <p
           className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide truncate min-w-0"
-          title="System monitor"
+          title={timLabDock ? "Tim lab" : "System monitor"}
         >
-          System monitor
+          {timLabDock ? "Tim lab" : "System monitor"}
         </p>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
-        <section>
-          <ul className="font-mono text-[10px] space-y-1">
-            {consolidatedSystemRows.map((s) => (
-              <li key={s.id} className="flex items-start gap-1.5 min-w-0" title={s.detail}>
-                <span className={`w-1.5 h-1.5 rounded-full mt-1 shrink-0 ${statusDotClass(s.status)}`} />
-                <span className="min-w-0 flex-1">
-                  <span className="text-[var(--text-secondary)] block truncate">{s.label}</span>
-                  <span className="text-[var(--text-tertiary)] break-words whitespace-pre-line leading-snug">
-                    {s.id === "website_projects" || s.id === "integrations_services"
-                      ? s.detail
-                      : serviceSubline(s)}
-                  </span>
-                </span>
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            disabled={reconnectBusy}
-            onClick={onReconnectDataPlatform}
-            className="mt-2 w-full rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] disabled:opacity-50"
-            title="Clears stale CRM connection pool and probes Postgres. Docker dev: tunnel must listen on 0.0.0.0:5433 on Windows — run npm run db:reconnect from COMMAND-CENTRAL/web (this button cannot start SSH)."
-          >
-            {reconnectBusy ? "Checking…" : "Refresh Data Platform"}
-          </button>
-          {reconnectNote ? (
-            <p
-              className="mt-1.5 text-[9px] leading-snug text-[var(--text-tertiary)] break-words line-clamp-12"
-              title={reconnectNote}
-            >
-              {reconnectNote}
-            </p>
-          ) : null}
-        </section>
+      <div className="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">
+        {timLabDock ? (
+          <>
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
+              {systemStatusSection}
+            </div>
+            <TimLabLogDock fillRail />
+          </>
+        ) : (
+        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
+        {systemStatusSection}
 
         <section>
           <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
@@ -543,6 +560,8 @@ export default function StatusRail({
             </ul>
           )}
         </section>
+        </div>
+        )}
       </div>
     </div>
   );

@@ -15,6 +15,10 @@ interface KanbanInlinePanelProps {
   readOnly?: boolean;
   /** Reserved for embedded kanban layouts (Tim uses work queues instead of inline pipeline). */
   embeddedInTimTabs?: boolean;
+  /** Lock to one workflow and hide the selector (Friday workflow drill-down). */
+  fixedWorkflowId?: string;
+  /** Shown in the slim header when fixedWorkflowId is set. */
+  fixedWorkflowLabel?: string;
 }
 
 export default function KanbanInlinePanel({
@@ -22,10 +26,15 @@ export default function KanbanInlinePanel({
   agentId,
   readOnly = false,
   embeddedInTimTabs = false,
+  fixedWorkflowId,
+  fixedWorkflowLabel,
 }: KanbanInlinePanelProps) {
+  const locked = Boolean(fixedWorkflowId);
+
   const [workflowId, setWorkflowId] = useState(() => {
-    if (typeof window !== "undefined") return localStorage.getItem("kanban_workflow") || "";
-    return "";
+    if (typeof window === "undefined") return "";
+    if (fixedWorkflowId) return fixedWorkflowId;
+    return localStorage.getItem("kanban_workflow") || "";
   });
   const [items, setItems] = useState<WorkflowItem[]>([]);
   const [alerts, setAlerts] = useState<Record<string, ItemAlert>>({});
@@ -33,6 +42,10 @@ export default function KanbanInlinePanel({
   const [loading, setLoading] = useState(false);
   const [boardStages, setBoardStages] = useState<StageConfig[]>([]);
   const [boardTransitions, setBoardTransitions] = useState<Record<string, string[]> | undefined>();
+
+  useEffect(() => {
+    if (fixedWorkflowId) setWorkflowId(fixedWorkflowId);
+  }, [fixedWorkflowId]);
 
   const fetchItems = useCallback(async (id: string) => {
     if (!id) {
@@ -64,8 +77,8 @@ export default function KanbanInlinePanel({
   useEffect(() => {
     setSelectedItem(null);
     fetchItems(workflowId);
-    if (workflowId) localStorage.setItem("kanban_workflow", workflowId);
-  }, [workflowId, fetchItems]);
+    if (workflowId && !locked) localStorage.setItem("kanban_workflow", workflowId);
+  }, [workflowId, fetchItems, locked]);
 
   useEffect(() => {
     if (readOnly) setSelectedItem(null);
@@ -73,9 +86,17 @@ export default function KanbanInlinePanel({
 
   // Refresh when agent tools modify CRM data
   useEffect(() => {
-    const refetch = () => { if (workflowIdRef.current) fetchItems(workflowIdRef.current); };
-    const unsub = panelBus.on("twenty_crm", refetch);
-    return unsub;
+    const refetch = () => {
+      if (workflowIdRef.current) fetchItems(workflowIdRef.current);
+    };
+    const u1 = panelBus.on("twenty_crm", refetch);
+    const u2 = panelBus.on("workflow_items", refetch);
+    const u3 = panelBus.on("dashboard_sync", refetch);
+    return () => {
+      u1();
+      u2();
+      u3();
+    };
   }, [fetchItems]);
 
   const handleWorkflowLoaded = useCallback((workflow: WorkflowWithBoard | null) => {
@@ -88,11 +109,49 @@ export default function KanbanInlinePanel({
     }
   }, []);
 
+  useEffect(() => {
+    if (!locked || !workflowId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/crm/workflows");
+        const data = await res.json();
+        if (cancelled) return;
+        const w = (data.workflows || []).find((x: { id: string }) => x.id === workflowId);
+        handleWorkflowLoaded(w ?? null);
+      } catch {
+        if (!cancelled) handleWorkflowLoaded(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locked, workflowId, handleWorkflowLoaded]);
+
   const timStacked = agentId === "tim";
+
+  const lockedHeader = locked ? (
+    <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2 min-w-0">
+      <span className="text-xs font-semibold text-[var(--text-primary)] shrink-0">Pipeline</span>
+      {fixedWorkflowLabel ? (
+        <span className="text-xs text-[var(--text-secondary)] truncate min-w-0">
+          {fixedWorkflowLabel}
+        </span>
+      ) : null}
+      {loading && (
+        <span className="text-xs text-[var(--text-tertiary)] shrink-0">Loading…</span>
+      )}
+      <span className="ml-auto text-xs text-[var(--text-tertiary)] shrink-0">
+        {items.length > 0 && `${items.length} items`}
+      </span>
+    </div>
+  ) : null;
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {timStacked ? (
+      {locked ? (
+        lockedHeader
+      ) : timStacked ? (
         <>
           {!embeddedInTimTabs && (
             <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2">

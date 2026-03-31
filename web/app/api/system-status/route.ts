@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import { Client } from "pg";
 import { getAllAgentSpecs } from "@/lib/agent-registry";
-import { CRM_WORKSPACE_SCHEMA } from "@/lib/db";
+import {
+  CRM_WORKSPACE_SCHEMA,
+  crmResolvedHostPort,
+  getCrmDataPlatformConnectionLabel,
+} from "@/lib/db";
 import { normalizeUnipileDsn } from "@/lib/unipile-profile";
 
 export const runtime = "nodejs";
@@ -135,9 +139,9 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
     };
   }
 
-  const dbHost = process.env.CRM_DB_HOST || "127.0.0.1";
-  const dbPort = parseInt(process.env.CRM_DB_PORT || "5432", 10);
+  const { host: dbHost, port: dbPort } = crmResolvedHostPort();
   const target = `${dbHost}:${dbPort}`;
+  const tierHint = getCrmDataPlatformConnectionLabel();
 
   const pgProbeMs = crmPostgresProbeTimeoutMs();
   const client = new Client({
@@ -172,7 +176,7 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
         status: "down",
         ms,
         detail:
-          "schema incomplete (no _workflow_item) — run web/scripts/migrate-workflows.sql on this CRM DB",
+          `schema incomplete (no _workflow_item) — run web/scripts/migrate-workflows.sql on this CRM DB · ${tierHint}`,
       };
     }
     return {
@@ -180,7 +184,7 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
       label: DATA_PLATFORM_LABEL,
       status: "ok",
       ms,
-      detail: "postgres",
+      detail: `postgres · ${tierHint}`,
     };
   } catch (e) {
     try {
@@ -220,7 +224,7 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
       id: DATA_PLATFORM_ID,
       label: DATA_PLATFORM_LABEL,
       status: "down",
-      detail,
+      detail: `${detail} · ${tierHint}`,
     };
   }
 }

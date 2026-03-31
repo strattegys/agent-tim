@@ -1,7 +1,11 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
-import { resolveWorkflowRegistryForQueue } from "@/lib/workflow-spec";
+import {
+  inferWorkflowRegistryFromBoardStages,
+  resolveWorkflowRegistryForQueue,
+} from "@/lib/workflow-spec";
 import {
   boardHumanMetaForStage,
   humanTaskOpenFromBoardStages,
@@ -43,6 +47,7 @@ const MESSAGING_ITEM_STAGES = new Set([
   "REPLY_DRAFT",
   "REPLY_SENT",
   "LINKEDIN_INBOUND",
+  "CONNECTION_ACCEPTED",
 ]);
 
 function isMissingPackageNumberColumn(error: unknown): boolean {
@@ -415,6 +420,99 @@ function itemLooksLikeWarmOutreach(
   return false;
 }
 
+/** Same as resolve queue id, plus board-shape inference when spec/package omit workflowType. */
+function effectiveWarmOutreachWorkflowTypeId(
+  resolvedFromQueue: string,
+  item: QueueRow
+): string {
+  return (
+    resolvedFromQueue ||
+    inferWorkflowRegistryFromBoardStages(item.board_stages) ||
+    ""
+  );
+}
+
+function itemLooksLikeWarmOutreachResolved(
+  workflowTypeId: string,
+  item: QueueRow
+): boolean {
+  const wid = effectiveWarmOutreachWorkflowTypeId(workflowTypeId, item);
+  return itemLooksLikeWarmOutreach(wid, item.spec, item.workflowName);
+}
+
+/** Legacy warm slots used a CRM person row named Next / Contact instead of warm_discovery. */
+async function isWarmOutreachPlaceholderPerson(personId: string): Promise<boolean> {
+  try {
+    const rows = await query<{ fn: string; ln: string }>(
+      `SELECT TRIM(COALESCE(p."nameFirstName", '')) AS fn, TRIM(COALESCE(p."nameLastName", '')) AS ln
+       FROM person p WHERE p.id = $1 AND p."deletedAt" IS NULL`,
+      [personId]
+    );
+    const r = rows[0];
+    if (!r) return false;
+    return r.fn.toLowerCase() === "next" && r.ln.toLowerCase() === "contact";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Warm-outreach discovery slots should use sourceType warm_discovery + opaque sourceId.
+ * Rows with empty/unknown sourceType (or warm_discovery without sourceId) break titles and intake.
+ * Legacy rows linked to placeholder person "Next Contact" are repointed here.
+ */
+async function repairWarmAwaitingDiscoveryRow(
+  item: QueueRow,
+  workflowTypeId: string
+): Promise<QueueRow | null> {
+  const stageKey = (item.stage || "").trim().toUpperCase();
+  if (stageKey !== "AWAITING_CONTACT") return null;
+
+  const warmLike = itemLooksLikeWarmOutreachResolved(workflowTypeId, item);
+  const timOwner = String(item.ownerAgent || "").trim().toLowerCase() === "tim";
+
+  const st = (item.sourceType || "").trim().toLowerCase();
+
+  if (st === WARM_DISCOVERY_SOURCE_TYPE) {
+    if (!warmLike) return null;
+    if (item.sourceId && String(item.sourceId).trim()) return null;
+    const nid = randomUUID();
+    await query(
+      `UPDATE "_workflow_item" SET "sourceId" = $1::uuid, "updatedAt" = NOW()
+       WHERE id = $2 AND "deletedAt" IS NULL AND UPPER(TRIM(stage::text)) = 'AWAITING_CONTACT'`,
+      [nid, item.id]
+    );
+    return { ...item, sourceType: WARM_DISCOVERY_SOURCE_TYPE, sourceId: nid };
+  }
+
+  if (st === "content") return null;
+
+  if (st === "person" && item.sourceId) {
+    const placeholder = await isWarmOutreachPlaceholderPerson(String(item.sourceId));
+    if (!placeholder) return null;
+    if (!warmLike && !timOwner) return null;
+    const nid = randomUUID();
+    await query(
+      `UPDATE "_workflow_item" SET "sourceType" = $1, "sourceId" = $2::uuid, "updatedAt" = NOW()
+       WHERE id = $3 AND "deletedAt" IS NULL AND UPPER(TRIM(stage::text)) = 'AWAITING_CONTACT'`,
+      [WARM_DISCOVERY_SOURCE_TYPE, nid, item.id]
+    );
+    return { ...item, sourceType: WARM_DISCOVERY_SOURCE_TYPE, sourceId: nid };
+  }
+
+  if (st === "person") return null;
+
+  if (!warmLike) return null;
+
+  const nid = randomUUID();
+  await query(
+    `UPDATE "_workflow_item" SET "sourceType" = $1, "sourceId" = $2::uuid, "updatedAt" = NOW()
+     WHERE id = $3 AND "deletedAt" IS NULL AND UPPER(TRIM(stage::text)) = 'AWAITING_CONTACT'`,
+    [WARM_DISCOVERY_SOURCE_TYPE, nid, item.id]
+  );
+  return { ...item, sourceType: WARM_DISCOVERY_SOURCE_TYPE, sourceId: nid };
+}
+
 function warmMessagedWaitingHumanCopy(dueDate: string | null): string {
   const days = WARM_OUTREACH_MESSAGE_FOLLOW_UP_DAYS;
   if (!dueDate) {
@@ -479,6 +577,7 @@ async function fetchHumanTaskRows(
           'REPLY_DRAFT',
           'REPLY_SENT',
           'LINKEDIN_INBOUND',
+          'CONNECTION_ACCEPTED',
           'MESSAGE_DRAFT',
           'AWAITING_CONTACT',
           'INITIATED'
@@ -683,6 +782,20 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const stageKeyR = row.stage?.trim().toUpperCase() || "";
+      if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyR)) continue;
+      const workflowTypeIdR =
+        resolveWorkflowRegistryForQueue(row.spec, {
+          packageSpec: row.packageId ? packageSpecs[row.packageId] : undefined,
+          ownerAgent: row.ownerAgent,
+          boardStages: row.board_stages,
+        }) || "";
+      const patched = await repairWarmAwaitingDiscoveryRow(row, workflowTypeIdR);
+      if (patched) rows[i] = patched;
+    }
+
     const personSourceIds = [
       ...new Set(
         rows
@@ -724,7 +837,7 @@ export async function GET(req: NextRequest) {
       const fnPre = (pPre.firstName || "").trim();
       const lnPre = (pPre.lastName || "").trim();
       if (
-        itemLooksLikeWarmOutreach(workflowTypeIdPre, item.spec, item.workflowName) &&
+        itemLooksLikeWarmOutreachResolved(workflowTypeIdPre, item) &&
         fnPre === "Next" &&
         lnPre === "Contact"
       ) {
@@ -766,6 +879,8 @@ export async function GET(req: NextRequest) {
       /** Person row: display in Tim warm-outreach contact strip (null = empty slot) */
       contactSlotOpen?: boolean;
       contactName?: string | null;
+      /** CRM / intake first name — Tim message UI copy (“when Mike answers”). */
+      contactFirstName?: string | null;
       contactCompany?: string | null;
       contactTitle?: string | null;
       /** Linked person still Next/Contact — CRM intake not applied; use sync-warm-person. */
@@ -810,6 +925,7 @@ export async function GET(req: NextRequest) {
       let subtitle = "";
       let contactSlotOpen = false;
       let contactName: string | null = null;
+      let contactFirstName: string | null = null;
       let contactCompany: string | null = null;
       let contactTitle: string | null = null;
       let contactDbSyncPending = false;
@@ -829,22 +945,23 @@ export async function GET(req: NextRequest) {
             const job = (p.jobTitle || "").trim() || null;
             const co = p.companyName?.trim() || null;
             const isWarmDiscoveryPlaceholder =
-              itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) &&
+              itemLooksLikeWarmOutreachResolved(workflowTypeId, item) &&
               stageKey === "AWAITING_CONTACT" &&
               fn === "Next" &&
               ln === "Contact";
 
             const isStaleWarmPlaceholder =
-              itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) &&
+              itemLooksLikeWarmOutreachResolved(workflowTypeId, item) &&
               fn === "Next" &&
               ln === "Contact" &&
               stageKey !== "AWAITING_CONTACT";
 
             if (isWarmDiscoveryPlaceholder) {
               contactSlotOpen = true;
-              title = "Next contact — add who to reach";
+              title = "Awaiting contact";
               subtitle = "Use Tim’s work queue: name, LinkedIn URL, notes";
               contactName = null;
+              contactFirstName = null;
               contactCompany = null;
               contactTitle = null;
             } else if (isStaleWarmPlaceholder) {
@@ -852,18 +969,21 @@ export async function GET(req: NextRequest) {
               title = "Contact — not saved yet";
               subtitle = "Re-submit intake from the Contact details artifact, or use Name:/Company:/Title: lines.";
               contactName = null;
+              contactFirstName = null;
               contactCompany = null;
               contactTitle = null;
             } else {
               title = fullName || "Contact";
               subtitle = job || "";
               contactName = fullName || null;
+              contactFirstName =
+                fn && !(fn === "Next" && ln === "Contact") ? fn : contactFirstName;
               contactCompany = co;
               contactTitle = job;
             }
 
             if (
-              itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) &&
+              itemLooksLikeWarmOutreachResolved(workflowTypeId, item) &&
               !contactSlotOpen &&
               fn === "Next" &&
               ln === "Contact"
@@ -876,6 +996,7 @@ export async function GET(req: NextRequest) {
                   contactName = displayName;
                   title = displayName;
                 }
+                if (parsed.firstName?.trim()) contactFirstName = parsed.firstName.trim();
                 if (parsed.companyName?.trim()) contactCompany = parsed.companyName.trim();
                 if (parsed.jobTitle?.trim()) {
                   contactTitle = parsed.jobTitle.trim();
@@ -885,7 +1006,7 @@ export async function GET(req: NextRequest) {
             }
 
             contactDbSyncPending =
-              itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) &&
+              itemLooksLikeWarmOutreachResolved(workflowTypeId, item) &&
               fn === "Next" &&
               ln === "Contact";
 
@@ -911,7 +1032,7 @@ export async function GET(req: NextRequest) {
             }
 
             const timLinkedInArtifactFallback =
-              itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName) ||
+              itemLooksLikeWarmOutreachResolved(workflowTypeId, item) ||
               workflowTypeId === "linkedin-outreach";
 
             if (
@@ -950,10 +1071,10 @@ export async function GET(req: NextRequest) {
           title = "Contact";
         }
       } else if (item.sourceType === WARM_DISCOVERY_SOURCE_TYPE) {
-        const warmLike = itemLooksLikeWarmOutreach(workflowTypeId, item.spec, item.workflowName);
-        if (warmLike && stageKey === "AWAITING_CONTACT") {
+        const warmLike = itemLooksLikeWarmOutreachResolved(workflowTypeId, item);
+        if (stageKey === "AWAITING_CONTACT") {
           contactSlotOpen = true;
-          title = "Next contact — add who to reach";
+          title = "Awaiting contact";
           subtitle = "Use Tim’s work queue: name, LinkedIn URL, notes";
           const raw = awaitingByItem.get(item.id) ?? null;
           if (raw) {
@@ -961,8 +1082,8 @@ export async function GET(req: NextRequest) {
             const displayName = [parsed.firstName, parsed.lastName].filter(Boolean).join(" ").trim();
             if (displayName) {
               contactName = displayName;
-              title = displayName;
             }
+            if (parsed.firstName?.trim()) contactFirstName = parsed.firstName.trim();
             if (parsed.companyName?.trim()) contactCompany = parsed.companyName.trim();
             if (parsed.jobTitle?.trim()) {
               contactTitle = parsed.jobTitle.trim();
@@ -1001,6 +1122,16 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      if (
+        stageKey === "AWAITING_CONTACT" &&
+        itemLooksLikeWarmOutreachResolved(workflowTypeId, item) &&
+        (!title.trim() || title === "Unknown")
+      ) {
+        title = "Awaiting contact";
+        if (!subtitle.trim()) subtitle = "Use Tim’s work queue: name, LinkedIn URL, notes";
+        contactSlotOpen = true;
+      }
+
       const pkgStage = item.packageId ? packageStages[item.packageId] || null : null;
       const inActiveCampaign = Boolean(item.packageId && pkgStage === "ACTIVE");
       const pkgNum =
@@ -1033,6 +1164,7 @@ export async function GET(req: NextRequest) {
           ? {
               contactSlotOpen,
               contactName,
+              contactFirstName,
               contactCompany,
               contactTitle,
               contactDbSyncPending,

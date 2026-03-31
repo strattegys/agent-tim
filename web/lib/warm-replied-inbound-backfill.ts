@@ -1,7 +1,11 @@
 import "server-only";
 
 import { query } from "@/lib/db";
-import { injectInboundIntoReplyDraftMarkdown } from "@/lib/warm-outreach-draft";
+import { pushUnipileObservabilityLog } from "@/lib/unipile-observability-buffer";
+import {
+  injectInboundIntoReplyDraftMarkdown,
+  type WarmThreadTurn,
+} from "@/lib/warm-outreach-draft";
 
 const SELF_PROVIDER_ID =
   process.env.LINKEDIN_SELF_PROVIDER_ID?.trim() ||
@@ -103,33 +107,133 @@ async function unipileGet(pathWithQuery: string): Promise<{
   return { ok: res.ok, status: res.status, body };
 }
 
-export function buildRepliedArtifactMarkdown(inbound: string): string {
+const UNIPILE_THREAD_SNAPSHOT_LIMIT = 250;
+const MAX_CHARS_PER_THREAD_MESSAGE = 12_000;
+
+export function buildRepliedArtifactMarkdown(inbound: string, threadTurns?: WarmThreadTurn[]): string {
   const safe = String(inbound || "").trim();
-  return `# Contact replied\n\n**Their LinkedIn message** (captured when this thread opened):\n\n${safe}\n\n---\n\nYou're in **conversation mode** — Tim drafts replies until you **End Sequence**. Open **Reply draft** for the next send.\n\n---\n*Transition artifact*`;
+  const base = `# Contact replied\n\n**Their LinkedIn message** (captured when this thread opened):\n\n${safe}\n\n---\n\nYou're in **conversation mode** — Tim drafts replies until you **End Sequence**. Open **Reply draft** for the next send.\n\n---\n*Transition artifact*`;
+  if (!threadTurns?.length) return base;
+  const clipped = threadTurns.map((t) => ({
+    role: t.role,
+    text:
+      t.text.length > MAX_CHARS_PER_THREAD_MESSAGE
+        ? `${t.text.slice(0, MAX_CHARS_PER_THREAD_MESSAGE)}\n… [truncated]`
+        : t.text,
+    createdAt: t.createdAt,
+  }));
+  const json = JSON.stringify(clipped);
+  return `${base}\n\n## Thread sync (Unipile)\n\nFull conversation from LinkedIn as of this **Update LinkedIn** run (oldest first in the JSON; the UI may show newest at top).\n\n\`\`\`unipile-thread-json\n${json}\n\`\`\`\n`;
+}
+
+export type FindNewestInboundFromUnipileResult = {
+  newestInbound: string;
+  /** Chat used to load the full thread snapshot (may be null if unknown). */
+  sourceChatId: string | null;
+};
+
+async function fetchChatThreadTurnsFromUnipile(
+  chatId: string,
+  limit: number
+): Promise<WarmThreadTurn[]> {
+  const msgRes = await unipileGet(`/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}`);
+  if (!msgRes.ok) {
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify(
+        {
+          kind: "warm_backfill_full_thread_fetch",
+          ok: false,
+          chatId,
+          status: msgRes.status,
+        },
+        null,
+        2
+      )}`
+    );
+    return [];
+  }
+  const rawMsgs = msgRes.body.items ?? msgRes.body.data;
+  const messages = Array.isArray(rawMsgs) ? rawMsgs : [];
+  const rows: WarmThreadTurn[] = [];
+  for (const raw of messages) {
+    const m = raw as Record<string, unknown>;
+    const text = messageBody(m).trim();
+    if (!text) continue;
+    const ts = messageTsMs(m);
+    const role: "you" | "them" = isFromSelf(m, SELF_PROVIDER_ID) ? "you" : "them";
+    const createdAt = new Date(ts > 0 ? ts : Date.now()).toISOString();
+    rows.push({ role, text, createdAt });
+  }
+  rows.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  pushUnipileObservabilityLog(
+    `[unipile-lab] ${JSON.stringify(
+      {
+        kind: "warm_backfill_full_thread_fetch",
+        ok: true,
+        chatId,
+        messageCount: rows.length,
+        limit,
+      },
+      null,
+      2
+    )}`
+  );
+  return rows;
 }
 
 export async function findNewestInboundFromUnipile(
   firstName: string,
   targetProviderId: string | null
-): Promise<string> {
+): Promise<FindNewestInboundFromUnipileResult> {
   const accountId = process.env.UNIPILE_ACCOUNT_ID?.trim();
   if (!accountId) throw new Error("UNIPILE_ACCOUNT_ID is not set");
   const maxChats = 100;
   const msgLimit = 80;
+  pushUnipileObservabilityLog(
+    `[unipile-lab] ${JSON.stringify(
+      {
+        kind: "warm_backfill_scan_start",
+        firstName,
+        hasTargetProviderId: Boolean(targetProviderId),
+        maxChats,
+      },
+      null,
+      2
+    )}`
+  );
   const listRes = await unipileGet(
     `/chats?account_id=${encodeURIComponent(accountId)}&account_type=LINKEDIN&limit=${maxChats}`
   );
   if (!listRes.ok) {
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify(
+        {
+          kind: "warm_backfill_list_chats",
+          ok: false,
+          status: listRes.status,
+          detail: JSON.stringify(listRes.body).slice(0, 600),
+        },
+        null,
+        2
+      )}`
+    );
     throw new Error(
       `Unipile list chats failed: HTTP ${listRes.status} ${JSON.stringify(listRes.body).slice(0, 400)}`
     );
   }
   const rawItems = listRes.body.items ?? listRes.body.data;
   const chats = Array.isArray(rawItems) ? rawItems : [];
+  pushUnipileObservabilityLog(
+    `[unipile-lab] ${JSON.stringify(
+      { kind: "warm_backfill_list_chats", ok: true, status: listRes.status, chatCount: chats.length },
+      null,
+      2
+    )}`
+  );
 
   const nameRe = new RegExp(`\\b${firstName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
 
-  let bestByProvider = { text: "", ts: -1 };
+  let bestByProvider = { text: "", ts: -1, chatId: null as string | null };
   const candidatesFromName: { text: string; ts: number; chatId: string }[] = [];
 
   for (const c of chats) {
@@ -161,7 +265,7 @@ export async function findNewestInboundFromUnipile(
       if (!text) continue;
 
       if (targetProviderId && cp && cp === targetProviderId && ts >= bestByProvider.ts) {
-        bestByProvider = { text, ts };
+        bestByProvider = { text, ts, chatId };
       }
       if (nameMatchedChat && ts >= 0) {
         candidatesFromName.push({ text, ts, chatId });
@@ -170,17 +274,53 @@ export async function findNewestInboundFromUnipile(
   }
 
   if (targetProviderId && bestByProvider.ts >= 0) {
-    return bestByProvider.text;
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify(
+        {
+          kind: "warm_backfill_found_inbound",
+          match: "provider_id",
+          textLen: bestByProvider.text.length,
+          chatId: bestByProvider.chatId,
+        },
+        null,
+        2
+      )}`
+    );
+    return {
+      newestInbound: bestByProvider.text,
+      sourceChatId: bestByProvider.chatId,
+    };
   }
 
   if (candidatesFromName.length === 0) {
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify(
+        { kind: "warm_backfill_no_inbound", firstName, chatThreadsScanned: chats.length },
+        null,
+        2
+      )}`
+    );
     throw new Error(
       `No inbound LinkedIn message found for "${firstName}". Set linkedinProviderId on the person row, or ensure a recent outbound mentions their first name.`
     );
   }
 
   candidatesFromName.sort((a, b) => b.ts - a.ts);
-  return candidatesFromName[0].text;
+  const top = candidatesFromName[0];
+  const picked = top.text;
+  pushUnipileObservabilityLog(
+    `[unipile-lab] ${JSON.stringify(
+      {
+        kind: "warm_backfill_found_inbound",
+        match: "name_in_thread",
+        textLen: picked.length,
+        chatId: top.chatId,
+      },
+      null,
+      2
+    )}`
+  );
+  return { newestInbound: picked, sourceChatId: top.chatId };
 }
 
 type PersonRow = {
@@ -272,19 +412,57 @@ async function runBackfillForPersonRow(
     return { ok: false, error: "Person has no first name; cannot match Unipile thread." };
   }
 
+  pushUnipileObservabilityLog(
+    `[unipile-lab] ${JSON.stringify(
+      { kind: "warm_backfill_item_start", workflowItemId: itemId, firstName: firstName.trim(), dryRun: Boolean(dryRun) },
+      null,
+      2
+    )}`
+  );
+
   const providerId = await fetchLinkedinProviderId(personRow.personId);
   let inbound: string;
+  let sourceChatId: string | null = null;
   try {
-    inbound = await findNewestInboundFromUnipile(firstName.trim(), providerId);
+    const resolution = await findNewestInboundFromUnipile(firstName.trim(), providerId);
+    inbound = resolution.newestInbound;
+    sourceChatId = resolution.sourceChatId;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify(
+        { kind: "warm_backfill_item_error", workflowItemId: itemId, error: msg.slice(0, 800) },
+        null,
+        2
+      )}`
+    );
     return { ok: false, error: msg };
   }
 
-  const repliedMd = buildRepliedArtifactMarkdown(inbound);
+  let threadTurns: WarmThreadTurn[] | undefined;
+  if (sourceChatId && !dryRun) {
+    threadTurns = await fetchChatThreadTurnsFromUnipile(
+      sourceChatId,
+      UNIPILE_THREAD_SNAPSHOT_LIMIT
+    );
+  }
+
+  const repliedMd = buildRepliedArtifactMarkdown(inbound, threadTurns);
   const preview = inbound.length > 140 ? `${inbound.slice(0, 140).trim()}…` : inbound.trim();
 
   if (dryRun) {
+    pushUnipileObservabilityLog(
+      `[unipile-lab] ${JSON.stringify(
+        {
+          kind: "warm_backfill_item_done",
+          workflowItemId: itemId,
+          dryRun: true,
+          inboundPreviewLen: preview.length,
+        },
+        null,
+        2
+      )}`
+    );
     return {
       ok: true,
       inboundPreview: preview,
@@ -332,6 +510,19 @@ async function runBackfillForPersonRow(
       draftUpdated = true;
     }
   }
+  pushUnipileObservabilityLog(
+    `[unipile-lab] ${JSON.stringify(
+      {
+        kind: "warm_backfill_item_done",
+        workflowItemId: itemId,
+        draftUpdated,
+        inboundPreviewLen: preview.length,
+      },
+      null,
+      2
+    )}`
+  );
+
   return {
     ok: true,
     inboundPreview: preview,

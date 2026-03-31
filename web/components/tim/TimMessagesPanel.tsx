@@ -46,6 +46,8 @@ interface MessagingTask {
   dueDate: string | null;
   itemType: string;
   createdAt: string;
+  /** Matches API; used for newest-first in messaging queue */
+  updatedAt?: string;
   /** Warm-outreach MESSAGED — visible in Tim’s list but not an actionable draft submit */
   waitingFollowUp?: boolean;
   /** Discovery slot: Next/Contact placeholder person — show “add contact” in strip */
@@ -341,6 +343,10 @@ function mapRawToMessagingTask(t: Record<string, unknown>): MessagingTask {
     dueDate: t.dueDate != null ? String(t.dueDate) : null,
     itemType: String(t.itemType || "person"),
     createdAt: String(t.createdAt || ""),
+    updatedAt:
+      t.updatedAt != null && String(t.updatedAt).trim() !== ""
+        ? String(t.updatedAt)
+        : String(t.createdAt || ""),
     waitingFollowUp: Boolean(t.waitingFollowUp),
     contactSlotOpen: Boolean(t.contactSlotOpen),
     contactName: t.contactName != null ? String(t.contactName) : null,
@@ -561,7 +567,10 @@ export default function TimMessagesPanel({
   }, [fetchTasks, tabVisible]);
 
   const sortedTasks = useMemo(
-    () => [...tasks].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
+    () =>
+      [...tasks].sort((a, b) =>
+        String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt))
+      ),
     [tasks]
   );
   const activeQueue = useMemo(

@@ -38,6 +38,7 @@ import {
  * - summary=1 — with ownerAgent=tim only: returns { count, pendingFollowUpCount, warmOutreachDaily } without per-row CRM/artifact work (fast polling).
  * - ownerAgent=tim (default): only packaged workflows whose _package.stage is ACTIVE (non-packaged workflows still show). Pass includeInactivePackages=1 to see planner/inactive packages.
  * - limit / offset — with ownerAgent=tim on full GET (not summary): paginate (default limit 80, max 150). Response includes hasMore and nextOffset when applicable.
+ * - messagingOnly=1 + ownerAgent=tim: rows ordered by **updatedAt DESC** (newest activity first) so LinkedIn inbox / latest replies are not buried behind older due-dated items.
  */
 const MESSAGING_ITEM_STAGES = new Set([
   "INITIATED",
@@ -399,6 +400,7 @@ type QueueRow = {
   sourceId: string;
   dueDate: string | null;
   createdAt: string;
+  updatedAt: string;
   workflowName: string;
   ownerAgent: string;
   packageId: string | null;
@@ -557,7 +559,8 @@ async function fetchHumanTaskRows(
   useHumanTaskOpenCol: boolean,
   useWorkflowItemTypeCol: boolean,
   ownerAgentLower: string | null,
-  pagination: { limit: number; offset: number } | null
+  pagination: { limit: number; offset: number } | null,
+  messagingOnly: boolean
 ): Promise<QueueRow[]> {
   const itemTypeSql = useWorkflowItemTypeCol
     ? 'w."itemType"'
@@ -594,8 +597,13 @@ async function fetchHumanTaskRows(
     queryParams.push(pagination.limit, pagination.offset);
     limitSql = ` LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}`;
   }
+  const orderSql =
+    ownerAgentLower === "tim" && messagingOnly
+      ? `ORDER BY COALESCE(wi."updatedAt", wi."createdAt") DESC, wi."createdAt" DESC`
+      : `ORDER BY wi."dueDate" ASC NULLS FIRST, wi."createdAt" ASC`;
   return query<QueueRow>(
     `SELECT wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi."dueDate", wi."createdAt",
+            wi."updatedAt",
             w.name AS "workflowName", w."ownerAgent", w."packageId", w.spec, ${itemTypeSql},
             b.stages AS board_stages
      FROM "_workflow_item" wi
@@ -603,7 +611,7 @@ async function fetchHumanTaskRows(
      LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
      ${joinPackage}
      WHERE ${humanOpenSql}${whereBody}
-     ORDER BY wi."dueDate" ASC NULLS FIRST, wi."createdAt" ASC${limitSql}`,
+     ${orderSql}${limitSql}`,
     queryParams
   );
 }
@@ -702,7 +710,8 @@ export async function GET(req: NextRequest) {
           useHumanTaskOpenCol,
           useWorkflowItemTypeCol,
           ownerAgentFilter,
-          timPagination
+          timPagination,
+          messagingOnly
         );
         break;
       } catch (e) {
@@ -874,6 +883,8 @@ export async function GET(req: NextRequest) {
       dueDate: string | null;
       itemType: string;
       createdAt: string;
+      /** Last workflow-item touch (new messages bump this); used for messaging queue sort */
+      updatedAt: string;
       /** Warm-outreach MESSAGED: in Tim’s list for context, not an actionable submit step */
       waitingFollowUp: boolean;
       /** Person row: display in Tim warm-outreach contact strip (null = empty slot) */
@@ -1159,6 +1170,7 @@ export async function GET(req: NextRequest) {
         dueDate: item.dueDate || null,
         itemType: item.sourceType,
         createdAt: item.createdAt,
+        updatedAt: item.updatedAt || item.createdAt,
         waitingFollowUp,
         ...(item.sourceType === "person" || item.sourceType === WARM_DISCOVERY_SOURCE_TYPE
           ? {

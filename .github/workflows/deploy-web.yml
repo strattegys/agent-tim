@@ -158,6 +158,10 @@ jobs:
           $COMPOSE exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
             < web/scripts/migrate-marni-kb.sql
 
+          echo "Applying idempotent LinkedIn inbound receipt dedupe (_linkedin_inbound_receipt)..."
+          $COMPOSE exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+            < web/scripts/migrate-linkedin-inbound-receipt.sql
+
           if [ -f tools/expose-crm-db-tailscale.sh ]; then
             echo "Re-check CRM Postgres on Tailscale (idempotent)..."
             bash tools/expose-crm-db-tailscale.sh || echo "WARN: expose-crm-db-tailscale.sh failed (Tailscale down on server?). Re-run after: tailscale up"

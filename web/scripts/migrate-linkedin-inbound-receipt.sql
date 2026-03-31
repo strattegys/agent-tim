@@ -1,5 +1,8 @@
 -- Idempotent LinkedIn inbound: one row per Unipile message / synthetic id (webhook + replay).
 -- Run: npm run db:exec -- scripts/migrate-linkedin-inbound-receipt.sql
+-- Deploy: piped via docker compose exec -T crm-db psql (same search_path as other CRM migrations).
+
+SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6";
 
 CREATE TABLE IF NOT EXISTS "_linkedin_inbound_receipt" (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

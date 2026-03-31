@@ -721,7 +721,7 @@ export async function answerKbQuestion(
     .join("\n\n");
 
   const model =
-    process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile";
+    process.env.GROQ_CHAT_MODEL?.trim() || "openai/gpt-oss-120b";
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {

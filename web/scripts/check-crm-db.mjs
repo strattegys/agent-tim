@@ -16,11 +16,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const envPath = path.join(__dirname, "..", ".env.local");
 
 function parseEnvLocal(file) {
-  if (!fs.existsSync(file)) {
-    console.error("Missing web/.env.local — copy web/.env.local.example");
-    process.exit(1);
-  }
   const out = {};
+  if (!fs.existsSync(file)) {
+    return out;
+  }
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     const t = line.trim();
     if (!t || t.startsWith("#")) continue;
@@ -44,21 +43,39 @@ const noTsFallback = process.argv.includes("--no-tailscale-fallback");
 const password = pick("CRM_DB_PASSWORD");
 const database = pick("CRM_DB_NAME", "default");
 const user = pick("CRM_DB_USER", "postgres");
-const configuredHost = pick("CRM_DB_HOST");
-const port = parseInt(pick("CRM_DB_PORT", "5433"), 10);
+let configuredHost = pick("CRM_DB_HOST");
+const defaultPort =
+  (configuredHost || "").toLowerCase() === "crm-db" ? "5432" : "5433";
+let port = parseInt(pick("CRM_DB_PORT", defaultPort), 10);
 const connTimeout = parseInt(pick("CRM_DB_CONNECTION_TIMEOUT_MS", "20000"), 10) || 20000;
 const tsFallbackHost = pick("CRM_DB_TAILSCALE_HOST", "100.74.54.12").trim();
 const TS_FALLBACK_PORT = 5432;
 
 if (!password) {
-  console.error("CRM_DB_PASSWORD is missing in web/.env.local");
+  console.error(
+    "CRM_DB_PASSWORD is missing — add to web/.env.local or inject via Docker compose env_file."
+  );
   process.exit(1);
 }
 
-const host =
+let host =
   configuredHost && configuredHost !== ""
     ? configuredHost
     : "127.0.0.1";
+
+function isInsideLinuxDocker() {
+  try {
+    return fs.existsSync("/.dockerenv");
+  } catch {
+    return false;
+  }
+}
+
+/* Host-side Node: `crm-db` only resolves inside Compose; LOCALDEV publishes DB on 127.0.0.1:25432 */
+if (host.toLowerCase() === "crm-db" && !isInsideLinuxDocker()) {
+  host = "127.0.0.1";
+  port = parseInt(pick("CRM_DB_LOCAL_PORT", "25432"), 10);
+}
 
 const SCHEMA = "workspace_9rc10n79wgdr0r3z6mzti24f6";
 

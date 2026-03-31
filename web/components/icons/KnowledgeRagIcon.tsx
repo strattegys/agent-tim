@@ -1,4 +1,4 @@
-/** Knowledge base / external RAG (e.g. Marni) — placeholder until wired. */
+/** Knowledge Studio / RAG — shared by agent header, Marni work shortcut, and System monitor Agents row. */
 
 export function KnowledgeRagIcon({
   size = 14,

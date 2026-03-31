@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Run SQL against the CRM Postgres (same connection as lib/db.ts).
- * Loads web/.env.local into process.env when keys are missing (so Cursor/agents can run DB commands reliably).
+ * Loads web/.env.local via scripts/crm-db-pool.mjs (same defaults as check-crm-db: port 5433 on loopback, Tailscale fallback).
  *
  * Usage (from web/):
  *   npm run db:exec -- scripts/seed-vibe-coding-warm-outreach-package.sql
@@ -10,46 +10,20 @@
  *
  * Env (in .env.local or shell):
  *   CRM_DB_PASSWORD required (unless DATABASE_URL / CRM_DATABASE_URL is set)
- *   CRM_DB_HOST (default 127.0.0.1), CRM_DB_PORT, CRM_DB_NAME, CRM_DB_USER
+ *   CRM_DB_HOST (default 127.0.0.1), CRM_DB_PORT (default 5433 when host is loopback), CRM_DB_NAME, CRM_DB_USER
+ *   CRM_DB_TAILSCALE_HOST optional — when loopback fails, tries this host on port 5432 (same as check-crm-db)
  *   CRM_DB_SEARCH_PATH optional (default workspace_9rc10n79wgdr0r3z6mzti24f6)
  */
 
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
-
-const require = createRequire(import.meta.url);
-const { Pool } = require("pg");
+import { createCrmPool } from "./crm-db-pool.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = path.join(__dirname, "..");
 
 const DEFAULT_SEARCH_PATH = "workspace_9rc10n79wgdr0r3z6mzti24f6";
-
-function loadEnvLocal() {
-  const envPath = path.join(WEB_ROOT, ".env.local");
-  if (!fs.existsSync(envPath)) return;
-
-  const text = fs.readFileSync(envPath, "utf8");
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let val = trimmed.slice(eq + 1).trim();
-    if (
-      (val.startsWith('"') && val.endsWith('"')) ||
-      (val.startsWith("'") && val.endsWith("'"))
-    ) {
-      val = val.slice(1, -1);
-    }
-    if (process.env[key] === undefined || process.env[key] === "") {
-      process.env[key] = val;
-    }
-  }
-}
 
 /**
  * Opening delimiter for PostgreSQL dollar-quoted string at sql[i], or null.
@@ -160,47 +134,16 @@ Requires CRM_DB_* in web/.env.local or DATABASE_URL / CRM_DATABASE_URL.`);
 }
 
 async function main() {
-  loadEnvLocal();
-
-  const url = process.env.CRM_DATABASE_URL || process.env.DATABASE_URL;
-  const hasParts =
-    process.env.CRM_DB_PASSWORD ||
-    (url && String(url).length > 0);
-
-  if (!hasParts) {
-    console.error(
-      "[db-exec] Missing database credentials. Set CRM_DB_PASSWORD (and CRM_DB_*) in web/.env.local,\n" +
-        "        or set DATABASE_URL / CRM_DATABASE_URL."
-    );
+  let pool;
+  try {
+    pool = await createCrmPool(WEB_ROOT);
+  } catch (e) {
+    console.error("[db-exec]", e.message || e);
     process.exit(1);
   }
 
   const searchPath =
     process.env.CRM_DB_SEARCH_PATH || DEFAULT_SEARCH_PATH;
-
-  const connectionTimeoutMillis = parseInt(
-    process.env.CRM_DB_CONNECTION_TIMEOUT_MS || "30000",
-    10
-  );
-  const keepAlive = process.env.CRM_DB_KEEPALIVE === "0" ? false : true;
-
-  const pool = url
-    ? new Pool({
-        connectionString: url,
-        max: 2,
-        connectionTimeoutMillis,
-        keepAlive,
-      })
-    : new Pool({
-        host: process.env.CRM_DB_HOST || "127.0.0.1",
-        port: parseInt(process.env.CRM_DB_PORT || "5432", 10),
-        database: process.env.CRM_DB_NAME || "default",
-        user: process.env.CRM_DB_USER || "postgres",
-        password: process.env.CRM_DB_PASSWORD,
-        max: 2,
-        connectionTimeoutMillis,
-        keepAlive,
-      });
 
   const args = process.argv.slice(2).filter((a) => a !== "--");
   let sqlText = "";

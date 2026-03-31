@@ -4,6 +4,9 @@
 -- Enable pgvector extension (requires superuser)
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Empty / first-run CRM volumes have no Twenty workspace yet; check-crm-db and the app expect this schema.
+CREATE SCHEMA IF NOT EXISTS "workspace_9rc10n79wgdr0r3z6mzti24f6";
+
 -- Extension types (vector) live in public — keep public on the path for CREATE TABLE.
 SET search_path TO "workspace_9rc10n79wgdr0r3z6mzti24f6", public;
 

@@ -195,7 +195,7 @@ ${messages.slice(-100).join("\n")}`;
           model:
             agentConfig.modelName ||
             process.env.GROQ_CHAT_MODEL?.trim() ||
-            "llama-3.3-70b-versatile",
+            "openai/gpt-oss-120b",
           max_tokens: 1024,
           temperature: 0.3,
           messages: [{ role: "user", content: consolidationPrompt }],

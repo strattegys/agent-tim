@@ -82,13 +82,18 @@ function GhostQueueItemRow({
     <button
       type="button"
       onClick={onSelect}
+      aria-current={active ? "true" : undefined}
       className={`w-full text-left rounded-md px-2 py-1.5 border transition-colors ${
         active
-          ? "border-[var(--border-color)] bg-[var(--bg-secondary)]"
+          ? "border-[var(--accent-green)]/55 bg-[var(--accent-green)]/14 shadow-sm ring-1 ring-inset ring-[var(--accent-green)]/35"
           : "border-transparent bg-[var(--bg-primary)]/80 hover:border-[var(--border-color)]"
       }`}
     >
-      <div className="text-[10px] font-medium text-[var(--text-chat-body)] truncate">{task.itemTitle}</div>
+      <div
+        className={`truncate text-[10px] ${active ? "font-semibold text-[var(--text-primary)]" : "font-medium text-[var(--text-chat-body)]"}`}
+      >
+        {task.itemTitle}
+      </div>
       <div className="text-[9px] text-[var(--text-tertiary)] truncate">{secondary}</div>
       <div className="text-[9px] text-[var(--text-secondary)] truncate mt-0.5 leading-tight">
         {messageAffiliationLine(task)}

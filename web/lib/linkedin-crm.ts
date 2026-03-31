@@ -20,6 +20,37 @@ const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
 const PROCESSED_FILE =
   process.env.LINKEDIN_CONNECTIONS_PROCESSED || "/root/.nanobot/linkedin_connections_processed.json";
 
+let cachedCrmShellUsable: boolean | null = null;
+
+/**
+ * Twenty/nanobot shell tools (`crm.sh`, `linkedin.sh`) + bash. False in Command Central Docker
+ * (node-alpine, no bash, no scripts) — without this guard, cron/webhooks call execFileSync in a tight
+ * loop and can stall the Node process so the app stops responding.
+ */
+export function isLinkedInCrmShellAvailable(): boolean {
+  if (cachedCrmShellUsable !== null) return cachedCrmShellUsable;
+  if (process.env.LINKEDIN_CRM_USE_SHELL === "0") {
+    cachedCrmShellUsable = false;
+    return false;
+  }
+  try {
+    if (!fs.existsSync(CRM_TOOL) || !fs.existsSync(LINKEDIN_TOOL)) {
+      cachedCrmShellUsable = false;
+      return false;
+    }
+    execFileSync("bash", ["-c", "exit 0"], {
+      timeout: 800,
+      encoding: "utf-8",
+      stdio: "ignore",
+    });
+    cachedCrmShellUsable = true;
+    return true;
+  } catch {
+    cachedCrmShellUsable = false;
+    return false;
+  }
+}
+
 // ── CRM Operations ──────────────────────────────────────────────────────────
 
 export function searchContacts(
@@ -32,6 +63,7 @@ export function searchContacts(
     secondaryLinks?: Array<{ url?: string }>;
   };
 }> {
+  if (!isLinkedInCrmShellAvailable()) return [];
   try {
     const result = execFileSync("bash", [CRM_TOOL, "search-contacts", query], {
       timeout: 15000,
@@ -49,6 +81,7 @@ export function createContact(
   lastName: string,
   linkedinUrl?: string
 ): string | null {
+  if (!isLinkedInCrmShellAvailable()) return null;
   try {
     const payload: Record<string, string> = { firstName, lastName };
     if (linkedinUrl) payload.linkedinUrl = linkedinUrl;
@@ -75,6 +108,7 @@ export function writeNote(
   targetType: string,
   targetId: string
 ): void {
+  if (!isLinkedInCrmShellAvailable()) return;
   try {
     execFileSync(
       "bash",
@@ -94,6 +128,7 @@ export function findOrCreateContact(
   senderName: string,
   senderProviderId: string
 ): string | null {
+  if (!isLinkedInCrmShellAvailable()) return null;
   const linkedinUrl = senderProviderId
     ? `https://www.linkedin.com/in/${senderProviderId}`
     : "";
@@ -132,6 +167,7 @@ export function findOrCreateContact(
 // ── Stage Management ────────────────────────────────────────────────────────
 
 export function updatePersonStage(contactId: string, stage: string): void {
+  if (!isLinkedInCrmShellAvailable()) return;
   try {
     execFileSync(
       "bash",
@@ -145,6 +181,7 @@ export function updatePersonStage(contactId: string, stage: string): void {
 }
 
 export function getPersonStage(contactId: string): string | null {
+  if (!isLinkedInCrmShellAvailable()) return null;
   try {
     const result = execFileSync(
       "bash",
@@ -163,6 +200,7 @@ export function getPersonStage(contactId: string): string | null {
 export function fetchLinkedInProfile(
   identifier: string
 ): Record<string, unknown> | null {
+  if (!isLinkedInCrmShellAvailable()) return null;
   try {
     const result = execFileSync(
       "bash",
@@ -183,6 +221,7 @@ export function enrichContactFromLinkedIn(
   contactId: string,
   profile: Record<string, unknown>
 ): void {
+  if (!isLinkedInCrmShellAvailable()) return;
   try {
     const workExperience =
       (profile.work_experience as Array<{
@@ -226,6 +265,7 @@ export function enrichContactFromLinkedIn(
 }
 
 function linkCompany(contactId: string, companyName: string): void {
+  if (!isLinkedInCrmShellAvailable()) return;
   try {
     const searchResult = execFileSync(
       "bash",
@@ -362,6 +402,7 @@ async function fetchRecentConnections(
  * Updates CRM from Unipile relation payload; no LLM triage.
  */
 export async function checkNewConnections(): Promise<number> {
+  if (!isLinkedInCrmShellAvailable()) return 0;
   const processed = loadProcessed();
   const relations = await fetchRecentConnections(20);
 

@@ -1,5 +1,7 @@
-# Reconnect CRM Postgres forwarder for local dev (fixes Data platform after idle disconnect / sleep / reboot).
-# Does not start Docker — only restarts the process listening on CRM_TUNNEL_LOCAL_PORT (default 5433).
+# Reconnect CRM Postgres forwarder for **remote** local dev (tunnel/bridge on CRM_TUNNEL_LOCAL_PORT, default 5433).
+# If you use the default LOCALDEV stack (**bundled crm-db** in docker-compose.dev.yml), you do not need this — use
+# `docker compose restart crm-db` or recreate the dev stack instead.
+# Does not start Docker — only restarts the process listening on the tunnel port.
 #
 #   From COMMAND-CENTRAL:  .\scripts\dev-db-reconnect.ps1
 #   From web/:             npm run db:reconnect

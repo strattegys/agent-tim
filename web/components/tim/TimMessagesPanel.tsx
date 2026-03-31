@@ -93,76 +93,77 @@ function timPersonWorkflowHeaderDetail(task: MessagingTask) {
   const hasAnyLinkedIn = Boolean(publicUrl || memberId);
 
   return (
-    <div className="space-y-1.5 text-[10px] leading-snug max-w-full">
+    <div className="w-full max-w-full space-y-2 text-[10px] leading-snug">
       {awaitingDetails ? (
-        <p className="text-[9px] font-medium text-[var(--text-tertiary)] pb-1 border-b border-[var(--border-color)]/50">
+        <p className="border-b border-[var(--border-color)]/50 pb-1 text-[9px] font-medium text-[var(--text-tertiary)]">
           {task.workflowType === "linkedin-outreach"
             ? "LinkedIn outreach — awaiting contact details"
             : "Warm outreach — awaiting contact details"}
         </p>
       ) : null}
-      <dl className="grid grid-cols-[3.25rem_1fr] gap-x-2 gap-y-0.5">
-        <dt className="text-[var(--text-tertiary)]">Name</dt>
-        <dd className="text-[var(--text-primary)] font-medium min-w-0 break-words">{name}</dd>
-      </dl>
-      {/* LinkedIn + email: always show when we have data (intake often stays in AWAITING_CONTACT until submit). */}
-      <dl className="grid grid-cols-[3.25rem_1fr] gap-x-2 gap-y-0.5">
-        <dt className="text-[var(--text-tertiary)] align-top pt-0.5">LinkedIn</dt>
-        <dd className="min-w-0 space-y-1">
-          {publicUrl ? (
-            <a
-              href={publicUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[var(--text-secondary)] underline underline-offset-2 break-all block hover:text-[var(--text-primary)]"
-            >
-              Public profile
-            </a>
-          ) : null}
-          {memberId ? (
-            <span
-              className="block font-mono text-[9px] text-[var(--text-secondary)] break-all"
-              title="Unipile / LinkedIn API member id — used for send + inbound match when stored"
-            >
-              {memberId}
-            </span>
-          ) : null}
-          {!hasAnyLinkedIn ? (
-            awaitingDetails ? (
-              <span className="text-[9px] text-[var(--text-tertiary)] leading-snug">
-                Include a LinkedIn URL in your notes; it appears here after the contact is saved to CRM (or sync from
-                intake).
+
+      {/* Name · LinkedIn · Company — one row (stacks on narrow); company column wider */}
+      <div className="grid w-full grid-cols-1 gap-x-8 gap-y-2 border-b border-[var(--border-color)]/40 pb-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,2.2fr)]">
+        <div className="min-w-0">
+          <div className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Name</div>
+          <div className="mt-0.5 font-medium break-words text-[var(--text-primary)]">{name}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">LinkedIn</div>
+          <div className="mt-0.5 min-w-0 space-y-1">
+            {publicUrl ? (
+              <a
+                href={publicUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block break-all text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
+              >
+                Public profile
+              </a>
+            ) : null}
+            {memberId ? (
+              <span
+                className="block break-all font-mono text-[9px] text-[var(--text-secondary)]"
+                title="Unipile / LinkedIn API member id — used for send + inbound match when stored"
+              >
+                {memberId}
               </span>
-            ) : (
-              <span className="text-[9px] text-[var(--text-secondary)]">
-                Not set — add profile URL or ACoA… on the person in CRM (see migrate-person-linkedin-provider.sql).
-              </span>
-            )
-          ) : null}
-        </dd>
-        {email ? (
-          <>
-            <dt className="text-[var(--text-tertiary)]">Email</dt>
-            <dd className="min-w-0 break-all">
+            ) : null}
+            {email ? (
               <a
                 href={`mailto:${email}`}
-                className="text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
+                className="block break-all text-[var(--text-secondary)] underline underline-offset-2 hover:text-[var(--text-primary)]"
               >
                 {email}
               </a>
-            </dd>
-          </>
-        ) : null}
-      </dl>
-      <p className="text-[8px] text-[var(--text-tertiary)] leading-snug">
-        Do these in order when you have a contact:
-      </p>
-      <dl className="grid grid-cols-[3.25rem_1fr] gap-x-2 gap-y-0.5">
-        <dt className="text-[var(--text-tertiary)]">Company</dt>
-        <dd className="text-[var(--text-chat-body)] min-w-0 break-words">{company}</dd>
-        <dt className="text-[var(--text-tertiary)]">Title</dt>
-        <dd className="text-[var(--text-chat-body)] min-w-0 break-words">{jobTitle}</dd>
-      </dl>
+            ) : null}
+            {!hasAnyLinkedIn && !email ? (
+              awaitingDetails ? (
+                <span className="text-[9px] leading-snug text-[var(--text-tertiary)]">
+                  Include a LinkedIn URL in your notes; it appears here after the contact is saved to CRM (or sync from
+                  intake).
+                </span>
+              ) : (
+                <span className="text-[9px] text-[var(--text-secondary)]">
+                  Not set — add profile URL or ACoA… on the person in CRM (see migrate-person-linkedin-provider.sql).
+                </span>
+              )
+            ) : null}
+          </div>
+        </div>
+        <div className="min-w-0 sm:pl-1">
+          <div className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Company</div>
+          <div className="mt-0.5 break-words text-[var(--text-chat-body)]">{company}</div>
+        </div>
+      </div>
+
+      {/* Title — full width so long headlines wrap comfortably */}
+      <div className="min-w-0 pt-0.5">
+        <div className="text-[9px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">Title</div>
+        <p className="mt-1 max-w-none text-[11px] leading-relaxed break-words text-[var(--text-chat-body)]">
+          {jobTitle}
+        </p>
+      </div>
     </div>
   );
 }
@@ -208,6 +209,11 @@ function messageAffiliationLine(t: MessagingTask): string {
   const wf = t.workflowName?.trim() || "Workflow";
   return `${pkg} · ${wf}`;
 }
+
+/** Shown only when `npm run dev` / Docker dev set this (see package.json). */
+const IS_LOCALDEV_UI =
+  typeof process.env.NEXT_PUBLIC_CC_RUNTIME_LABEL === "string" &&
+  process.env.NEXT_PUBLIC_CC_RUNTIME_LABEL.trim().toUpperCase() === "LOCALDEV";
 
 /** Background refresh; initial load still shows the full-screen spinner. */
 const POLL_INTERVAL_MS = 30_000;
@@ -294,13 +300,16 @@ function TimQueueItemRow({
     <button
       type="button"
       onClick={onSelect}
+      aria-current={active ? "true" : undefined}
       className={`w-full text-left rounded-md px-2 py-1.5 border transition-colors ${
         active
-          ? "border-[var(--border-color)] bg-[var(--bg-secondary)]"
+          ? "border-[var(--accent-green)]/55 bg-[var(--accent-green)]/14 shadow-sm ring-1 ring-inset ring-[var(--accent-green)]/35"
           : "border-transparent bg-[var(--bg-primary)]/80 hover:border-[var(--border-color)]"
       }`}
     >
-      <div className="text-[10px] font-medium text-[var(--text-chat-body)] truncate">
+      <div
+        className={`truncate text-[10px] ${active ? "font-semibold text-[var(--text-primary)]" : "font-medium text-[var(--text-chat-body)]"}`}
+      >
         {timQueueCardPrimaryTitle(task)}
       </div>
       {secondary ? (
@@ -338,6 +347,9 @@ export default function TimMessagesPanel({
   const [resolveHint, setResolveHint] = useState<string | null>(null);
   const [queueHasMore, setQueueHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [devQueueBusy, setDevQueueBusy] = useState<null | "unipile" | "seed" | "seedForce">(null);
+  const [devQueueHint, setDevQueueHint] = useState<string | null>(null);
+  const [devQueueError, setDevQueueError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const lastTasksFingerprintRef = useRef<string>("");
   const loadMoreNextRef = useRef<number | null>(null);
@@ -444,6 +456,69 @@ export default function TimMessagesPanel({
       });
   }, []);
 
+  const runDevUnipileReplay = useCallback(async () => {
+    setDevQueueError(null);
+    setDevQueueBusy("unipile");
+    try {
+      const r = await fetch("/api/dev/replay-unipile-inbound", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxInbound: 10, dryRun: false }),
+      });
+      const data = (await r.json()) as Record<string, unknown>;
+      if (!r.ok) {
+        setDevQueueHint(null);
+        setDevQueueError(typeof data.error === "string" ? data.error : `HTTP ${r.status}`);
+        return;
+      }
+      const n = typeof data.replayed === "number" ? data.replayed : 0;
+      setDevQueueHint(`Unipile replay: processed ${n} inbound message(s).`);
+      panelBus.emit("tim_human_task_progress");
+      panelBus.emit("dashboard_sync");
+      await new Promise((x) => setTimeout(x, 200));
+      await fetchTasks({ silent: true });
+    } catch (e) {
+      setDevQueueError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDevQueueBusy(null);
+    }
+  }, [fetchTasks]);
+
+  const runDevSeedQueue = useCallback(
+    async (force: boolean) => {
+      setDevQueueError(null);
+      setDevQueueBusy(force ? "seedForce" : "seed");
+      try {
+        const r = await fetch("/api/dev/seed-tim-test-queue", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ force }),
+        });
+        const data = (await r.json()) as Record<string, unknown>;
+        if (!r.ok) {
+          setDevQueueHint(null);
+          setDevQueueError(typeof data.error === "string" ? data.error : `HTTP ${r.status}`);
+          return;
+        }
+        setDevQueueHint(typeof data.message === "string" ? data.message : "Done.");
+        if (data.alreadySeeded === true) {
+          return;
+        }
+        panelBus.emit("tim_human_task_progress");
+        panelBus.emit("dashboard_sync");
+        await new Promise((x) => setTimeout(x, 200));
+        await fetchTasks({ silent: true });
+      } catch (e) {
+        setDevQueueError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setDevQueueBusy(null);
+      }
+    },
+    [fetchTasks]
+  );
+
   const loadMoreTasks = useCallback(() => {
     if (!queueHasMore || loadingMore || loadMoreNextRef.current == null) return;
     void fetchTasks({ append: true });
@@ -546,9 +621,15 @@ export default function TimMessagesPanel({
     stage: string;
     label: string;
   } | null>(null);
+  /** CRM LinkedIn thread text for Tim chat (same structure as server REPLY_DRAFT autogen). */
+  const [linkedInThreadTranscript, setLinkedInThreadTranscript] = useState<string | null>(null);
 
   useEffect(() => {
     setFocusedArtifact(null);
+  }, [selectedId]);
+
+  useEffect(() => {
+    setLinkedInThreadTranscript(null);
   }, [selectedId]);
 
   useEffect(() => {
@@ -567,8 +648,12 @@ export default function TimMessagesPanel({
       waitingFollowUp: Boolean(selected.waitingFollowUp),
       focusedArtifactStage: isInputStage ? null : focusedArtifact?.stage ?? null,
       focusedArtifactLabel: isInputStage ? null : focusedArtifact?.label ?? null,
+      linkedInThreadTranscript:
+        selected.workflowType === "warm-outreach" || selected.workflowType === "linkedin-outreach"
+          ? linkedInThreadTranscript
+          : null,
     });
-  }, [selected, isInputStage, focusedArtifact, onWorkSelectionChange]);
+  }, [selected, isInputStage, focusedArtifact, onWorkSelectionChange, linkedInThreadTranscript]);
 
   useEffect(() => {
     return () => {
@@ -579,8 +664,9 @@ export default function TimMessagesPanel({
   const handleResolve = useCallback(
     async (
       itemId: string,
-      action: "approve" | "reject" | "input" | "replied" | "ended" | "undo_replied",
-      notes?: string
+      action: "approve" | "reject" | "input" | "replied" | "ended" | "undo_replied" | "dismiss",
+      notes?: string,
+      options?: { confirmDismiss?: boolean }
     ) => {
       if (resolving) return;
       setResolving(itemId);
@@ -593,6 +679,7 @@ export default function TimMessagesPanel({
             action,
             notes: notes || undefined,
             ...(action === "undo_replied" ? { confirmUndo: true } : {}),
+            ...(action === "dismiss" && options?.confirmDismiss ? { confirmDismiss: true } : {}),
           }),
         });
         const data = await res.json();
@@ -642,6 +729,19 @@ export default function TimMessagesPanel({
     const id = selected.itemId;
     const actions: ArtifactConfirmedWorkflowAction[] = [];
 
+    if (selected.workflowType === "linkedin-general-inbox") {
+      actions.push({
+        id: "dismiss-general-inbox",
+        label: "Dismiss from queue",
+        variant: "neutral",
+        confirmMessage:
+          "Remove this LinkedIn general inbox row from Tim’s queue? The item and its inbox artifacts will be archived (soft-deleted).",
+        onConfirm: async () => {
+          await handleResolve(id, "dismiss");
+        },
+      });
+    }
+
     if (selected.workflowType === "warm-outreach") {
       if (selected.stage === "MESSAGED") {
         actions.push({
@@ -671,6 +771,18 @@ export default function TimMessagesPanel({
           confirmMessage:
             "End this warm-outreach sequence for this contact? The item will move to Ended.",
           onConfirm: () => handleResolve(id, "ended"),
+        });
+      }
+      if (selected.stage === "REPLY_DRAFT" || selected.stage === "REPLIED") {
+        actions.push({
+          id: "dismiss-warm-mistake",
+          label: "Remove from queue (mistake)",
+          variant: "danger",
+          confirmMessage:
+            "Archive this entire warm-outreach workflow item and its artifacts? Use for mistaken replay or wrong row — you will not see it in Tim’s queue anymore.",
+          onConfirm: async () => {
+            await handleResolve(id, "dismiss", undefined, { confirmDismiss: true });
+          },
         });
       }
     }
@@ -763,6 +875,45 @@ export default function TimMessagesPanel({
                     <strong>{formatNextWarmSlotPacific(warmOutreachDaily.nextDiscoveryOpensAt)} PT</strong>{" "}
                     (cron checks ~every 30 min).
                   </p>
+                ) : null}
+              </div>
+            ) : null}
+            {IS_LOCALDEV_UI ? (
+              <div className="rounded border border-amber-500/35 bg-amber-500/[0.06] px-1.5 py-1 space-y-1">
+                <p className="text-[8px] font-medium text-[var(--text-secondary)] leading-tight">
+                  Local dev — fill Tim&apos;s queue (no CLI)
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    disabled={devQueueBusy !== null}
+                    onClick={() => void runDevUnipileReplay()}
+                    className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-chat-body)] disabled:opacity-50"
+                  >
+                    {devQueueBusy === "unipile" ? "Pulling…" : "Pull inbound (Unipile)"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={devQueueBusy !== null}
+                    onClick={() => void runDevSeedQueue(false)}
+                    className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-chat-body)] disabled:opacity-50"
+                  >
+                    {devQueueBusy === "seed" ? "Adding…" : "Add sample rows"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={devQueueBusy !== null}
+                    onClick={() => void runDevSeedQueue(true)}
+                    className="text-[8px] px-1.5 py-0.5 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-chat-body)] disabled:opacity-50"
+                  >
+                    {devQueueBusy === "seedForce" ? "Replacing…" : "Replace sample"}
+                  </button>
+                </div>
+                {devQueueHint ? (
+                  <p className="text-[8px] text-[var(--text-secondary)] leading-snug">{devQueueHint}</p>
+                ) : null}
+                {devQueueError ? (
+                  <p className="text-[8px] text-red-600/90 dark:text-red-400/90 leading-snug">{devQueueError}</p>
                 ) : null}
               </div>
             ) : null}
@@ -990,12 +1141,16 @@ export default function TimMessagesPanel({
                     allWorkflowArtifacts
                     showArtifactChat={false}
                     showArtifactFooter={false}
-                    pollArtifactsMs={30000}
+                    pollArtifactsMs={5000}
                     linkedInDmBodyStages={
                       selected.workflowType === "warm-outreach" ||
                       selected.workflowType === "linkedin-outreach"
-                        ? ["MESSAGE_DRAFT", "REPLY_DRAFT"]
+                        ? ["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLIED"]
                         : undefined
+                    }
+                    showLinkedInInboundBackfillButton={
+                      selected.workflowType === "warm-outreach" ||
+                      selected.workflowType === "linkedin-outreach"
                     }
                     workflowItemId={selected.itemId}
                     itemType={selected.itemType === "person" ? "person" : "content"}
@@ -1011,6 +1166,11 @@ export default function TimMessagesPanel({
                     }
                     confirmedWorkflowActions={timArtifactHeaderActions}
                     onActiveArtifactChange={setFocusedArtifact}
+                    reportTimLinkedInThread={
+                      selected.workflowType === "warm-outreach" ||
+                      selected.workflowType === "linkedin-outreach"
+                    }
+                    onWarmOutreachThreadTranscriptChange={setLinkedInThreadTranscript}
                     onClose={() => setSelectedId(null)}
                   />
                 </div>

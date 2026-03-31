@@ -14,10 +14,11 @@ export type AgentUiRightPanel =
   | "tasks"
   | "messages"
   | "costs"
-  | "marni-work";
+  | "marni-work"
+  | "agent-knowledge";
 
-export type FridayDashboardTab = "packages" | "tasks" | "tools";
-export type PennyDashboardTab = "packages" | "pkg-templates" | "wf-templates";
+export type FridayDashboardTab = "observation" | "tasks" | "tools";
+export type PennyDashboardTab = "queue" | "packages" | "pkg-templates" | "wf-templates";
 
 export interface AgentUiContextInput {
   agentId: string;
@@ -33,10 +34,10 @@ export interface AgentUiContextInput {
   ghostHasWorkQueueSelection?: boolean;
   fridayTab?: FridayDashboardTab;
   pennyTab?: PennyDashboardTab;
-  /** Marni work panel: Work Queue vs Knowledge Base sub-tab. */
-  marniWorkSubTab?: "queue" | "knowledge";
-  /** Marni: selected knowledge topic while Knowledge Base tab is open (from UI). */
+  /** Marni: selected research topic while Knowledge base (book panel) is open. */
   marniKnowledgeTopic?: { id: string; name: string } | null;
+  /** Tim: selected research topic while Knowledge base (book panel) is open. */
+  timKnowledgeTopic?: { id: string; name: string } | null;
 }
 
 export function formatAgentUiContext(input: AgentUiContextInput): string | null {
@@ -54,6 +55,19 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
         "## Tim — UI (this message only)",
         "No workflow row is selected in the work queue. Follow your system prompt and existing collaboration rules (chat vs panes, Submit, Unipile). When the user selects a row, detailed artifact context is sent in a separate block—do not contradict that when it appears.",
       ].join("\n");
+    }
+    if (rightPanel === "agent-knowledge") {
+      const lines = [
+        "## Tim — UI (this message only)",
+        "**Knowledge base** panel is open (book icon): Knowledge Studio topics and RAG chunks for **Tim’s** corpus (separate from Marni). Use **knowledge_search** so answers stay grounded. Work queue stays on the list icon.",
+      ];
+      const t = input.timKnowledgeTopic;
+      if (t?.name) {
+        lines.push(
+          `- **Selected topic:** “${t.name}” (\`${t.id}\`). Use when they say “this topic” unless they clearly mean another.`
+        );
+      }
+      return lines.join("\n");
     }
     if (rightPanel === "info") return null;
     return (
@@ -83,36 +97,36 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
     );
   }
 
-  if (rightPanel === "marni-work" && agentId === "marni") {
-    const sub = input.marniWorkSubTab ?? "queue";
-    if (sub === "knowledge") {
-      const lines = [
-        "## Marni — UI (this message only)",
-        "Work panel — **Knowledge Base** tab is open (topics, corpus word cloud, activity log). Treat this as your **active corpus context** for the turn.",
-        "The user asks questions **in this chat** — there is no separate Ask pane. For anything about playbooks, hooks, or what was ingested, call **knowledge_search** so answers stay grounded in chunks.",
-      ];
-      const t = input.marniKnowledgeTopic;
-      if (t?.name) {
-        lines.push(
-          `- **Selected topic (Govind’s highlighted card):** “${t.name}” (\`${t.id}\`). Use this when they say “this topic” unless they clearly mean another.`
-        );
-      }
-      return lines.join("\n");
+  if (rightPanel === "agent-knowledge" && agentId === "marni") {
+    const lines = [
+      "## Marni — UI (this message only)",
+      "**Knowledge base** panel is open (book icon next to Agent info): topics, corpus word cloud, activity log. Treat this as your **active corpus context** for the turn.",
+      "The user asks questions **in this chat** — there is no separate Ask pane. For anything about playbooks, hooks, or what was ingested, call **knowledge_search** so answers stay grounded in chunks.",
+    ];
+    const t = input.marniKnowledgeTopic;
+    if (t?.name) {
+      lines.push(
+        `- **Selected topic (Govind’s highlighted card):** “${t.name}” (\`${t.id}\`). Use this when they say “this topic” unless they clearly mean another.`
+      );
     }
+    return lines.join("\n");
+  }
+
+  if (rightPanel === "marni-work" && agentId === "marni") {
     return (
       "## Marni — UI (this message only)\n" +
-      "Work panel — **Work Queue** tab (distribution pipeline board). Use workflow_items for content-distribution as in your prompt."
+      "Work panel — **Work queue** (distribution pipeline board). Knowledge base: **book** icon next to Agent info. Use workflow_items for content-distribution as in your prompt."
     );
   }
 
   if (rightPanel === "dashboard" && agentId === "friday") {
-    const tab = input.fridayTab ?? "packages";
+    const tab = input.fridayTab ?? "observation";
     const label =
-      tab === "packages"
-        ? "Active packages"
-        : tab === "tasks"
-          ? "Human tasks"
-          : "Tools registry";
+      tab === "tasks"
+        ? "Human tasks"
+        : tab === "tools"
+          ? "Tools registry"
+          : "Observation Post (logging / env)";
     return (
       "## Friday — UI (this message only)\n" +
       `Right panel tab: **${label}**. Tools: workflow_manager, web_search, memory.`
@@ -120,13 +134,15 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   }
 
   if (rightPanel === "dashboard" && agentId === "penny") {
-    const tab = input.pennyTab ?? "packages";
+    const tab = input.pennyTab ?? "queue";
     const label =
-      tab === "packages"
-        ? "Packages"
-        : tab === "pkg-templates"
-          ? "Package templates"
-          : "Workflow templates";
+      tab === "queue"
+        ? "Package queue (Active / Paused / Completed)"
+        : tab === "packages"
+          ? "Package Planner (Draft / Testing)"
+          : tab === "pkg-templates"
+            ? "Package templates"
+            : "Workflow templates";
     return (
       "## Penny — UI (this message only)\n" +
       `Right panel tab: **${label}**. Tools: package_manager, twenty_crm, web_search, memory.`

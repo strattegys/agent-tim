@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
@@ -8,6 +8,7 @@ import {
   createKbTopic,
   type KbSourceMode,
 } from "@/lib/marni-kb";
+import { resolveKbStudioAgentId } from "@/lib/kb-studio";
 
 function noDb() {
   return NextResponse.json(
@@ -16,10 +17,14 @@ function noDb() {
   );
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   if (!isMarniKbDatabaseConfigured()) return noDb();
+  const resolved = resolveKbStudioAgentId(req.nextUrl.searchParams.get("agentId"));
+  if (!resolved.ok) {
+    return NextResponse.json({ error: resolved.error }, { status: 400 });
+  }
   try {
-    const topics = await listKbTopics("marni");
+    const topics = await listKbTopics(resolved.agentId);
     return NextResponse.json({ topics });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -33,6 +38,18 @@ export async function POST(req: Request) {
     const body = await req.json();
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 });
+    const resolved = resolveKbStudioAgentId(
+      typeof body.agentId === "string" ? body.agentId : null
+    );
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+    if (body.topicKind === "crm_mirror") {
+      return NextResponse.json(
+        { error: "CRM mirror topics are created by the server (Tim sync), not via Add topic." },
+        { status: 400 }
+      );
+    }
     const queries = Array.isArray(body.queries) ? body.queries.map(String) : [];
     const postUrls = Array.isArray(body.postUrls) ? body.postUrls.map(String) : [];
     const sourceMode = (["web_only", "linkedin_only", "both"] as const).includes(body.sourceMode)
@@ -45,6 +62,7 @@ export async function POST(req: Request) {
     }
     const topic = await createKbTopic({
       name,
+      agentId: resolved.agentId,
       description: typeof body.description === "string" ? body.description : null,
       queries,
       postUrls,

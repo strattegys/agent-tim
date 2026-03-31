@@ -26,7 +26,7 @@ const tool: ToolModule = {
     displayName: "Knowledge Studio — create topic",
     category: "internal",
     description:
-      "Create a new Knowledge Studio research topic for Marni (web/LinkedIn research → RAG chunks).",
+      "Create a new Knowledge Studio research topic for Marni or Tim (web research → RAG chunks).",
     operations: ["create"],
     requiresApproval: false,
   },
@@ -73,8 +73,8 @@ const tool: ToolModule = {
   },
 
   async execute(args, { agentId }) {
-    if (agentId !== "marni") {
-      return "knowledge_topic_create is only available to Marni.";
+    if (agentId !== "marni" && agentId !== "tim") {
+      return "knowledge_topic_create is only available to Marni and Tim.";
     }
     if (!isMarniKbDatabaseConfigured()) {
       return "Knowledge Studio unavailable: CRM database not configured.";
@@ -96,6 +96,7 @@ const tool: ToolModule = {
 
     try {
       const topic = await createKbTopic({
+        agentId,
         name,
         description,
         queries,
@@ -112,8 +113,8 @@ const tool: ToolModule = {
         ? `Cadence: every ${cadenceMinutes} minutes.`
         : "Manual runs (or set cadence later in the UI).";
       return (
-        `Created Knowledge Studio topic **${topic.name}** (slug \`${topic.slug}\`, id \`${topic.id}\`). ` +
-        `${qNote} ${cadNote} Tell Govind they can open **Work → Knowledge Base** and click **Run now** to ingest, or wait for cadence.`
+        `Created Knowledge Studio topic **${topic.name}** (slug \`${topic.slug}\`, id \`${topic.id}\`) for **${agentId}**. ` +
+        `${qNote} ${cadNote} Tell Govind they can open the **book (Knowledge base)** panel and click **Run now** to ingest, or wait for cadence.`
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

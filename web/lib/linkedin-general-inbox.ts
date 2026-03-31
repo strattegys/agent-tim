@@ -5,6 +5,10 @@
 import { query } from "@/lib/db";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import {
+  isLinkedInProviderMemberId,
+  postgresMissingColumn,
+} from "@/lib/linkedin-person-identity";
+import {
   findLinkedinOutreachItemsAtInitiated,
   resolvePostgresPersonIdsForLinkedInSender,
 } from "@/lib/warm-outreach-inbound-reply";
@@ -67,6 +71,76 @@ export async function ensureGeneralLinkedInInboxWorkflowId(): Promise<string> {
   return ensureWorkflowPromise;
 }
 
+/**
+ * When no existing `person` row matches the sender, create a minimal Postgres contact so Tim’s
+ * general inbox can still attach a workflow item (simple inbound → queue path).
+ */
+async function ensurePostgresPersonForLinkedInInbound(args: {
+  crmContactId: string;
+  senderProviderId: string;
+  senderDisplayName: string;
+}): Promise<string | null> {
+  const slug = args.senderProviderId?.trim();
+  if (!slug) return null;
+
+  const urlVanity = isLinkedInProviderMemberId(slug)
+    ? null
+    : `https://www.linkedin.com/in/${slug}`;
+  const likeSlug = `%${slug}%`;
+  const likePath = `%/in/${slug}%`;
+
+  try {
+    const dup = await query<{ id: string }>(
+      `SELECT id FROM person
+       WHERE "deletedAt" IS NULL
+         AND (
+           TRIM(COALESCE("linkedinProviderId", '')) = $1
+           OR "linkedinLinkPrimaryLinkUrl" ILIKE $2
+           OR "linkedinLinkPrimaryLinkUrl" ILIKE $3
+         )
+       LIMIT 1`,
+      [slug, likeSlug, likePath]
+    );
+    if (dup.length > 0) return dup[0].id;
+  } catch (e) {
+    if (!postgresMissingColumn(e, "linkedinProviderId")) throw e;
+    const dup = await query<{ id: string }>(
+      `SELECT id FROM person
+       WHERE "deletedAt" IS NULL
+         AND ("linkedinLinkPrimaryLinkUrl" ILIKE $1 OR "linkedinLinkPrimaryLinkUrl" ILIKE $2)
+       LIMIT 1`,
+      [likeSlug, likePath]
+    );
+    if (dup.length > 0) return dup[0].id;
+  }
+
+  const name = args.senderDisplayName?.trim() || "LinkedIn contact";
+  const parts = name.split(/\s+/).filter(Boolean);
+  const firstName = parts[0] || "LinkedIn";
+  const lastName = parts.length > 1 ? parts.slice(1).join(" ") : "Inbound";
+  const jobTitle = "LinkedIn inbound (auto — verify in CRM)";
+  const providerVal = isLinkedInProviderMemberId(slug) ? slug : null;
+
+  try {
+    const ins = await query<{ id: string }>(
+      `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "linkedinLinkPrimaryLinkUrl", "linkedinProviderId", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) RETURNING id`,
+      [firstName, lastName, jobTitle, urlVanity, providerVal]
+    );
+    return ins[0]?.id ?? null;
+  } catch (e) {
+    if (postgresMissingColumn(e, "linkedinProviderId")) {
+      const ins2 = await query<{ id: string }>(
+        `INSERT INTO person ("nameFirstName", "nameLastName", "jobTitle", "linkedinLinkPrimaryLinkUrl", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, NOW(), NOW()) RETURNING id`,
+        [firstName, lastName, jobTitle, urlVanity]
+      );
+      return ins2[0]?.id ?? null;
+    }
+    throw e;
+  }
+}
+
 async function findOpenGeneralInboxItem(
   workflowId: string,
   personId: string
@@ -98,15 +172,25 @@ export async function recordGeneralLinkedInInbound(args: {
   chatId?: string;
   timestampIso?: string;
 }): Promise<{ ok: boolean; reason?: string; workflowItemId?: string }> {
-  const personIds = await resolvePostgresPersonIdsForLinkedInSender(
+  let personIds = await resolvePostgresPersonIdsForLinkedInSender(
     args.crmContactId,
     args.senderProviderId,
     args.senderDisplayName
   );
   if (personIds.length === 0) {
+    const ensured = await ensurePostgresPersonForLinkedInInbound(args);
+    if (ensured) {
+      personIds = [ensured];
+      console.log(
+        `[linkedin-general-inbox] Created Postgres person ${ensured.slice(0, 8)}… for Tim inbox (${args.senderDisplayName})`
+      );
+    }
+  }
+  if (personIds.length === 0) {
     return {
       ok: false,
-      reason: "No Postgres person row matched — CRM note still written; link LinkedIn on the person for queue routing.",
+      reason:
+        "No Postgres person and could not create one — need Unipile sender id (attendee_provider_id) on the webhook payload.",
     };
   }
 

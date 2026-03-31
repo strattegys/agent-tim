@@ -69,10 +69,10 @@ Auto-deploys via GitHub Actions on push to `master` (web/ changes only).
 
 ```bash
 cd COMMAND-CENTRAL   # repo root containing docker-compose.dev.yml
-docker compose -f docker-compose.dev.yml up
+docker compose --env-file web/.env.local -f docker-compose.dev.yml up -d
 ```
 
-Then open **http://localhost:3010** (LOCALDEV; hot reload via mounted `web/`). Docker Desktop shows project **`cc-localdev`** and container **`cc-localdev-web`**. Uses **`web/.env.local`** + optional **`web/.env.development.local`** and `host.docker.internal` for CRM DB — see [`docker-compose.dev.yml`](docker-compose.dev.yml). **LOCALPROD:** from **`web/`** run **`npm run local-prod`** (Node on **3001**), or full stack in Docker with friendly names: **`.\scripts\docker-local-prod-desktop-up.ps1`** (project **`cc-localprod`**). See [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md).
+Or **`.\scripts\dev-docker-up.ps1`** (same thing; bundled CRM Postgres, no tunnel). Then open **http://localhost:3010** (LOCALDEV; hot reload via mounted `web/`). Docker Desktop shows project **`cc-localdev`**, **`cc-localdev-p3010`**, and **`cc-localdev-crm-db`**. Uses **`web/.env.local`** + optional **`web/.env.development.local`**. **Using the installed local CRM Postgres** (ports, `db:exec`, Unipile replay): [`docs/LOCAL-CRM-DATABASE.md`](docs/LOCAL-CRM-DATABASE.md). **LOCALPROD:** from **`web/`** run **`npm run local-prod`** (Node on **3001**), or full Docker stack (Next + Postgres + Caddy): **`.\scripts\docker-local-prod-desktop-up.ps1`** → **http://localhost:3001** (project **`cc-localprod`**, container **`cc-localprod-p3001`**). Stop: **`.\scripts\docker-local-prod-desktop-down.ps1`**. See [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md).
 
 **Optional (Node on the host, same port as Docker):**
 
@@ -90,27 +90,15 @@ Do **not** run two servers on the **same** port (e.g. LOCALPROD on 3001 vs anyth
 
 Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.ts). If **`CRM_DB_PASSWORD`** is missing, the app uses an in-memory **`.dev-store/`** — fine for UI experiments, but **pipelines will be empty or fake**.
 
-**Local dev (Docker on your PC)**
+**Local dev (Docker on your PC) — default: bundled Postgres**
 
-1. Add **`CRM_DB_PASSWORD`** to **`web/.env.local`** (and keep **`CRM_DB_PORT=5432`** if you share the file with production — Docker dev overrides the port). See [`web/.env.local.example`](web/.env.local.example). Optional: render from **Bitwarden Secrets Manager** — [`docs/BITWARDEN-SECRETS.md`](docs/BITWARDEN-SECRETS.md) and [`scripts/bws-pull-env.ps1`](scripts/bws-pull-env.ps1).
-2. **[`docker-compose.dev.yml`](docker-compose.dev.yml)** defaults to **`CRM_DB_HOST=host.docker.internal`** and **`CRM_DB_PORT`** from **`CC_DOCKER_CRM_DB_PORT`** / **`CRM_TUNNEL_LOCAL_PORT`** / **5433** so the dev container hits a forwarder on the Windows host, not production’s loopback-only **5432** on the droplet.
-
-**Stable path (no SSH):** GitHub Actions (and manual **`scripts/deploy-web.sh`**) re-run **`tools/expose-crm-db-tailscale.sh`** after each deploy so a **droplet restart** does not drop Postgres on the tailnet. On your PC (Tailscale connected), run **`scripts\dev-docker-up.ps1`** — it **auto-starts the TCP bridge** when **`${CRM_DB_TAILSCALE_HOST:-100.74.54.12}:5432`** answers, otherwise it falls back to SSH. The bridge is [**`scripts/crm-db-tailscale-bridge.mjs`**](scripts/crm-db-tailscale-bridge.mjs) (**`0.0.0.0:5433`** → tailnet **:5432**). Reconnect after sleep or reboot: **`cd web && npm run db:reconnect`** (same auto logic) or **`npm run db:reconnect:bridge`** to force the bridge. **`dev-docker-up.ps1 -UseSshTunnel`** forces SSH. Optional: copy [**`.env.docker-dev.example`**](.env.docker-dev.example) to **`.env`** and set **`CC_DOCKER_CRM_DB_HOST`** / **`CC_DOCKER_CRM_DB_PORT`** if your Docker stack can reach the tailnet without a host forwarder.
-
-**SSH tunnel (alternative):** Forward **`localhost:5432` on the droplet** (production **`crm-db`** publishes **`127.0.0.1:5432`**). Local port **5433** avoids clashes:
-
-   ```bash
-   # Tunnel scripts bind 0.0.0.0:5433 so Docker Desktop can reach Postgres via host.docker.internal
-   ssh -L 0.0.0.0:5433:localhost:5432 root@<CC-host>
-   ```
-
-   **Scripts:** PowerShell **`scripts\dev-docker-up.ps1`** (starts tunnel then Compose), or **`scripts\crm-db-tunnel.ps1`** / Git Bash **`scripts/crm-db-tunnel.sh`**. Set **`CRM_SSH_HOST`** to the droplet **100.x** or MagicDNS when using Tailscale for SSH.
-
-   You do **not** need **`CRM_DB_PORT=5433`** in **`.env.local`** for Docker dev — compose sets it. **`CRM_DB_HOST=127.0.0.1`** + **`CRM_DB_PORT=5433`** is for **`npm run dev` on the host** (no Docker) with the same forwarder.
-
-3. Verify: **`cd web && npm run check-crm-db`** (from the host). From the dev container: **`docker compose -f docker-compose.dev.yml exec web npm run check-crm-db`**.
-
-4. Recreate the dev stack after env changes: **`docker compose -f docker-compose.dev.yml up -d --force-recreate`**
+1. Add **`CRM_DB_PASSWORD`** (and other **`CRM_DB_*`** as in production) to **`web/.env.local`**. The same password is used for the bundled **`crm-db`** container. See [`web/.env.local.example`](web/.env.local.example). Optional: Bitwarden — [`docs/BITWARDEN-SECRETS.md`](docs/BITWARDEN-SECRETS.md) and [`scripts/bws-pull-env.ps1`](scripts/bws-pull-env.ps1).
+2. **[`docker-compose.dev.yml`](docker-compose.dev.yml)** starts **`crm-db`** (pgvector, same image as production). **`web`** uses **`CRM_DB_HOST=crm-db`** and **`CRM_DB_PORT=5432`**. For host-side **`pg_restore`** / **`npm run db:exec`**, Postgres is on **`127.0.0.1:25432`** (compose also caps DB memory ~**1 GiB**). This default path does **not** use Tailscale or SSH. **LOCALPROD Docker** ([`docker-compose.local-prod-desktop.yml`](docker-compose.local-prod-desktop.yml)) does **not** use bundled CRM data: **`web`** talks to the **droplet** Postgres via **`host.docker.internal`** and a host tunnel (default **`127.0.0.1:5433`**). Start **`scripts/localprod-crm-tunnel.ps1`**, then **`scripts/docker-local-prod-desktop-up.ps1`**. See [`docs/LOCAL-ENV-LAYERS.md`](docs/LOCAL-ENV-LAYERS.md).
+3. **Empty database:** a new volume only runs `docker/crm-db-init` (e.g. `vector` extension). The Twenty **workspace** schema and rows come from a **`pg_dump` / `pg_restore`** of production, or use **`.\scripts\docker-local-prod-desktop-up.ps1`** for another full local stack that shares the same pattern. Until you restore, Kanban/APIs that expect tables may error — that is a data issue, not a flaky tunnel.
+4. **Live droplet CRM (optional):** **`.\scripts\dev-docker-up.ps1 -UseRemoteCrm`** starts the Tailscale TCP bridge or SSH tunnel (**`0.0.0.0:5433`** → server **:5432**) and merges **[`docker-compose.dev-remote-crm.yml`](docker-compose.dev-remote-crm.yml)** so **`web`** uses **`host.docker.internal:5433`**. Flags **`-UseSshTunnel`** / **`-UseTailscaleBridge`** apply together with **`-UseRemoteCrm`**. On the server, **`tools/expose-crm-db-tailscale.sh`** (re-run from deploy) keeps Postgres reachable on the tailnet. Reconnect after sleep: **`cd web && npm run db:reconnect`** (forwarder only — irrelevant if you use bundled **`crm-db`** only). Optional: set **`CC_DOCKER_CRM_DB_HOST`** / **`CC_DOCKER_CRM_DB_PORT`** when running compose if the container can reach the tailnet directly.
+5. **SSH tunnel (manual alternative for remote CRM):** **`ssh -L 0.0.0.0:5433:localhost:5432 root@<CC-host>`** then **`-UseRemoteCrm`** or **`scripts/crm-db-tunnel.ps1`**. **`CRM_DB_HOST=127.0.0.1`** + **`CRM_DB_PORT=5433`** in **`.env.local`** is for **`npm run dev` on the host** (no Docker) with that forwarder.
+6. Verify: **`cd web && npm run check-crm-db`**. From the dev container: **`docker compose --env-file web/.env.local -f docker-compose.dev.yml exec web npm run check-crm-db`**.
+7. Recreate after env changes: **`docker compose --env-file web/.env.local -f docker-compose.dev.yml up -d --force-recreate`**
 
 **Automatic startup (Windows):** To bring the bridge + Compose up after each login, register a scheduled task once:
 

@@ -90,6 +90,50 @@ export async function listPunchListItems(
   return rows.map(rowToItem);
 }
 
+/** Full row + notes subquery (same shape as listPunchListItems). */
+const PUNCH_LIST_ROW_WITH_NOTES = `SELECT p.*,
+       COALESCE(
+         (SELECT json_agg(json_build_object(
+           'id', n.id, 'itemId', n."itemId", 'content', n.content, 'createdAt', n."createdAt"
+         ) ORDER BY n."createdAt" DESC)
+         FROM "_punch_list_note" n WHERE n."itemId" = p.id), '[]'
+       ) as notes
+     FROM "_punch_list" p`;
+
+/**
+ * Resolve a card by display # — bypasses listPunchListItems LIMIT 200, so high numbers
+ * (e.g. #1049) still resolve when the board has many rows.
+ */
+export async function getPunchListItemByItemNumber(
+  agentId: string,
+  itemNumber: number
+): Promise<PunchListItem | null> {
+  const rows = await query<Record<string, unknown>>(
+    `${PUNCH_LIST_ROW_WITH_NOTES}
+     WHERE p."agentId" = $1 AND p."itemNumber" = $2
+       AND p."deletedAt" IS NULL AND p."archivedAt" IS NULL
+     LIMIT 1`,
+    [agentId, itemNumber]
+  );
+  if (rows.length === 0) return null;
+  return rowToItem(rows[0]);
+}
+
+export async function getPunchListItemById(
+  agentId: string,
+  id: string
+): Promise<PunchListItem | null> {
+  const rows = await query<Record<string, unknown>>(
+    `${PUNCH_LIST_ROW_WITH_NOTES}
+     WHERE p."agentId" = $1 AND p.id = $2
+       AND p."deletedAt" IS NULL AND p."archivedAt" IS NULL
+     LIMIT 1`,
+    [agentId, id]
+  );
+  if (rows.length === 0) return null;
+  return rowToItem(rows[0]);
+}
+
 export async function addPunchListItem(
   agentId: string,
   data: { title: string; description?: string; rank?: number; category?: string }

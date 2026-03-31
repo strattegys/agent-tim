@@ -153,9 +153,13 @@ const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
 
   "marni-kb-cadence": () => async () => {
     const { processDueKbTopicsCron } = await import("./marni-kb");
-    const n = await processDueKbTopicsCron("marni");
+    const nMarni = await processDueKbTopicsCron("marni");
+    const nTim = await processDueKbTopicsCron("tim");
+    const n = nMarni + nTim;
     if (n > 0) {
-      console.log(`[cron] Marni KB: ran ${n} topic(s)`);
+      console.log(
+        `[cron] Knowledge Studio cadence: ran ${n} topic(s) (marni ${nMarni}, tim ${nTim})`
+      );
     }
   },
 

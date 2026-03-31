@@ -505,8 +505,22 @@ export default function AgentInfoPanel({ agent, onAvatarChange }: AgentInfoPanel
                           <span
                             className="text-[9px] font-bold uppercase px-1 py-0.5 rounded shrink-0 mt-0.5"
                             style={{
-                              background: c.priority === "high" ? "#E54D2E22" : c.priority === "medium" ? "#F5A62322" : "#88888822",
-                              color: c.priority === "high" ? "#E54D2E" : c.priority === "medium" ? "#F5A623" : "#888",
+                              background:
+                                c.priority === "critical"
+                                  ? "#7F1D1D33"
+                                  : c.priority === "high"
+                                    ? "#E54D2E22"
+                                    : c.priority === "medium"
+                                      ? "#F5A62322"
+                                      : "#88888822",
+                              color:
+                                c.priority === "critical"
+                                  ? "#B91C1C"
+                                  : c.priority === "high"
+                                    ? "#E54D2E"
+                                    : c.priority === "medium"
+                                      ? "#F5A623"
+                                      : "#888",
                             }}
                           >
                             {c.priority}

@@ -7,7 +7,7 @@ export default function RemindersRedirectClient() {
   const router = useRouter();
 
   useEffect(() => {
-    router.replace("/?agent=suzi&panel=reminders");
+    router.replace("/?agent=suzi&panel=reminders&suziSub=reminders");
   }, [router]);
 
   return null;

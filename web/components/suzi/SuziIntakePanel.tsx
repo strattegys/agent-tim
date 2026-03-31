@@ -1,11 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import IntakeCard, { type IntakeCardItem } from "./IntakeCard";
 import { panelBus } from "@/lib/events";
 import type { SuziFocusedIntake } from "@/lib/suzi-work-panel";
 
 const PAGE_SIZE = 9;
+
+function isIntakeFocusNewestDetail(detail: unknown): boolean {
+  return (
+    typeof detail === "object" &&
+    detail !== null &&
+    "focusNewest" in detail &&
+    (detail as { focusNewest?: boolean }).focusNewest === true
+  );
+}
 
 function SearchIcon({ className }: { className?: string }) {
   return (
@@ -41,9 +51,16 @@ export default function SuziIntakePanel({
   focusedIntakeId = null,
   onFocusedIntakeChange,
 }: SuziIntakePanelProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const intakeLatestNavHandled = useRef(false);
+
   const [items, setItems] = useState<IntakeCardItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+  /** Bumps to refetch the current page (tool use, archive, etc.). */
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [loading, setLoading] = useState(true);
   /** Draft in the search box; applied on icon click or Enter. */
   const [searchDraft, setSearchDraft] = useState("");
@@ -62,35 +79,84 @@ export default function SuziIntakePanel({
     localStorage.setItem("suzi_intake_search", appliedSearch);
   }, [appliedSearch]);
 
-  const fetchItems = useCallback(async () => {
+  /** API returns FIFO (oldest first); last page holds the newest captures. */
+  const probeLastPageIndex = useCallback(async (): Promise<number> => {
+    const params = new URLSearchParams();
+    if (appliedSearch.trim()) params.set("search", appliedSearch.trim());
+    params.set("limit", "1");
+    params.set("offset", "0");
+    try {
+      const res = await fetch(`/api/intake?${params}`);
+      const data = await res.json();
+      const t = typeof data.total === "number" ? data.total : 0;
+      if (t <= 0) return 0;
+      return Math.max(0, Math.ceil(t / PAGE_SIZE) - 1);
+    } catch {
+      return 0;
+    }
+  }, [appliedSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     const params = new URLSearchParams();
     if (appliedSearch.trim()) params.set("search", appliedSearch.trim());
     params.set("limit", String(PAGE_SIZE));
     params.set("offset", String(page * PAGE_SIZE));
-    try {
-      const res = await fetch(`/api/intake?${params}`);
-      const data = await res.json();
-      setItems(data.items || []);
-      setTotal(typeof data.total === "number" ? data.total : (data.items || []).length);
-    } catch {
-      setItems([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [appliedSearch, page]);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/intake?${params}`);
+        const data = await res.json();
+        if (cancelled) return;
+        setItems(data.items || []);
+        setTotal(typeof data.total === "number" ? data.total : (data.items || []).length);
+      } catch {
+        if (!cancelled) {
+          setItems([]);
+          setTotal(0);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [appliedSearch, page, refreshNonce]);
 
   const maxPage = total > 0 ? Math.max(0, Math.ceil(total / PAGE_SIZE) - 1) : 0;
   useEffect(() => {
     if (page > maxPage) setPage(maxPage);
   }, [page, maxPage]);
 
+  useLayoutEffect(() => {
+    if (intakeLatestNavHandled.current) return;
+    if (searchParams.get("intakeLatest") !== "1") return;
+    intakeLatestNavHandled.current = true;
+    void (async () => {
+      const lp = await probeLastPageIndex();
+      setPage(lp);
+      setRefreshNonce((n) => n + 1);
+      const next = new URLSearchParams(searchParams.toString());
+      next.delete("intakeLatest");
+      const q = next.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    })();
+  }, [searchParams, router, pathname, probeLastPageIndex]);
+
   useEffect(() => {
-    setLoading(true);
-    fetchItems();
-    const unsub = panelBus.on("intake", fetchItems);
-    return unsub;
-  }, [fetchItems]);
+    return panelBus.on("intake", (detail) => {
+      if (isIntakeFocusNewestDetail(detail)) {
+        void (async () => {
+          const lp = await probeLastPageIndex();
+          setPage(lp);
+          setRefreshNonce((n) => n + 1);
+        })();
+      } else {
+        setRefreshNonce((n) => n + 1);
+      }
+    });
+  }, [probeLastPageIndex]);
 
   const handleArchive = useCallback(
     async (id: string) => {
@@ -99,17 +165,17 @@ export default function SuziIntakePanel({
       }
       setItems((prev) => prev.filter((x) => x.id !== id));
       try {
-        const res = await fetch("/api/intake", {
+        await fetch("/api/intake", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ command: "archive", id }),
         });
-        await fetchItems();
       } catch {
-        await fetchItems();
+        // ignore — refresh below reconciles
       }
+      setRefreshNonce((n) => n + 1);
     },
-    [fetchItems, focusedIntakeId, onFocusedIntakeChange]
+    [focusedIntakeId, onFocusedIntakeChange]
   );
 
   const toggleIntakeFocus = useCallback(

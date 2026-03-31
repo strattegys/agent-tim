@@ -36,13 +36,13 @@ Write-Host ""
 if ($tsOk) {
   Write-Host "Tailscale path to Postgres is open." -ForegroundColor Green
   Write-Host "  Native Node: CRM_DB_HOST=$ts  CRM_DB_PORT=5432"
-  Write-Host "  Docker dev (no SSH):  .\scripts\dev-docker-up.ps1 -UseTailscaleBridge   (TCP bridge to :$tunnelPort)"
+  Write-Host "  Docker dev (remote CRM):  .\scripts\dev-docker-up.ps1 -UseRemoteCrm   (TCP bridge to :$tunnelPort)"
   Write-Host ""
   Write-Host "If the server was rebuilt, ensure Postgres is bound on the tailnet:" -ForegroundColor Gray
   Write-Host "  ssh root@$ts 'cd /opt/agent-tim && bash tools/expose-crm-db-tailscale.sh'"
 } elseif ($localOk) {
   Write-Host "Something is listening locally on $tunnelPort (SSH tunnel or Tailscale bridge)." -ForegroundColor Green
-  Write-Host "  Docker dev: host.docker.internal + that port (docker-compose.dev.yml)."
+  Write-Host "  Docker dev (remote CRM): host.docker.internal + that port (dev-docker-up.ps1 -UseRemoteCrm)."
   Write-Host "  Host Node:  CRM_DB_HOST=127.0.0.1  CRM_DB_PORT=$tunnelPort"
 } else {
   Write-Host "Neither path responded. Next steps:" -ForegroundColor Yellow

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Command Central local development">
+  <rect width="512" height="512" rx="96" fill="#0e1621"/>
+  <text
+    x="256"
+    y="314"
+    text-anchor="middle"
+    font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-weight="800"
+    font-size="200"
+    fill="#f97316"
+  >CD</text>
+</svg>

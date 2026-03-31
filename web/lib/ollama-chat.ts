@@ -10,7 +10,11 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
-import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import {
+  appendEphemeralContext,
+  applySessionHistoryLimit,
+  type ChatStreamExtraOptions,
+} from "./chat-stream-options";
 
 const MAX_TOOL_ITERATIONS = 20;
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
@@ -128,7 +132,8 @@ export async function chatStreamOllama(
     await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
     extra?.workQueueContext
   );
-  const history = getHistory(config.sessionFile);
+  let history = getHistory(config.sessionFile);
+  history = applySessionHistoryLimit(history, extra?.sessionHistoryMaxMessages);
   const tools = buildOllamaTools(config.tools);
   const model = config.modelName || "qwen2.5:7b";
   const delegatedAgents = new Set<string>();
@@ -321,6 +326,7 @@ export async function autonomousChatOllama(
         role: "model",
         text: replyText,
         timestamp: Date.now(),
+        ambient: true,
       });
       return replyText;
     }
@@ -334,6 +340,7 @@ export async function autonomousChatOllama(
       role: "model",
       text: fallbackMsg,
       timestamp: Date.now(),
+      ambient: true,
     });
     return fallbackMsg;
   }

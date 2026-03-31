@@ -59,5 +59,8 @@ nanoclaw/
 docker-data/agent-avatars/*
 !docker-data/agent-avatars/.gitkeep
 
+# Local CRM pg_dump snapshots (populate dev — never commit)
+docker-data/*.dump
+
 # Local dev: session JSONL / memory under agents/ (do not commit; prod uses host bind mount)
 agents/.*/

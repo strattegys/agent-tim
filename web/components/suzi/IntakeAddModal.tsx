@@ -57,7 +57,7 @@ export default function IntakeAddModal({ open, onClose }: IntakeAddModalProps) {
         }),
       });
       if (res.ok) {
-        panelBus.emit("intake");
+        panelBus.emit("intake", { focusNewest: true });
         onClose();
       }
     } finally {

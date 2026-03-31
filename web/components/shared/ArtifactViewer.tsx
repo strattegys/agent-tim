@@ -5,17 +5,23 @@ import {
   useEffect,
   useRef,
   useCallback,
+  useMemo,
   memo,
   type ReactNode,
 } from "react";
 import ChatInput from "@/components/ChatInput";
 import ArtifactTabScrollRow from "@/components/shared/ArtifactTabScrollRow";
 import {
+  buildStructuredWarmThreadTranscriptForLlm,
+  buildWarmLinkedInThreadBeforeDraft,
   extractPlainDmFromDraftMarkdown,
+  extractWarmRepliedInboundText,
+  pickPreviousWarmOutboundPlain,
   recomposeWarmLinkedInDmArtifact,
   splitWarmLinkedInDmArtifact,
   type WarmDmArtifactSplit,
 } from "@/lib/warm-outreach-draft";
+import { panelBus } from "@/lib/events";
 
 interface Artifact {
   id: string;
@@ -83,12 +89,22 @@ interface ArtifactViewerProps {
   /** When set (ms), re-fetch artifacts on an interval — picks up tool-driven DB updates (e.g. Tim editing draft). Paused while editing or saving. */
   pollArtifactsMs?: number;
   /**
-   * Stages (e.g. MESSAGE_DRAFT, REPLY_DRAFT) where the editor shows only the LinkedIn message body
-   * (enrichment / rationale collapsed; optional “full draft” toggle).
+   * Stages (e.g. MESSAGE_DRAFT, REPLY_DRAFT) where the editor focuses the LinkedIn message body
+   * (enrichment / rationale shown above as context, not the full artifact toggle).
    */
   linkedInDmBodyStages?: string[];
   /** When the user switches artifact tabs (or data loads), for Tim work-queue → main chat context. */
   onActiveArtifactChange?: (info: { stage: string; label: string } | null) => void;
+  /**
+   * Warm / LinkedIn outreach: push the same structured thread string used for server REPLY_DRAFT autogen
+   * into Tim’s work-queue chat context (parent merges into `formatTimWorkQueueContext`).
+   */
+  reportTimLinkedInThread?: boolean;
+  onWarmOutreachThreadTranscriptChange?: (transcript: string | null) => void;
+  /**
+   * Tim warm/LinkedIn outreach: on REPLIED tab, show a header control to pull inbound text from Unipile into CRM.
+   */
+  showLinkedInInboundBackfillButton?: boolean;
   onClose: () => void;
   /** Shown under the header title (e.g. Tim warm-outreach contact name / company / title). */
   headerDetail?: ReactNode;
@@ -125,6 +141,9 @@ export default function ArtifactViewer({
   pollArtifactsMs,
   linkedInDmBodyStages,
   onActiveArtifactChange,
+  reportTimLinkedInThread = false,
+  onWarmOutreachThreadTranscriptChange,
+  showLinkedInInboundBackfillButton = false,
   onClose,
   headerDetail,
 }: ArtifactViewerProps) {
@@ -139,7 +158,6 @@ export default function ArtifactViewer({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
-  const [showFullLinkedInDraft, setShowFullLinkedInDraft] = useState(false);
   const warmDmSplitRef = useRef<WarmDmArtifactSplit | null>(null);
   const blockArtifactPollRef = useRef(false);
 
@@ -151,18 +169,30 @@ export default function ArtifactViewer({
   const [uploading, setUploading] = useState(false);
   const [taskSubmitting, setTaskSubmitting] = useState(false);
   const [busyWorkflowActionId, setBusyWorkflowActionId] = useState<string | null>(null);
+  const [linkedInBackfillBusy, setLinkedInBackfillBusy] = useState(false);
+  const [warmInlineDraftBody, setWarmInlineDraftBody] = useState("");
+  const [warmInlineDraftDirty, setWarmInlineDraftDirty] = useState(false);
+  const warmInlineDraftDirtyRef = useRef(false);
+  const lastWarmDraftArtifactIdRef = useRef<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    warmInlineDraftDirtyRef.current = warmInlineDraftDirty;
+  }, [warmInlineDraftDirty]);
 
   useEffect(() => {
     setIsEditing(false);
     setEditContent("");
     warmDmSplitRef.current = null;
-    setShowFullLinkedInDraft(false);
+    lastWarmDraftArtifactIdRef.current = null;
+    setWarmInlineDraftBody("");
+    setWarmInlineDraftDirty(false);
+    warmInlineDraftDirtyRef.current = false;
   }, [activeIdx, workflowItemId, workflowId]);
 
   useEffect(() => {
-    blockArtifactPollRef.current = isEditing || saving;
-  }, [isEditing, saving]);
+    blockArtifactPollRef.current = isEditing || saving || warmInlineDraftDirty;
+  }, [isEditing, saving, warmInlineDraftDirty]);
 
   // Upload featured image → strattegys, then update frontmatter
   const handleImageUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,8 +248,10 @@ export default function ArtifactViewer({
     const a = artifacts[activeIdx];
     if (!a) return;
     const stageU = (a.stage || "").toUpperCase();
-    const wantBody = linkedInDmBodyStages?.some((s) => s.toUpperCase() === stageU);
-    if (wantBody) {
+    /** REPLIED uses split for display but editing the split “body” would include boilerplate; edit full markdown. */
+    const useLinkedInBodySlice =
+      linkedInDmBodyStages?.some((s) => s.toUpperCase() === stageU) && stageU !== "REPLIED";
+    if (useLinkedInBodySlice) {
       const sp = splitWarmLinkedInDmArtifact(a.content);
       if (sp) {
         warmDmSplitRef.current = sp;
@@ -260,6 +292,44 @@ export default function ArtifactViewer({
     }
     setSaving(false);
   }, [artifacts, activeIdx, editContent, saving]);
+
+  const saveWarmInlineDraft = useCallback(async (): Promise<boolean> => {
+    const a = artifacts[activeIdx];
+    if (!a) return true;
+    const split = splitWarmLinkedInDmArtifact(a.content);
+    if (!split) return true;
+    const nextContent = recomposeWarmLinkedInDmArtifact(split, warmInlineDraftBody);
+    if (nextContent === a.content) {
+      setWarmInlineDraftDirty(false);
+      warmInlineDraftDirtyRef.current = false;
+      return true;
+    }
+    if (saving) return false;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/crm/artifacts/${a.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: nextContent }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(typeof err.error === "string" ? err.error : "Save failed. Try again.");
+        return false;
+      }
+      setArtifacts((prev) =>
+        prev.map((art, i) => (i === activeIdx ? { ...art, content: nextContent } : art))
+      );
+      setWarmInlineDraftDirty(false);
+      warmInlineDraftDirtyRef.current = false;
+      return true;
+    } catch {
+      alert("Save failed. Check your connection and try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [artifacts, activeIdx, warmInlineDraftBody, saving]);
 
   const handleCancelEdit = useCallback(() => {
     warmDmSplitRef.current = null;
@@ -391,6 +461,55 @@ export default function ArtifactViewer({
     return () => clearInterval(id);
   }, [pollArtifactsMs, workflowItemId, preloaded, usePeopleView]);
 
+  const refetchArtifacts = useCallback(async () => {
+    if (preloaded || usePeopleView) return;
+    if (!workflowItemId && !workflowId) return;
+    const params = new URLSearchParams();
+    if (workflowItemId) params.set("workflowItemId", workflowItemId);
+    else if (workflowId) params.set("workflowId", workflowId);
+    const r = await fetch(`/api/crm/artifacts?${params}`, { credentials: "include" });
+    if (!r.ok) throw new Error("Failed to refresh artifacts");
+    const data = await r.json();
+    const arts = sortArtifactsForTabs((data.artifacts || []) as Artifact[]);
+    const hold = selectedArtifactIdRef.current;
+    setArtifacts(arts);
+    if (hold) {
+      const ni = arts.findIndex((a) => a.id === hold);
+      if (ni >= 0) setActiveIdx(ni);
+    }
+  }, [workflowItemId, workflowId, preloaded, usePeopleView]);
+
+  /** Tim/Ghost chat tool_calls update CRM artifacts — refetch immediately instead of waiting for poll. */
+  useEffect(() => {
+    if (!workflowItemId || preloaded || usePeopleView) return undefined;
+    return panelBus.on("workflow_items", () => {
+      void refetchArtifacts();
+    });
+  }, [workflowItemId, preloaded, usePeopleView, refetchArtifacts]);
+
+  const handleLinkedInInboundBackfill = useCallback(async () => {
+    if (!workflowItemId) return;
+    setLinkedInBackfillBusy(true);
+    try {
+      const res = await fetch("/api/crm/warm-outreach/backfill-replied-inbound", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workflowItemId }),
+        credentials: "include",
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        alert(typeof data.error === "string" ? data.error : "Could not load inbound message from LinkedIn.");
+        return;
+      }
+      await refetchArtifacts();
+    } catch {
+      alert("Could not load inbound message. Check your connection and try again.");
+    } finally {
+      setLinkedInBackfillBusy(false);
+    }
+  }, [workflowItemId, refetchArtifacts]);
+
   const lastFocusKeyRef = useRef<string>("__init__");
   useEffect(() => {
     lastFocusKeyRef.current = "__init__";
@@ -421,7 +540,65 @@ export default function ArtifactViewer({
     onActiveArtifactChange({ stage: a.stage, label });
   }, [onActiveArtifactChange, usePeopleView, loading, artifacts, activeIdx]);
 
+  useEffect(() => {
+    const notify = onWarmOutreachThreadTranscriptChange;
+    if (!notify) return undefined;
+
+    if (!reportTimLinkedInThread || loading || usePeopleView) {
+      notify(null);
+      return () => notify(null);
+    }
+
+    const threadStages = new Set([
+      "MESSAGE_DRAFT",
+      "REPLY_DRAFT",
+      "MESSAGED",
+      "REPLY_SENT",
+      "REPLIED",
+    ]);
+    const rows = artifacts
+      .filter((a) => threadStages.has((a.stage || "").toUpperCase()))
+      .map((a) => ({ stage: a.stage, content: a.content, createdAt: a.createdAt }))
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+    if (rows.length === 0) {
+      notify(null);
+    } else {
+      const transcript = buildStructuredWarmThreadTranscriptForLlm(rows).trim();
+      notify(transcript.length > 0 ? transcript : null);
+    }
+
+    return () => notify(null);
+  }, [
+    reportTimLinkedInThread,
+    loading,
+    usePeopleView,
+    artifacts,
+    onWarmOutreachThreadTranscriptChange,
+  ]);
+
   const active = artifacts[activeIdx];
+
+  useEffect(() => {
+    if (!active || !isInline || usePeopleView) return;
+    const st = (active.stage || "").toUpperCase();
+    if (st !== "MESSAGE_DRAFT" && st !== "REPLY_DRAFT") return;
+    if (!splitWarmLinkedInDmArtifact(active.content)) return;
+
+    if (lastWarmDraftArtifactIdRef.current !== active.id) {
+      lastWarmDraftArtifactIdRef.current = active.id;
+      const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
+      setWarmInlineDraftBody(plain);
+      setWarmInlineDraftDirty(false);
+      warmInlineDraftDirtyRef.current = false;
+      return;
+    }
+
+    if (!warmInlineDraftDirtyRef.current) {
+      const plain = extractPlainDmFromDraftMarkdown(active.content).trim();
+      setWarmInlineDraftBody((prev) => (prev !== plain ? plain : prev));
+    }
+  }, [active, isInline, usePeopleView]);
 
   const linkedInDmSplit =
     active && linkedInDmBodyStages?.length
@@ -438,20 +615,257 @@ export default function ArtifactViewer({
       ? extractPlainDmFromDraftMarkdown(active.content).trim()
       : "";
 
+  const activeStageUpper = (active?.stage || "").toUpperCase();
+  /** Inline Tim warm card: show thread rail for MESSAGE/REPLY draft tabs even if markdown lost split shape (e.g. Tim chat overwrote artifact). */
+  const shouldBuildWarmDraftThread =
+    !!active &&
+    isInline &&
+    !usePeopleView &&
+    (activeStageUpper === "MESSAGE_DRAFT" || activeStageUpper === "REPLY_DRAFT") &&
+    Boolean(linkedInDmBodyStages?.some((s) => (s || "").toUpperCase() === activeStageUpper));
+
+  const isWarmInlineSendComposer =
+    isInline &&
+    !usePeopleView &&
+    !isEditing &&
+    Boolean(linkedInDmSplit) &&
+    (activeStageUpper === "MESSAGE_DRAFT" || activeStageUpper === "REPLY_DRAFT");
+
+  const threadTurnsBeforeDraft = useMemo(() => {
+    if (!shouldBuildWarmDraftThread || !active) return [];
+    const turns = buildWarmLinkedInThreadBeforeDraft(artifacts, active);
+    return [...turns].sort((a, b) => {
+      const tb = new Date(b.createdAt).getTime();
+      const ta = new Date(a.createdAt).getTime();
+      if (Number.isFinite(tb) && Number.isFinite(ta) && tb !== ta) return tb - ta;
+      return 0;
+    });
+  }, [shouldBuildWarmDraftThread, active, artifacts]);
+
+  const showWarmThreadHistoryPanel =
+    activeStageUpper === "REPLY_DRAFT" ||
+    (activeStageUpper === "MESSAGE_DRAFT" && threadTurnsBeforeDraft.length > 0);
+
+  const warmThreadHistoryEl =
+    showWarmThreadHistoryPanel && shouldBuildWarmDraftThread ? (
+      <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/25 px-3 py-2.5">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+            Message history (this thread)
+          </p>
+          <p className="text-[9px] font-medium text-[var(--text-tertiary)]">Newest at top</p>
+        </div>
+        {threadTurnsBeforeDraft.length === 0 ? (
+          <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+            {activeStageUpper === "REPLY_DRAFT"
+              ? "No earlier sent messages or captured replies on this item yet. Send the first message, mark Replied when they answer, or use Load from LinkedIn on the Contact replied card."
+              : "No sent LinkedIn messages on this item yet — this is the first outbound."}
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {threadTurnsBeforeDraft.map((turn, i) => {
+              const when = new Date(turn.createdAt);
+              const whenLabel = Number.isFinite(when.getTime())
+                ? when.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+                : "—";
+              return (
+                <li
+                  key={`${turn.role}-${turn.createdAt}-${i}`}
+                  className={`rounded-md border border-[var(--border-color)]/70 px-2.5 py-2 ${
+                    turn.role === "you" ? "bg-[var(--bg-primary)]/50" : "bg-[var(--bg-secondary)]/60"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+                      {turn.role === "you" ? "You" : "Them"}
+                    </p>
+                    <time
+                      dateTime={turn.createdAt}
+                      className="text-[9px] tabular-nums text-[var(--text-tertiary)]"
+                      title={Number.isFinite(when.getTime()) ? when.toISOString() : undefined}
+                    >
+                      {whenLabel}
+                    </time>
+                  </div>
+                  <p className="mt-1 text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-chat-body)]">
+                    {turn.text}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    ) : null;
+
   const recomposedDraft =
     isEditing && warmDmSplitRef.current
       ? recomposeWarmLinkedInDmArtifact(warmDmSplitRef.current, editContent)
       : editContent;
 
-  const hasUnsavedArtifactEdit =
+  const warmInlineDraftNeedsSave = isWarmInlineSendComposer && warmInlineDraftDirty;
+
+  const hasUnsavedClassicEdit =
     !usePeopleView &&
     isEditing &&
     !!active &&
     recomposedDraft !== active.content;
 
+  const hasUnsavedArtifactEdit = hasUnsavedClassicEdit || warmInlineDraftNeedsSave;
+
+  /** Intake-style guidance strip above the outbound DM (inline Tim warm cards). */
+  const warmInlineGuidanceMarkdown =
+    isInline && !usePeopleView && linkedInDmSplit?.prefix?.trim() ? linkedInDmSplit.prefix.trim() : "";
+  const warmEditGuidanceMarkdown =
+    isInline && !usePeopleView && isEditing && warmDmSplitRef.current?.prefix?.trim()
+      ? warmDmSplitRef.current.prefix.trim()
+      : "";
+  const warmOutboundPlainTitle =
+    active?.stage?.toUpperCase() === "REPLIED"
+      ? "What they said (inbound LinkedIn)"
+      : active?.stage?.toUpperCase() === "REPLY_DRAFT"
+        ? "Draft to send (LinkedIn plain text)"
+        : "Outbound message (LinkedIn plain text)";
+
+  const isWarmRepliedArtifactTab =
+    !!active &&
+    (active.stage || "").toUpperCase() === "REPLIED" &&
+    Boolean(linkedInDmBodyStages?.some((s) => s.toUpperCase() === "REPLIED"));
+
+  const warmRepliedInbound =
+    isWarmRepliedArtifactTab && active ? extractWarmRepliedInboundText(active.content) : null;
+  const warmRepliedYourPriorSend =
+    isWarmRepliedArtifactTab && active
+      ? pickPreviousWarmOutboundPlain(artifacts, {
+          id: active.id,
+          createdAt: active.createdAt,
+        })
+      : null;
+
+  /** Contact replied: inbound on top, your last send below (from History siblings). */
+  const warmRepliedThreadLayout =
+    isWarmRepliedArtifactTab && active ? (
+      <div className="flex min-h-0 flex-col gap-4">
+        <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+            What they said (inbound LinkedIn)
+          </p>
+          <div className="text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-chat-body)]">
+            {warmRepliedInbound ? (
+              warmRepliedInbound
+            ) : (
+              <span className="text-[var(--text-secondary)]">
+                Their exact DM is not saved on this artifact yet. Use{" "}
+                <strong className="font-medium text-[var(--text-chat-body)]">Load from LinkedIn</strong> in the header
+                (pulls from Unipile into CRM), run{" "}
+                <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[11px]">npm run backfill:jebin</code>{" "}
+                from <code className="rounded bg-[var(--bg-tertiary)] px-1 py-0.5 text-[11px]">web/</code>, or read the
+                thread in LinkedIn.
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-3 py-2.5">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+            What you sent before (your last outbound)
+          </p>
+          <div className="text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-chat-body)]">
+            {warmRepliedYourPriorSend ? (
+              warmRepliedYourPriorSend
+            ) : (
+              <span className="text-[var(--text-secondary)]">
+                No earlier message draft found in History before this reply. Open the Message draft or Messaged artifact in
+                History, or check LinkedIn sent messages.
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    ) : null;
+
   // Person mode: group by stage
   const personStages = usePeopleView ? [...new Set(people.map((p) => p.stage))] : [];
   const filteredPeople = usePeopleView ? people.filter((p) => p.stage === activeStage) : [];
+
+  const showArtifactNav =
+    !usePeopleView &&
+    (alwaysShowArtifactTabs ? artifacts.length >= 1 : artifacts.length > 1);
+  /** Tim / Ghost work panel: document left, scrollable artifact history on the right (newest first). */
+  const useVerticalArtifactHistory = isInline && !usePeopleView && !showArtifactChat;
+
+  const verticalHistoryRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!useVerticalArtifactHistory || !showArtifactNav) return;
+    const root = verticalHistoryRef.current;
+    if (!root) return;
+    const el = root.querySelector(`[data-vertical-artifact-idx="${activeIdx}"]`);
+    (el as HTMLElement | null)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [activeIdx, artifacts, useVerticalArtifactHistory, showArtifactNav]);
+
+  const footerSection =
+    usePeopleView ? (
+      <div className="px-5 py-2.5 border-t border-[var(--border-color)] text-[10px] text-[var(--text-tertiary)]">
+        {people.length} total people across {personStages.length} stages
+      </div>
+    ) : active && showArtifactFooter ? (
+      <div className="px-5 py-2.5 border-t border-[var(--border-color)] flex items-center justify-between gap-2 text-[10px] text-[var(--text-tertiary)] flex-wrap shrink-0">
+        <span>
+          Created: {new Date(active.createdAt).toLocaleString()}
+          {allWorkflowArtifacts && active.workflowItemId ? (
+            <span className="text-[var(--text-tertiary)]/80"> · item {active.workflowItemId.slice(0, 8)}…</span>
+          ) : null}
+        </span>
+        <span
+          className={`shrink-0 text-right min-w-0 ${allWorkflowArtifacts ? "flex flex-col items-end gap-0.5" : "uppercase"}`}
+        >
+          {allWorkflowArtifacts ? (
+            <>
+              <span className="uppercase text-[9px] opacity-80">{active.stage}</span>
+              <span className="normal-case">{active.type}</span>
+            </>
+          ) : (
+            <span className="uppercase">
+              {active.stage} · {active.type}
+            </span>
+          )}
+        </span>
+      </div>
+    ) : null;
+
+  const warmInlineSendComposerEl =
+    isWarmInlineSendComposer && active && linkedInDmSplit ? (
+      <div className="flex min-h-0 flex-col gap-4">
+        {warmInlineGuidanceMarkdown ? (
+          <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+              Context & guidance
+            </p>
+            <div className="max-w-none text-[13px] leading-relaxed text-[var(--text-chat-body)]">
+              <MarkdownRenderer content={warmInlineGuidanceMarkdown} />
+            </div>
+          </div>
+        ) : null}
+        <div className="min-h-0 space-y-3 border-t border-[var(--border-color)]/50 pt-3">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+            {warmOutboundPlainTitle}
+          </p>
+          <textarea
+            value={warmInlineDraftBody}
+            onChange={(e) => {
+              setWarmInlineDraftBody(e.target.value);
+              setWarmInlineDraftDirty(true);
+              warmInlineDraftDirtyRef.current = true;
+            }}
+            className="min-h-[180px] w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-3 py-2.5 text-sm leading-relaxed text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-tertiary)] focus:ring-1 focus:ring-[var(--border-color)]"
+            placeholder="Compose the LinkedIn message (plain text)…"
+          />
+          <p className="text-[10px] leading-snug text-[var(--text-tertiary)]">
+            Submit saves your text to the draft (if you changed it), then runs the queue action. Save draft persists only.
+          </p>
+        </div>
+        {warmThreadHistoryEl}
+      </div>
+    ) : null;
 
   const shell = (
     <div
@@ -462,150 +876,195 @@ export default function ArtifactViewer({
       }
       style={isInline ? undefined : { width: !usePeopleView && active ? 980 : 520 }}
     >
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 px-5 py-3 border-b border-[var(--border-color)]">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            <svg
-              className="shrink-0 mt-0.5 opacity-70"
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--text-tertiary)"
-              strokeWidth="2"
-              strokeLinecap="round"
-            >
-              {usePeopleView ? (
+        {/* Header: row 1 = title + actions; row 2 = full-width detail (e.g. Tim contact strip) */}
+        <div className="shrink-0 border-b border-[var(--border-color)]">
+          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2 px-5 py-2.5">
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <svg
+                className="mt-0.5 shrink-0 opacity-70"
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--text-tertiary)"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                {usePeopleView ? (
+                  <>
+                    <circle cx="12" cy="7" r="4" />
+                    <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
+                  </>
+                ) : (
+                  <>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </>
+                )}
+              </svg>
+              <span className="min-w-0 text-sm font-medium leading-snug text-[var(--text-chat-body)]">
+                {usePeopleView ? "People Pipeline" : title || active?.name || "Artifacts"}
+              </span>
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {!usePeopleView &&
+                active &&
+                !isEditing &&
+                showLinkedInInboundBackfillButton &&
+                workflowItemId &&
+                isWarmRepliedArtifactTab && (
+                  <button
+                    type="button"
+                    disabled={
+                      linkedInBackfillBusy ||
+                      saving ||
+                      taskSubmitting ||
+                      busyWorkflowActionId !== null ||
+                      hasUnsavedArtifactEdit
+                    }
+                    title={
+                      hasUnsavedArtifactEdit
+                        ? "Save or cancel your edits before loading from LinkedIn."
+                        : "Fetch their latest inbound message from Unipile into this CRM artifact"
+                    }
+                    onClick={handleLinkedInInboundBackfill}
+                    className="rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {linkedInBackfillBusy ? "Loading…" : "Load from LinkedIn"}
+                  </button>
+                )}
+              {!usePeopleView && active && !isEditing && warmInlineDraftNeedsSave && (
+                <button
+                  type="button"
+                  onClick={() => void saveWarmInlineDraft()}
+                  disabled={saving || taskSubmitting || busyWorkflowActionId !== null}
+                  className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-50"
+                >
+                  {saving ? "Saving…" : "Save draft"}
+                </button>
+              )}
+              {!usePeopleView && active && !isEditing && (
+                <button
+                  onClick={handleStartEdit}
+                  className="rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                >
+                  Edit
+                </button>
+              )}
+              {isEditing && (
                 <>
-                  <circle cx="12" cy="7" r="4" />
-                  <path d="M5.5 21a6.5 6.5 0 0 1 13 0" />
-                </>
-              ) : (
-                <>
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
+                  <button
+                    onClick={handleCancelEdit}
+                    className="rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveEdit}
+                    disabled={saving}
+                    className="rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-50"
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </button>
                 </>
               )}
-            </svg>
-            <div className="min-w-0 flex flex-col gap-1">
-              <span className="text-sm font-medium text-[var(--text-chat-body)]">
-                {usePeopleView ? "People Pipeline" : (title || active?.name || "Artifacts")}
-              </span>
-              {headerDetail ? (
-                <div className="min-w-0 text-[var(--text-tertiary)] [&_a]:text-[var(--text-secondary)] [&_a:hover]:text-[var(--text-primary)]">
-                  {headerDetail}
-                </div>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-            {!usePeopleView && active && !isEditing && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+              />
               <button
-                onClick={handleStartEdit}
-                className="text-[10px] px-2.5 py-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] transition-colors"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="flex items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
               >
-                Edit
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+                {uploading ? "Uploading..." : "Attach Image"}
               </button>
-            )}
-            {isEditing && (
-              <>
+              {(confirmedWorkflowActions ?? []).map((a) => {
+                const tone =
+                  a.variant === "danger"
+                    ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+                    : a.variant === "amber"
+                      ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      : "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]";
+                const wfBusy = busyWorkflowActionId !== null;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    disabled={wfBusy || taskSubmitting || saving || hasUnsavedArtifactEdit}
+                    onClick={async () => {
+                      if (!window.confirm(a.confirmMessage)) return;
+                      setBusyWorkflowActionId(a.id);
+                      try {
+                        await a.onConfirm();
+                      } finally {
+                        setBusyWorkflowActionId(null);
+                      }
+                    }}
+                    className={`rounded border px-2.5 py-1 text-[10px] font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 ${tone}`}
+                  >
+                    {busyWorkflowActionId === a.id ? "…" : a.label}
+                  </button>
+                );
+              })}
+              {onSubmitTask && (
                 <button
-                  onClick={handleCancelEdit}
-                  className="text-[10px] px-2.5 py-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveEdit}
-                  disabled={saving}
-                  className="text-[10px] px-2.5 py-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
-                >
-                  {saving ? "Saving..." : "Save"}
-                </button>
-              </>
-            )}
-            {/* Attach featured image */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="text-[10px] px-2.5 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors font-medium flex items-center gap-1"
-            >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                <circle cx="8.5" cy="8.5" r="1.5" />
-                <polyline points="21 15 16 10 5 21" />
-              </svg>
-              {uploading ? "Uploading..." : "Attach Image"}
-            </button>
-            {(confirmedWorkflowActions ?? []).map((a) => {
-              const tone =
-                a.variant === "danger"
-                  ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
-                  : a.variant === "amber"
-                    ? "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                    : "border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]";
-              const wfBusy = busyWorkflowActionId !== null;
-              return (
-                <button
-                  key={a.id}
                   type="button"
-                  disabled={wfBusy || taskSubmitting || saving || hasUnsavedArtifactEdit}
+                  title={
+                    hasUnsavedClassicEdit
+                      ? "Save your draft edits (Save in the header) before submitting this task."
+                      : undefined
+                  }
+                  disabled={
+                    taskSubmitting || saving || busyWorkflowActionId !== null || hasUnsavedClassicEdit
+                  }
                   onClick={async () => {
-                    if (!window.confirm(a.confirmMessage)) return;
-                    setBusyWorkflowActionId(a.id);
+                    if (taskSubmitting || hasUnsavedClassicEdit) return;
+                    setTaskSubmitting(true);
                     try {
-                      await a.onConfirm();
+                      if (isWarmInlineSendComposer && warmInlineDraftDirty) {
+                        const ok = await saveWarmInlineDraft();
+                        if (!ok) return;
+                      }
+                      await onSubmitTask();
+                      if (!isInline) onClose();
                     } finally {
-                      setBusyWorkflowActionId(null);
+                      setTaskSubmitting(false);
                     }
                   }}
-                  className={`text-[10px] px-2.5 py-1 rounded font-medium border transition-colors disabled:opacity-50 disabled:pointer-events-none ${tone}`}
+                  className="rounded border border-[var(--accent-green)]/35 bg-[var(--accent-green)]/8 px-3 py-1 text-[10px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--accent-green)]/12 hover:text-[var(--text-primary)] disabled:pointer-events-none disabled:opacity-50"
                 >
-                  {busyWorkflowActionId === a.id ? "…" : a.label}
+                  {taskSubmitting ? "Submitting…" : hasUnsavedClassicEdit ? "Save to submit" : "Submit"}
                 </button>
-              );
-            })}
-            {onSubmitTask && (
+              )}
               <button
                 type="button"
-                title={
-                  hasUnsavedArtifactEdit
-                    ? "Save your draft edits before submitting this task."
-                    : undefined
-                }
-                disabled={taskSubmitting || saving || busyWorkflowActionId !== null || hasUnsavedArtifactEdit}
-                onClick={async () => {
-                  if (taskSubmitting || hasUnsavedArtifactEdit) return;
-                  setTaskSubmitting(true);
-                  try {
-                    await onSubmitTask();
-                    if (!isInline) onClose();
-                  } finally {
-                    setTaskSubmitting(false);
-                  }
-                }}
-                className="text-[10px] px-3 py-1 rounded border border-[var(--accent-green)]/35 bg-[var(--accent-green)]/8 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--accent-green)]/12 transition-colors font-medium disabled:opacity-50 disabled:pointer-events-none"
+                onClick={onClose}
+                className="rounded-lg p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                aria-label="Close"
               >
-                {taskSubmitting ? "Submitting…" : hasUnsavedArtifactEdit ? "Save to submit" : "Submit"}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
               </button>
-            )}
+            </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
+          {headerDetail ? (
+            <div className="w-full min-w-0 border-t border-[var(--border-color)]/50 px-5 py-2.5">
+              <div className="w-full min-w-0 text-[var(--text-tertiary)] [&_a]:text-[var(--text-secondary)] [&_a:hover]:text-[var(--text-primary)]">
+                {headerDetail}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {/* Tab bar */}
@@ -631,7 +1090,8 @@ export default function ArtifactViewer({
             </div>
           )
         ) : (
-          (alwaysShowArtifactTabs ? artifacts.length >= 1 : artifacts.length > 1) && (
+          showArtifactNav &&
+          !useVerticalArtifactHistory && (
             <div className="px-3 sm:px-5 py-2 border-b border-[var(--border-color)] shrink-0 min-w-0">
               <ArtifactTabScrollRow activeIndex={activeIdx} className="min-w-0">
                 {artifacts.map((a, i) => {
@@ -671,214 +1131,415 @@ export default function ArtifactViewer({
           )
         )}
 
-        {/* Content — artifact + chat (side or stacked when inline+bottom) */}
-        <div
-          className={`flex-1 min-h-0 ${chatBelow && !usePeopleView && active ? "flex flex-col" : "flex flex-row"}`}
-        >
-          {/* Artifact content */}
-          <div
-            className={`overflow-y-auto px-5 py-4 ${
-              !usePeopleView && active && isInline && !chatBelow ? "flex-1 min-w-0 border-r border-[var(--border-color)]" : ""
-            } ${chatBelow && !usePeopleView && active ? "flex-1 min-h-0 min-w-0 border-b border-[var(--border-color)]" : ""}`}
-            style={
-              chatBelow
-                ? undefined
-                : isInline
-                  ? !usePeopleView && active
-                    ? undefined
-                    : { flex: 1 }
-                  : !usePeopleView && active
-                    ? { width: 620, flexShrink: 0, borderRight: "1px solid var(--border-color)" }
-                    : { flex: 1 }
-            }
-          >
-            {loading ? (
-              <div className="text-center text-[var(--text-tertiary)] py-8">
-                Loading...
-              </div>
-            ) : usePeopleView ? (
-              filteredPeople.length === 0 ? (
-                <div className="text-center text-[var(--text-tertiary)] py-8">
-                  No people at this stage
-                </div>
-              ) : (
-                <table className="w-full text-[12px]">
-                  <thead>
-                    <tr className="border-b border-[var(--border-color)]">
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Name</th>
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Title / Company</th>
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Stage</th>
-                      <th className="text-left py-2 px-2 text-[var(--text-tertiary)] font-medium">Added</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredPeople.map((p) => (
-                      <tr key={p.itemId} className="border-b border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]">
-                        <td className="py-2 px-2 text-[var(--text-chat-body)] font-medium">
-                          {p.firstName} {p.lastName}
-                        </td>
-                        <td className="py-2 px-2 text-[var(--text-secondary)]">
-                          {p.jobTitle}
-                        </td>
-                        <td className="py-2 px-2">
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-                            {p.stage}
-                          </span>
-                        </td>
-                        <td className="py-2 px-2 text-[var(--text-tertiary)]">
-                          {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )
-            ) : !active ? (
-              <div className="text-center text-[var(--text-tertiary)] py-8">
-                No artifacts found
-              </div>
-            ) : isEditing ? (
-              <div className="flex flex-col gap-2 min-h-0 h-full">
-                {warmDmSplitRef.current ? (
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)] shrink-0">
-                    Edit message only (research block unchanged until you save)
-                  </p>
-                ) : null}
-                <textarea
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
-                  className="w-full flex-1 min-h-[200px] bg-[var(--bg-primary)]/40 text-[var(--text-chat-body)] text-sm leading-relaxed border border-[var(--border-color)] rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[var(--border-color)] resize-y placeholder:text-[var(--text-tertiary)]"
-                  autoFocus
-                />
-              </div>
-            ) : showLinkedInMessageFocus && linkedInDmSplit ? (
-              <div className="space-y-3 min-h-0">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-                  Exact message sent on LinkedIn (plain text)
-                </p>
-                <div className="text-[var(--text-chat-body)] text-sm leading-relaxed whitespace-pre-wrap rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/35 px-3 py-3">
-                  {linkedInPlainSendPreview ||
-                    linkedInDmSplit.body.replace(/\*\*([^*]+)\*\*/g, "$1").trim() ||
-                    "—"}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowFullLinkedInDraft((v) => !v)}
-                  className="text-[10px] px-2.5 py-1 rounded-lg bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] border border-[var(--border-color)]"
+        {/* Content — artifact + chat; inline Tim/Ghost: optional vertical history rail (newest first) */}
+        {useVerticalArtifactHistory && showArtifactNav ? (
+          <div className="flex flex-1 min-h-0 min-w-0 flex-row">
+            <div className="flex flex-1 min-w-0 min-h-0 flex flex-col">
+              <div
+                className={`flex-1 min-h-0 min-w-0 ${
+                  chatBelow && active ? "flex flex-col" : "flex flex-row"
+                }`}
+              >
+                {/* Artifact content (left) */}
+                <div
+                  className={`overflow-y-auto px-5 py-4 flex-1 min-w-0 ${
+                    chatBelow && active ? "min-h-0 border-b border-[var(--border-color)]" : ""
+                  }`}
                 >
-                  {showFullLinkedInDraft
-                    ? "Hide full draft"
-                    : "Show full draft (research, rationale, Tim notes)"}
-                </button>
-                {showFullLinkedInDraft ? (
-                  <div className="max-w-none border-t border-[var(--border-color)] pt-4 text-[var(--text-chat-body)]">
-                    <MarkdownRenderer content={active.content} />
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="max-w-none text-[var(--text-chat-body)]">
-                <MarkdownRenderer content={active.content} />
-              </div>
-            )}
-          </div>
+                  {loading ? (
+                    <div className="py-8 text-center text-[var(--text-tertiary)]">Loading...</div>
+                  ) : !active ? (
+                    <div className="py-8 text-center text-[var(--text-tertiary)]">No artifacts found</div>
+                  ) : isEditing ? (
+                    <div className="flex h-full min-h-0 flex-col gap-3">
+                      {warmEditGuidanceMarkdown ? (
+                        <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                            Context & guidance
+                          </p>
+                          <div className="max-w-none text-[13px] leading-relaxed text-[var(--text-chat-body)]">
+                            <MarkdownRenderer content={warmEditGuidanceMarkdown} />
+                          </div>
+                        </div>
+                      ) : warmDmSplitRef.current ? (
+                        <p className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                          Edit message only (research block unchanged until you save)
+                        </p>
+                      ) : null}
+                      <div className="flex min-h-0 flex-1 flex-col gap-2">
+                        <p className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                          {warmOutboundPlainTitle}
+                        </p>
+                        <textarea
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          className="min-h-[200px] w-full flex-1 resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-3 py-2 text-sm leading-relaxed text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-tertiary)] focus:ring-1 focus:ring-[var(--border-color)]"
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+                  ) : warmInlineSendComposerEl ? (
+                    warmInlineSendComposerEl
+                  ) : warmRepliedThreadLayout ? (
+                    warmRepliedThreadLayout
+                  ) : showLinkedInMessageFocus && linkedInDmSplit ? (
+                    <div className="flex min-h-0 flex-col gap-4">
+                      {warmInlineGuidanceMarkdown ? (
+                        <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+                          <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                            Context & guidance
+                          </p>
+                          <div className="max-w-none text-[13px] leading-relaxed text-[var(--text-chat-body)]">
+                            <MarkdownRenderer content={warmInlineGuidanceMarkdown} />
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="min-h-0 space-y-3 border-t border-[var(--border-color)]/50 pt-3">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                          {warmOutboundPlainTitle}
+                        </p>
+                        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/35 px-3 py-3 text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-chat-body)]">
+                          {linkedInPlainSendPreview ||
+                            linkedInDmSplit.body.replace(/\*\*([^*]+)\*\*/g, "$1").trim() ||
+                            "—"}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-0 flex-col gap-4">
+                      <div className="max-w-none text-[var(--text-chat-body)]">
+                        <MarkdownRenderer content={active.content} />
+                      </div>
+                      {warmThreadHistoryEl}
+                    </div>
+                  )}
+                </div>
 
-          {/* Agent chat sidebar (optional — Tim work queue uses main chat) */}
-          {showArtifactChat && !usePeopleView && active && (
-            <div
-              className={`flex flex-col shrink-0 ${
-                chatBelow
-                  ? "w-full min-h-[200px] max-h-[min(40vh,360px)] border-t border-[var(--border-color)] bg-[var(--bg-primary)]/30"
-                  : isInline
-                    ? "w-[min(360px,38%)] min-w-[260px] border-l border-[var(--border-color)]"
-                    : ""
-              }`}
-              style={chatBelow || isInline ? undefined : { width: 360 }}
-            >
-              {/* Agent header */}
-              {(() => {
-                const agent = AGENT_INFO[agentId || "ghost"] || AGENT_INFO.ghost;
-                return (
-                  <div className="p-3 border-b border-[var(--border-color)] flex items-center gap-3.5">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-medium shrink-0 border-2 bg-[var(--bg-primary)] text-[var(--text-chat-body)]"
-                      style={{ borderColor: agent.color }}
-                    >
-                      {agent.name[0]}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-xs font-medium text-[var(--text-chat-body)]">{agent.name}</div>
-                      <div className="text-[10px] text-[var(--text-tertiary)]">{agent.role}</div>
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-3 space-y-2">
-                {chatMessages.length === 0 && (
-                  <div className="text-center text-[var(--text-tertiary)] text-[11px] py-6">
-                    Ask {AGENT_INFO[agentId || "ghost"]?.name || "Ghost"} to refine this document.
-                  </div>
-                )}
-                {chatMessages.map((m, i) => (
+                {/* Agent chat (inline + vertical history: Tim/Ghost normally hide this) */}
+                {showArtifactChat && !usePeopleView && active && (
                   <div
-                    key={i}
-                    className={`text-[11px] leading-relaxed px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] ${
-                      m.role === "user"
-                        ? "ml-auto bg-[var(--bg-secondary)] text-[var(--text-chat-body)]"
-                        : "mr-auto bg-[var(--bg-primary)] text-[var(--text-chat-body)]"
+                    className={`flex shrink-0 flex-col ${
+                      chatBelow
+                        ? "w-full min-h-[200px] max-h-[min(40vh,360px)] border-t border-[var(--border-color)] bg-[var(--bg-primary)]/30"
+                        : isInline
+                          ? "w-[min(360px,38%)] min-w-[260px] border-l border-[var(--border-color)]"
+                          : ""
                     }`}
-                    style={{ maxWidth: "90%" }}
+                    style={chatBelow || isInline ? undefined : { width: 360 }}
                   >
-                    {m.text}
+                    {(() => {
+                      const agent = AGENT_INFO[agentId || "ghost"] || AGENT_INFO.ghost;
+                      return (
+                        <div className="flex items-center gap-3.5 border-b border-[var(--border-color)] p-3">
+                          <div
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-[var(--bg-primary)] text-[11px] font-medium text-[var(--text-chat-body)]"
+                            style={{ borderColor: agent.color }}
+                          >
+                            {agent.name[0]}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs font-medium text-[var(--text-chat-body)]">{agent.name}</div>
+                            <div className="text-[10px] text-[var(--text-tertiary)]">{agent.role}</div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    <div className="flex-1 space-y-2 overflow-y-auto p-3">
+                      {chatMessages.length === 0 && (
+                        <div className="py-6 text-center text-[11px] text-[var(--text-tertiary)]">
+                          Ask {AGENT_INFO[agentId || "ghost"]?.name || "Ghost"} to refine this document.
+                        </div>
+                      )}
+                      {chatMessages.map((m, i) => (
+                        <div
+                          key={i}
+                          className={`rounded-lg border border-[var(--border-color)] px-2.5 py-1.5 text-[11px] leading-relaxed ${
+                            m.role === "user"
+                              ? "ml-auto bg-[var(--bg-secondary)] text-[var(--text-chat-body)]"
+                              : "mr-auto bg-[var(--bg-primary)] text-[var(--text-chat-body)]"
+                          }`}
+                          style={{ maxWidth: "90%" }}
+                        >
+                          {m.text}
+                        </div>
+                      ))}
+                      {chatSending && (
+                        <div className="px-2.5 py-1.5 text-[11px] text-[var(--text-tertiary)]">Thinking...</div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+                    <ChatInput
+                      onSend={sendChatMessageDirect}
+                      disabled={chatSending}
+                      isLoading={chatSending}
+                      placeholder={`Ask ${AGENT_INFO[agentId || "ghost"]?.name || "Ghost"} to make changes...`}
+                      agentName={AGENT_INFO[agentId || "ghost"]?.name || "Ghost"}
+                    />
                   </div>
-                ))}
-                {chatSending && (
-                  <div className="text-[11px] text-[var(--text-tertiary)] px-2.5 py-1.5">Thinking...</div>
                 )}
-                <div ref={chatEndRef} />
               </div>
-              {/* Input — shared ChatInput component with push-to-talk */}
-              <ChatInput
-                onSend={sendChatMessageDirect}
-                disabled={chatSending}
-                isLoading={chatSending}
-                placeholder={`Ask ${AGENT_INFO[agentId || "ghost"]?.name || "Ghost"} to make changes...`}
-                agentName={AGENT_INFO[agentId || "ghost"]?.name || "Ghost"}
-              />
+              {footerSection}
             </div>
-          )}
-        </div>
 
-        {/* Footer */}
-        {usePeopleView ? (
-          <div className="px-5 py-2.5 border-t border-[var(--border-color)] text-[10px] text-[var(--text-tertiary)]">
-            {people.length} total people across {personStages.length} stages
-          </div>
-        ) : active && showArtifactFooter ? (
-          <div className="px-5 py-2.5 border-t border-[var(--border-color)] flex items-center justify-between gap-2 text-[10px] text-[var(--text-tertiary)] flex-wrap">
-            <span>
-              Created: {new Date(active.createdAt).toLocaleString()}
-              {allWorkflowArtifacts && active.workflowItemId ? (
-                <span className="text-[var(--text-tertiary)]/80"> · item {active.workflowItemId.slice(0, 8)}…</span>
-              ) : null}
-            </span>
-            <span
-              className={`shrink-0 text-right min-w-0 ${allWorkflowArtifacts ? "flex flex-col items-end gap-0.5" : "uppercase"}`}
+            <aside
+              className="flex min-h-0 w-[min(13.5rem,32vw)] shrink-0 flex-col border-l border-[var(--border-color)] bg-[var(--bg-primary)]/25"
+              aria-label="Artifact history"
             >
-              {allWorkflowArtifacts ? (
-                <>
-                  <span className="uppercase text-[9px] opacity-80">{active.stage}</span>
-                  <span className="normal-case">{active.type}</span>
-                </>
-              ) : (
-                <span className="uppercase">
-                  {active.stage} · {active.type}
-                </span>
-              )}
-            </span>
+              <div className="shrink-0 border-b border-[var(--border-color)] px-2.5 py-2">
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+                  History
+                </p>
+                <p className="mt-0.5 text-[8px] leading-snug text-[var(--text-tertiary)]">
+                  Newest at top · selected card highlighted
+                </p>
+              </div>
+              <div
+                ref={verticalHistoryRef}
+                className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto p-2"
+              >
+                {artifacts
+                  .map((a, i) => ({ a, i }))
+                  .reverse()
+                  .map(({ a, i }) => {
+                    const isSelected = i === activeIdx;
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        data-vertical-artifact-idx={i}
+                        data-artifact-tab-index={i}
+                        onClick={() => setActiveIdx(i)}
+                        className={`w-full rounded-lg border px-2 py-1.5 text-left transition-colors ${
+                          isSelected
+                            ? "border-[var(--accent-green)]/55 bg-[var(--accent-green)]/14 text-[var(--text-primary)] shadow-sm ring-1 ring-[var(--accent-green)]/35"
+                            : "border-[var(--border-color)]/60 bg-[var(--bg-secondary)]/80 text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-secondary)]"
+                        }`}
+                      >
+                        {allWorkflowArtifacts ? (
+                          <span className="flex min-w-0 flex-col gap-0.5">
+                            <span className="truncate text-[8px] font-medium uppercase tracking-wide opacity-85">
+                              {a.stage}
+                            </span>
+                            <span className="line-clamp-2 break-words text-[10px] font-medium leading-snug">
+                              {a.name}
+                            </span>
+                            <span className="text-[8px] text-[var(--text-tertiary)]">
+                              {a.createdAt
+                                ? new Date(a.createdAt).toLocaleString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "numeric",
+                                    minute: "2-digit",
+                                  })
+                                : "—"}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="block truncate text-[10px] font-medium">
+                            {artifactTabLabel(a)}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+              </div>
+            </aside>
           </div>
-        ) : null}
+        ) : (
+          <>
+            <div
+              className={`flex-1 min-h-0 ${chatBelow && !usePeopleView && active ? "flex flex-col" : "flex flex-row"}`}
+            >
+              <div
+                className={`overflow-y-auto px-5 py-4 ${
+                  !usePeopleView && active && isInline && !chatBelow
+                    ? "flex-1 min-w-0 border-r border-[var(--border-color)]"
+                    : ""
+                } ${chatBelow && !usePeopleView && active ? "min-h-0 min-w-0 flex-1 border-b border-[var(--border-color)]" : ""}`}
+                style={
+                  chatBelow
+                    ? undefined
+                    : isInline
+                      ? !usePeopleView && active
+                        ? undefined
+                        : { flex: 1 }
+                      : !usePeopleView && active
+                        ? { width: 620, flexShrink: 0, borderRight: "1px solid var(--border-color)" }
+                        : { flex: 1 }
+                }
+              >
+                {loading ? (
+                  <div className="py-8 text-center text-[var(--text-tertiary)]">Loading...</div>
+                ) : usePeopleView ? (
+                  filteredPeople.length === 0 ? (
+                    <div className="py-8 text-center text-[var(--text-tertiary)]">No people at this stage</div>
+                  ) : (
+                    <table className="w-full text-[12px]">
+                      <thead>
+                        <tr className="border-b border-[var(--border-color)]">
+                          <th className="px-2 py-2 text-left font-medium text-[var(--text-tertiary)]">Name</th>
+                          <th className="px-2 py-2 text-left font-medium text-[var(--text-tertiary)]">
+                            Title / Company
+                          </th>
+                          <th className="px-2 py-2 text-left font-medium text-[var(--text-tertiary)]">Stage</th>
+                          <th className="px-2 py-2 text-left font-medium text-[var(--text-tertiary)]">Added</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredPeople.map((p) => (
+                          <tr
+                            key={p.itemId}
+                            className="border-b border-[var(--border-color)] hover:bg-[var(--bg-tertiary)]"
+                          >
+                            <td className="px-2 py-2 font-medium text-[var(--text-chat-body)]">
+                              {p.firstName} {p.lastName}
+                            </td>
+                            <td className="px-2 py-2 text-[var(--text-secondary)]">{p.jobTitle}</td>
+                            <td className="px-2 py-2">
+                              <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5 text-[10px] text-[var(--text-secondary)]">
+                                {p.stage}
+                              </span>
+                            </td>
+                            <td className="px-2 py-2 text-[var(--text-tertiary)]">
+                              {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )
+                ) : !active ? (
+                  <div className="py-8 text-center text-[var(--text-tertiary)]">No artifacts found</div>
+                ) : isEditing ? (
+                  <div className="flex h-full min-h-0 flex-col gap-3">
+                    {warmEditGuidanceMarkdown ? (
+                      <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                          Context & guidance
+                        </p>
+                        <div className="max-w-none text-[13px] leading-relaxed text-[var(--text-chat-body)]">
+                          <MarkdownRenderer content={warmEditGuidanceMarkdown} />
+                        </div>
+                      </div>
+                    ) : warmDmSplitRef.current ? (
+                      <p className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                        Edit message only (research block unchanged until you save)
+                      </p>
+                    ) : null}
+                    <div className="flex min-h-0 flex-1 flex-col gap-2">
+                      <p className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                        {warmOutboundPlainTitle}
+                      </p>
+                      <textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="min-h-[200px] w-full flex-1 resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-3 py-2 text-sm leading-relaxed text-[var(--text-chat-body)] outline-none placeholder:text-[var(--text-tertiary)] focus:ring-1 focus:ring-[var(--border-color)]"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                ) : warmInlineSendComposerEl ? (
+                  warmInlineSendComposerEl
+                ) : warmRepliedThreadLayout ? (
+                  warmRepliedThreadLayout
+                ) : showLinkedInMessageFocus && linkedInDmSplit ? (
+                  <div className="flex min-h-0 flex-col gap-4">
+                    {warmInlineGuidanceMarkdown ? (
+                      <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/80 px-3 py-2.5">
+                        <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                          Context & guidance
+                        </p>
+                        <div className="max-w-none text-[13px] leading-relaxed text-[var(--text-chat-body)]">
+                          <MarkdownRenderer content={warmInlineGuidanceMarkdown} />
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="min-h-0 space-y-3 border-t border-[var(--border-color)]/50 pt-3">
+                      <p className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                        {warmOutboundPlainTitle}
+                      </p>
+                      <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/35 px-3 py-3 text-sm leading-relaxed whitespace-pre-wrap text-[var(--text-chat-body)]">
+                        {linkedInPlainSendPreview ||
+                          linkedInDmSplit.body.replace(/\*\*([^*]+)\*\*/g, "$1").trim() ||
+                          "—"}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex min-h-0 flex-col gap-4">
+                    <div className="max-w-none text-[var(--text-chat-body)]">
+                      <MarkdownRenderer content={active.content} />
+                    </div>
+                    {warmThreadHistoryEl}
+                  </div>
+                )}
+              </div>
+
+              {showArtifactChat && !usePeopleView && active && (
+                <div
+                  className={`flex shrink-0 flex-col ${
+                    chatBelow
+                      ? "w-full min-h-[200px] max-h-[min(40vh,360px)] border-t border-[var(--border-color)] bg-[var(--bg-primary)]/30"
+                      : isInline
+                        ? "w-[min(360px,38%)] min-w-[260px] border-l border-[var(--border-color)]"
+                        : ""
+                  }`}
+                  style={chatBelow || isInline ? undefined : { width: 360 }}
+                >
+                  {(() => {
+                    const agent = AGENT_INFO[agentId || "ghost"] || AGENT_INFO.ghost;
+                    return (
+                      <div className="flex items-center gap-3.5 border-b border-[var(--border-color)] p-3">
+                        <div
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 bg-[var(--bg-primary)] text-[11px] font-medium text-[var(--text-chat-body)]"
+                          style={{ borderColor: agent.color }}
+                        >
+                          {agent.name[0]}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-[var(--text-chat-body)]">{agent.name}</div>
+                          <div className="text-[10px] text-[var(--text-tertiary)]">{agent.role}</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                  <div className="flex-1 space-y-2 overflow-y-auto p-3">
+                    {chatMessages.length === 0 && (
+                      <div className="py-6 text-center text-[11px] text-[var(--text-tertiary)]">
+                        Ask {AGENT_INFO[agentId || "ghost"]?.name || "Ghost"} to refine this document.
+                      </div>
+                    )}
+                    {chatMessages.map((m, i) => (
+                      <div
+                        key={i}
+                        className={`rounded-lg border border-[var(--border-color)] px-2.5 py-1.5 text-[11px] leading-relaxed ${
+                          m.role === "user"
+                            ? "ml-auto bg-[var(--bg-secondary)] text-[var(--text-chat-body)]"
+                            : "mr-auto bg-[var(--bg-primary)] text-[var(--text-chat-body)]"
+                        }`}
+                        style={{ maxWidth: "90%" }}
+                      >
+                        {m.text}
+                      </div>
+                    ))}
+                    {chatSending && (
+                      <div className="px-2.5 py-1.5 text-[11px] text-[var(--text-tertiary)]">Thinking...</div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+                  <ChatInput
+                    onSend={sendChatMessageDirect}
+                    disabled={chatSending}
+                    isLoading={chatSending}
+                    placeholder={`Ask ${AGENT_INFO[agentId || "ghost"]?.name || "Ghost"} to make changes...`}
+                    agentName={AGENT_INFO[agentId || "ghost"]?.name || "Ghost"}
+                  />
+                </div>
+              )}
+            </div>
+            {footerSection}
+          </>
+        )}
       </div>
   );
 

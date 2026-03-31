@@ -12,8 +12,9 @@ import PennyDashboardPanel from "@/components/penny/PennyDashboardPanel";
 import TimAgentPanel from "@/components/tim/TimAgentPanel";
 import GhostAgentPanel from "@/components/ghost/GhostAgentPanel";
 import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
-import MarniWorkPanel, { type MarniWorkPanelTab } from "@/components/marni/MarniWorkPanel";
+import MarniWorkPanel from "@/components/marni/MarniWorkPanel";
 import type { MarniKnowledgeFocus } from "@/components/marni/MarniKnowledgePanel";
+import AgentKnowledgePanel from "@/components/agents/AgentKnowledgePanel";
 import KingCostPanel from "@/components/king/KingCostPanel";
 import StatusRail from "@/components/StatusRail";
 import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
@@ -21,7 +22,9 @@ import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
 import AgentAvatar from "@/components/AgentAvatar";
 import { getSidebarHeaderTitle } from "@/lib/app-brand";
 import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
+import { sidebarAttentionCount } from "@/lib/chat-sidebar-attention";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
+import { KnowledgeRagIcon } from "@/components/icons/KnowledgeRagIcon";
 import { getFrontendAgents, agentHasKanban, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
 import { TtsQueue, type TtsState } from "@/lib/tts-queue";
@@ -30,18 +33,25 @@ import {
   formatTimWorkQueueContext,
   type TimWorkQueueSelection,
 } from "@/lib/tim-work-context";
+import type { TimContextDebugSnapshot } from "@/lib/tim-chat-debug";
 import {
   formatGhostWorkQueueContext,
   type GhostWorkQueueSelection,
 } from "@/lib/ghost-work-context";
 import {
   formatSuziWorkPanelContext,
+  suziHasFocusedWorkEntity,
   type SuziFocusedIntake,
   type SuziFocusedPunchList,
   type SuziFocusedReminder,
   type SuziFocusedNote,
   type SuziWorkSubTab,
 } from "@/lib/suzi-work-panel";
+import {
+  SESSION_HISTORY_FOCUS_GHOST_WORK,
+  SESSION_HISTORY_FOCUS_SUZI_WORK,
+  SESSION_HISTORY_FOCUS_TIM_WORK_ITEM,
+} from "@/lib/chat-stream-options";
 import {
   formatAgentUiContext,
   type FridayDashboardTab,
@@ -70,7 +80,8 @@ type RightPanel =
   | "tasks"
   | "messages"
   | "costs"
-  | "marni-work";
+  | "marni-work"
+  | "agent-knowledge";
 
 const VALID_RIGHT_PANELS: RightPanel[] = [
   "info",
@@ -82,6 +93,7 @@ const VALID_RIGHT_PANELS: RightPanel[] = [
   "messages",
   "costs",
   "marni-work",
+  "agent-knowledge",
 ];
 
 export default function CommandCentralClient() {
@@ -114,10 +126,11 @@ export default function CommandCentralClient() {
   const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
     const agent = paramAgent || "suzi";
     const p = paramPanel as RightPanel | null;
-    if (agent === "friday" && p === "tasks") return "dashboard";
+    if (paramPanel === "knowledge") return "agent-knowledge";
+    if (agent === "friday" && (paramPanel === "tasks" || paramPanel === "observation")) return "dashboard";
     if (agent === "tim" && p === "kanban") return "messages";
     if (agent === "ghost" && p === "kanban") return "messages";
-    if (agent === "marni" && (p === "kanban" || paramPanel === "knowledge")) return "marni-work";
+    if (agent === "marni" && p === "kanban") return "marni-work";
     return p || defaultPanelFor(agent);
   });
 
@@ -127,8 +140,16 @@ export default function CommandCentralClient() {
     if (paramAgent && AGENTS.some((a) => a.id === paramAgent)) {
       setActiveAgent(paramAgent);
     }
-    if (paramAgent === "marni" && (paramPanel === "kanban" || paramPanel === "knowledge")) {
+    if (paramPanel === "knowledge") {
+      setRightPanel("agent-knowledge");
+      return;
+    }
+    if (paramAgent === "marni" && paramPanel === "kanban") {
       setRightPanel("marni-work");
+      return;
+    }
+    if (paramAgent === "friday" && paramPanel === "observation") {
+      setRightPanel("dashboard");
       return;
     }
     if (paramPanel && VALID_RIGHT_PANELS.includes(paramPanel as RightPanel)) {
@@ -155,6 +176,7 @@ export default function CommandCentralClient() {
   useEffect(() => {
     setRightPanel((prev) => {
       if (activeAgent !== "tim" && activeAgent !== "ghost") return prev;
+      if (prev === "agent-knowledge") return prev;
       if (prev === "info" || prev === "kanban") return "messages";
       return prev;
     });
@@ -187,10 +209,6 @@ export default function CommandCentralClient() {
   }, [activeAgent, rightPanel]);
 
   useEffect(() => {
-    if (activeAgent !== "marni") setMarniWorkSubTab("queue");
-  }, [activeAgent]);
-
-  useEffect(() => {
     setRightPanel((prev) =>
       activeAgent === "friday" && prev === "tasks" ? "dashboard" : prev
     );
@@ -218,7 +236,25 @@ export default function CommandCentralClient() {
   const [timMessagingTaskCount, setTimMessagingTaskCount] = useState(0);
   const [timPendingQueueCount, setTimPendingQueueCount] = useState(0);
   const [ghostContentTaskCount, setGhostContentTaskCount] = useState(0);
+  const [suziDueReminderCount, setSuziDueReminderCount] = useState(0);
   const [dashboardNotifications, setDashboardNotifications] = useState<DashboardNotification[]>([]);
+
+  const workBellBadges = useMemo(
+    () => ({
+      pendingTaskCount,
+      testingTaskCount,
+      timMessagingTaskCount,
+      ghostContentTaskCount,
+      suziDueReminderCount,
+    }),
+    [
+      pendingTaskCount,
+      testingTaskCount,
+      timMessagingTaskCount,
+      ghostContentTaskCount,
+      suziDueReminderCount,
+    ]
+  );
 
   const applyDashboardSync = useCallback((data: DashboardSyncResponse) => {
     if (!data?.badges) return;
@@ -228,6 +264,9 @@ export default function CommandCentralClient() {
     setTimMessagingTaskCount(b.timMessagingTaskCount);
     setTimPendingQueueCount(b.timPendingQueueCount);
     setGhostContentTaskCount(b.ghostContentTaskCount);
+    setSuziDueReminderCount(
+      typeof b.suziDueReminderCount === "number" ? b.suziDueReminderCount : 0
+    );
     setDashboardNotifications(Array.isArray(data.notifications) ? data.notifications : []);
   }, []);
 
@@ -303,26 +342,23 @@ export default function CommandCentralClient() {
   const [suziFocusedReminder, setSuziFocusedReminder] = useState<SuziFocusedReminder | null>(null);
   const [suziFocusedNote, setSuziFocusedNote] = useState<SuziFocusedNote | null>(null);
   const [fridayDashboardTab, setFridayDashboardTab] =
-    useState<FridayDashboardTab>("packages");
+    useState<FridayDashboardTab>("observation");
   const [pennyDashboardTab, setPennyDashboardTab] =
-    useState<PennyDashboardTab>("packages");
-  const [marniWorkSubTab, setMarniWorkSubTab] = useState<MarniWorkPanelTab>("queue");
+    useState<PennyDashboardTab>("queue");
   const [marniKnowledgeFocus, setMarniKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
-  const onMarniWorkTabChange = useCallback((t: MarniWorkPanelTab) => {
-    setMarniWorkSubTab(t);
-  }, []);
+  const [timKnowledgeFocus, setTimKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
 
   useEffect(() => {
-    if (rightPanel !== "marni-work" || activeAgent !== "marni") {
+    if (activeAgent !== "marni" || rightPanel !== "agent-knowledge") {
       setMarniKnowledgeFocus(null);
     }
   }, [rightPanel, activeAgent]);
 
   useEffect(() => {
-    if (marniWorkSubTab !== "knowledge") {
-      setMarniKnowledgeFocus(null);
+    if (activeAgent !== "tim" || rightPanel !== "agent-knowledge") {
+      setTimKnowledgeFocus(null);
     }
-  }, [marniWorkSubTab]);
+  }, [rightPanel, activeAgent]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -336,6 +372,8 @@ export default function CommandCentralClient() {
     }
     return {};
   });
+  /** Avoid writing lastSeen from stale messages when switching agents (was corrupting sidebar unread badges). */
+  const [chatHistorySyncedAgent, setChatHistorySyncedAgent] = useState<string | null>(null);
   const [lastMessages, setLastMessages] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -506,7 +544,9 @@ export default function CommandCentralClient() {
       .then(async (res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!data?.history?.length) return;
-        const total = data.history.length;
+        const total = sidebarAttentionCount(
+          data.history as { ambient?: boolean }[]
+        );
         const lastMsg = data.history[data.history.length - 1] as { text?: string };
         const preview = lastMsg.text;
         if (typeof preview === "string") {
@@ -590,15 +630,20 @@ export default function CommandCentralClient() {
     return messages.filter((m) => m.text.toLowerCase().includes(q));
   }, [messages, searchQuery]);
 
+  const chatAttentionCount = useMemo(
+    () => sidebarAttentionCount(messages),
+    [messages]
+  );
+
   // Clear unread count when switching to an agent
   useEffect(() => {
     setUnreadCounts((prev) => ({ ...prev, [activeAgent]: 0 }));
     setLastSeenCounts((prev) => {
-      const updated = { ...prev, [activeAgent]: messages.length };
+      const updated = { ...prev, [activeAgent]: chatAttentionCount };
       try { localStorage.setItem("chat_last_seen_counts", JSON.stringify(updated)); } catch {}
       return updated;
     });
-  }, [activeAgent, messages.length]);
+  }, [activeAgent, chatAttentionCount]);
 
   // Poll other agents’ chat for sidebar preview / unread (slower when tab hidden).
   useEffect(() => {
@@ -613,7 +658,9 @@ export default function CommandCentralClient() {
           })
           .then((data) => {
             if (!data?.history?.length) return;
-            const total = data.history.length;
+            const total = sidebarAttentionCount(
+              data.history as { ambient?: boolean }[]
+            );
             setLastSeenCounts((prev) => {
               const lastSeen = prev[a.id] || 0;
               if (lastSeen === 0) {
@@ -654,18 +701,23 @@ export default function CommandCentralClient() {
   // Load last messages for all agents on mount + initialize lastSeenCounts
   useEffect(() => {
     AGENTS.forEach((a) => {
-      fetch(`/api/chat?agent=${a.id}`, { credentials: "include" })
+      fetch(`/api/chat?agent=${a.id}`, {
+        credentials: "include",
+        cache: "no-store",
+      })
         .then(async (res) => {
           if (!res.ok) return null;
           return res.json();
         })
         .then((data) => {
           if (!data?.history?.length) return;
-          const total = data.history.length;
+          const total = sidebarAttentionCount(
+            data.history as { ambient?: boolean }[]
+          );
           const lastMsg = data.history[data.history.length - 1];
           setLastMessages((prev) => ({ ...prev, [a.id]: lastMsg.text }));
           setLastSeenCounts((prev) => {
-            if (prev[a.id]) return prev;
+            if (typeof prev[a.id] === "number") return prev;
             const updated = { ...prev, [a.id]: total };
             try { localStorage.setItem("chat_last_seen_counts", JSON.stringify(updated)); } catch {}
             return updated;
@@ -675,38 +727,72 @@ export default function CommandCentralClient() {
     });
   }, []);
 
-  // Load chat history when agent changes
+  // Load chat history when agent changes (do not set loadedAgentRef until fetch settles — avoids empty UI if the
+  // first in-flight request is dropped on remount, and matches click-handler nulling when switching agents).
   useEffect(() => {
-    if (loadedAgentRef.current === activeAgent) return;
-    loadedAgentRef.current = activeAgent;
+    let cancelled = false;
+    setChatHistorySyncedAgent(null);
 
-    fetch(`/api/chat?agent=${activeAgent}`, { credentials: "include" })
+    fetch(`/api/chat?agent=${activeAgent}`, {
+      credentials: "include",
+      cache: "no-store",
+    })
       .then(async (res) => {
+        if (cancelled) return null;
         if (!res.ok) {
-          setMessages([]);
+          if (!cancelled) {
+            setMessages([]);
+            setChatHistorySyncedAgent(activeAgent);
+            loadedAgentRef.current = activeAgent;
+          }
           return null;
         }
         return res.json();
       })
       .then((data) => {
-        if (!data?.history?.length) {
+        if (cancelled || data == null) return;
+        if (!data.history?.length) {
           setMessages([]);
+          setChatHistorySyncedAgent(activeAgent);
+          loadedAgentRef.current = activeAgent;
           return;
         }
         setMessages(
           data.history.map(
-            (msg: { role: string; text: string; timestamp: number; delegatedFrom?: string; fromAgent?: string }, i: number) => ({
+            (
+              msg: {
+                role: string;
+                text: string;
+                timestamp: number;
+                delegatedFrom?: string;
+                fromAgent?: string;
+                ambient?: boolean;
+              },
+              i: number
+            ) => ({
               id: `history-${activeAgent}-${i}`,
               role: msg.role as "user" | "model",
               text: msg.text,
               timestamp: msg.timestamp,
               delegatedFrom: msg.delegatedFrom,
               fromAgent: msg.fromAgent,
+              ambient: msg.ambient === true ? true : undefined,
             })
           )
         );
+        setChatHistorySyncedAgent(activeAgent);
+        loadedAgentRef.current = activeAgent;
       })
-      .catch(() => setMessages([]));
+      .catch(() => {
+        if (cancelled) return;
+        setMessages([]);
+        setChatHistorySyncedAgent(activeAgent);
+        loadedAgentRef.current = activeAgent;
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeAgent]);
 
   useEffect(() => {
@@ -781,6 +867,7 @@ export default function CommandCentralClient() {
           agent: string;
           workQueueContext?: string;
           uiContext?: string;
+          sessionHistoryMaxMessages?: number;
         } = { message: apiMessage, agent: activeAgent };
         if (activeAgent === "tim" && timWorkSelection) {
           body.workQueueContext = formatTimWorkQueueContext(timWorkSelection);
@@ -807,13 +894,32 @@ export default function CommandCentralClient() {
               activeAgent === "ghost" && ghostWorkSelection != null,
             fridayTab: fridayDashboardTab,
             pennyTab: pennyDashboardTab,
-            marniWorkSubTab: activeAgent === "marni" ? marniWorkSubTab : undefined,
             marniKnowledgeTopic:
-              activeAgent === "marni" && marniWorkSubTab === "knowledge" && marniKnowledgeFocus
+              activeAgent === "marni" && rightPanel === "agent-knowledge" && marniKnowledgeFocus
                 ? { id: marniKnowledgeFocus.topicId, name: marniKnowledgeFocus.name }
+                : null,
+            timKnowledgeTopic:
+              activeAgent === "tim" && rightPanel === "agent-knowledge" && timKnowledgeFocus
+                ? { id: timKnowledgeFocus.topicId, name: timKnowledgeFocus.name }
                 : null,
           });
           if (agentUi) body.uiContext = agentUi;
+        }
+
+        if (activeAgent === "tim" && timWorkSelection) {
+          body.sessionHistoryMaxMessages = SESSION_HISTORY_FOCUS_TIM_WORK_ITEM;
+        } else if (activeAgent === "ghost" && ghostWorkSelection) {
+          body.sessionHistoryMaxMessages = SESSION_HISTORY_FOCUS_GHOST_WORK;
+        } else if (
+          activeAgent === "suzi" &&
+          suziHasFocusedWorkEntity({
+            focusedIntake: suziFocusedIntake,
+            focusedPunchList: suziFocusedPunchList,
+            focusedReminder: suziFocusedReminder,
+            focusedNote: suziFocusedNote,
+          })
+        ) {
+          body.sessionHistoryMaxMessages = SESSION_HISTORY_FOCUS_SUZI_WORK;
         }
 
         const res = await fetch("/api/chat/stream", {
@@ -878,22 +984,34 @@ export default function CommandCentralClient() {
             if (data === "[DONE]") continue;
 
             try {
-              const parsed = JSON.parse(data);
+              const parsed = JSON.parse(data) as Record<string, unknown>;
               if (parsed.error) {
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === botMsgId ? { ...m, text: `Error: ${parsed.error}` } : m
                   )
                 );
+              } else if (parsed.timContextDebug && typeof parsed.timContextDebug === "object") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === botMsgId
+                      ? {
+                          ...m,
+                          timContextDebug: parsed.timContextDebug as TimContextDebugSnapshot,
+                        }
+                      : m
+                  )
+                );
               } else if (parsed.delegatedFrom) {
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === botMsgId ? { ...m, delegatedFrom: parsed.delegatedFrom } : m
+                    m.id === botMsgId ? { ...m, delegatedFrom: parsed.delegatedFrom as string } : m
                   )
                 );
-              } else if (parsed.text) {
+              } else if (typeof parsed.text === "string" && parsed.text.length > 0) {
+                const chunkText = parsed.text;
                 // Detect tool-used markers and emit panel refresh events
-                const toolMatch = parsed.text.match(/<!--toolUsed:(\w+)-->/g);
+                const toolMatch = chunkText.match(/<!--toolUsed:(\w+)-->/g);
                 if (toolMatch) {
                   for (const m of toolMatch) {
                     const name = m.replace("<!--toolUsed:", "").replace("-->", "");
@@ -901,7 +1019,7 @@ export default function CommandCentralClient() {
                   }
                 }
                 // Strip markers from displayed text
-                const displayText = parsed.text.replace(/\n?<!--toolUsed:\w+-->/g, "");
+                const displayText = chunkText.replace(/\n?<!--toolUsed:\w+-->/g, "");
                 if (displayText) {
                   setMessages((prev) =>
                     prev.map((msg) =>
@@ -965,8 +1083,8 @@ export default function CommandCentralClient() {
       suziFocusedPunchList,
       suziFocusedReminder,
       suziFocusedNote,
-      marniWorkSubTab,
       marniKnowledgeFocus,
+      timKnowledgeFocus,
       syncChatSidebarAfterTurn,
       refreshDashboardSync,
     ]
@@ -1052,44 +1170,24 @@ export default function CommandCentralClient() {
                             <span
                               className="shrink-0 flex w-[13px] items-center justify-center"
                               title={
-                                agentHasUserWorkItem(a.id, {
-                                  pendingTaskCount,
-                                  testingTaskCount,
-                                  timMessagingTaskCount,
-                                  ghostContentTaskCount,
-                                })
+                                agentHasUserWorkItem(a.id, workBellBadges)
                                   ? "Work waiting for you"
                                   : "No items waiting for you"
                               }
                             >
                               <span
                                 className={
-                                  agentHasUserWorkItem(a.id, {
-                                    pendingTaskCount,
-                                    testingTaskCount,
-                                    timMessagingTaskCount,
-                                    ghostContentTaskCount,
-                                  })
+                                  agentHasUserWorkItem(a.id, workBellBadges)
                                     ? "text-[var(--accent-orange)]"
                                     : "text-[var(--accent-green)]"
                                 }
                                 aria-label={
-                                  agentHasUserWorkItem(a.id, {
-                                    pendingTaskCount,
-                                    testingTaskCount,
-                                    timMessagingTaskCount,
-                                    ghostContentTaskCount,
-                                  })
+                                  agentHasUserWorkItem(a.id, workBellBadges)
                                     ? "Work waiting for you"
                                     : undefined
                                 }
                                 aria-hidden={
-                                  !agentHasUserWorkItem(a.id, {
-                                    pendingTaskCount,
-                                    testingTaskCount,
-                                    timMessagingTaskCount,
-                                    ghostContentTaskCount,
-                                  })
+                                  !agentHasUserWorkItem(a.id, workBellBadges)
                                 }
                               >
                                 <WorkBellIcon size={11} />
@@ -1179,6 +1277,7 @@ export default function CommandCentralClient() {
           testingTaskCount={testingTaskCount}
           timMessagingTaskCount={timMessagingTaskCount}
           ghostContentTaskCount={ghostContentTaskCount}
+          suziDueReminderCount={suziDueReminderCount}
           onSelect={(id) => {
             if (id !== activeAgent) {
               loadedAgentRef.current = null;
@@ -1344,14 +1443,9 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Work panel — distribution queue & knowledge base"
+                title="Work panel — distribution queue"
               >
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-                  <line x1="8" y1="7" x2="16" y2="7" />
-                  <line x1="8" y1="11" x2="14" y2="11" />
-                </svg>
+                <KnowledgeRagIcon size={25} stroke="currentColor" />
               </button>
             )}
             {(activeAgent === "friday" || activeAgent === "penny") && (
@@ -1362,7 +1456,11 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title={activeAgent === "penny" ? "Packages dashboard" : "Friday packages (active ops)"}
+                title={
+                  activeAgent === "penny"
+                    ? "Penny — package queue & planner"
+                    : "Friday — human tasks, tools & observation"
+                }
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -1467,6 +1565,18 @@ export default function CommandCentralClient() {
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
             </button>
+            <button
+              type="button"
+              onClick={() => setRightPanel("agent-knowledge")}
+              className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                rightPanel === "agent-knowledge"
+                  ? "text-[var(--accent-green)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              title="Knowledge base — CRM/Data Platform status for this agent appears on System monitor › Agents (rightmost book icon)"
+            >
+              <KnowledgeRagIcon size={25} stroke="currentColor" />
+            </button>
             </div>
           </div>
           <div className="flex-1 min-w-2 min-h-[1px]" aria-hidden />
@@ -1476,7 +1586,14 @@ export default function CommandCentralClient() {
         </div>
         {/* Panel content */}
         <div className="flex-1 min-h-0 flex">
-          {activeAgent === "tim" && rightPanel === "messages" ? (
+          {rightPanel === "agent-knowledge" ? (
+            <AgentKnowledgePanel
+              agentId={activeAgent}
+              onClose={() => setRightPanel("info")}
+              onMarniKnowledgeFocusChange={setMarniKnowledgeFocus}
+              onTimKnowledgeFocusChange={setTimKnowledgeFocus}
+            />
+          ) : activeAgent === "tim" && rightPanel === "messages" ? (
             <TimAgentPanel
               messageQueueCount={timMessagingTaskCount}
               pendingQueueCount={timPendingQueueCount}
@@ -1488,11 +1605,7 @@ export default function CommandCentralClient() {
               onGhostWorkSelectionChange={setGhostWorkSelection}
             />
           ) : rightPanel === "marni-work" && activeAgent === "marni" ? (
-            <MarniWorkPanel
-              onClose={() => setRightPanel("info")}
-              onWorkTabChange={onMarniWorkTabChange}
-              onKnowledgeFocusChange={setMarniKnowledgeFocus}
-            />
+            <MarniWorkPanel onClose={() => setRightPanel("info")} />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
@@ -1500,10 +1613,20 @@ export default function CommandCentralClient() {
               onClose={() => setRightPanel("info")}
               onSwitchToAgent={(id) => setActiveAgent(id)}
               pendingTaskCount={pendingTaskCount}
-              initialWorkTab={paramPanel === "tasks" ? "tasks" : undefined}
+              onDashboardTabChange={setFridayDashboardTab}
+              initialWorkTab={
+                paramPanel === "tasks"
+                  ? "tasks"
+                  : paramPanel === "observation"
+                    ? "observation"
+                    : undefined
+              }
             />
           ) : rightPanel === "dashboard" && activeAgent === "penny" ? (
-            <PennyDashboardPanel onClose={() => setRightPanel("info")} />
+            <PennyDashboardPanel
+              onClose={() => setRightPanel("info")}
+              onDashboardTabChange={setPennyDashboardTab}
+            />
           ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
             <SuziRemindersPanel
               onClose={() => setRightPanel("info")}

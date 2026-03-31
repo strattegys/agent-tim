@@ -14,6 +14,8 @@ export type DashboardSyncBadges = {
   timMessagingTaskCount: number;
   timPendingQueueCount: number;
   ghostContentTaskCount: number;
+  /** Suzi: CRM reminders currently due (same rule as heartbeat); drives sidebar work bell. */
+  suziDueReminderCount: number;
 };
 
 export type DashboardSyncResponse = {

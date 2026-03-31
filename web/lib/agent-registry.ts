@@ -30,7 +30,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     systemPromptFile: R("/root/.scoutbot/system-prompt.md"),
     memoryDir: R("/root/.scoutbot/memory"),
     provider: "groq",
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     tools: [
       "web_search",
@@ -102,16 +102,24 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     systemPromptFile: R("/root/.nanobot/system-prompt.md"),
     memoryDir: R("/root/.nanobot/memory"),
     provider: "groq",
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     tools: [
       "twenty_crm",
       "web_search",
       "memory",
+      "knowledge_search",
+      "knowledge_topic_create",
       "delegate_task",
       "workflow_items",
     ],
-    capabilities: ["Work queue drafts", "CRM search", "Workflow artifacts", "Follow-ups"],
+    capabilities: [
+      "Work queue drafts",
+      "CRM search",
+      "Workflow artifacts",
+      "Follow-ups",
+      "Knowledge Studio (Tim corpus)",
+    ],
     connections: [
       { label: "CRM", connected: true, toolId: "twenty_crm" },
       { label: "Web search", connected: true, toolId: "web_search" },
@@ -179,8 +187,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
         {
           name: "Warm outreach daily pace",
           description:
-            "Nags on paced warm-outreach packages when daily discovery targets slip",
-          priority: "high",
+            "Medium from 9 a.m. PT, high after 2 p.m., critical after 4 p.m. if intakes remain; bell dedup 2h per category",
+          priority: "critical",
         },
       ],
     },
@@ -200,7 +208,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     role: "Personal Assistant",
     description:
       "Personal assistant handling web searches, summaries, message relays, " +
-      "and reminders. Checks reminders every minute via heartbeat.",
+      "and reminders. Checks reminders every 5 minutes via heartbeat.",
     category: "Utility",
     color: "#D85A30",
     avatar: "/api/agent-avatar?id=suzi",
@@ -220,7 +228,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     routines: [],
     heartbeat: {
       type: "simple",
-      schedule: "* * * * *",
+      schedule: "*/5 * * * *",
       checks: [
         {
           name: "Reminders",
@@ -235,7 +243,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     ttsVoice: "Olivia",
     vectorMemory: true,
     provider: "groq",
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     delegation: {
       canDelegateTo: [],
@@ -254,7 +262,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     color: "#9B59B6",
     avatar: "/api/agent-avatar?id=friday",
     provider: "groq",
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     sessionFile: R("/root/.fridaybot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.fridaybot/system-prompt.md"),
@@ -292,7 +300,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     color: "#4A90D9",
     avatar: "/api/agent-avatar?id=ghost",
     provider: "groq", // article_builder (long-form) still uses Claude in article-builder.ts
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     sessionFile: R("/root/.ghostbot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.ghostbot/system-prompt.md"),
@@ -339,7 +347,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     color: "#D4A017",
     avatar: "/api/agent-avatar?id=marni",
     provider: "groq",
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     sessionFile: R("/root/.marnibot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.marnibot/system-prompt.md"),
@@ -369,10 +377,10 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     routines: [
       {
         id: "marni-kb-cadence",
-        name: "Marni Knowledge Studio (cadence)",
+        name: "Knowledge Studio (cadence)",
         schedule: "23 * * * *",
         description:
-          "Runs due Knowledge Studio topics: web research → chunks when cadenceMinutes elapsed",
+          "Runs due Knowledge Studio topics for Marni and Tim: web research → chunks when cadenceMinutes elapsed",
         handler: "marni-kb-cadence",
       },
     ],
@@ -397,7 +405,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     color: "#E67E22",
     avatar: "/api/agent-avatar?id=penny",
     provider: "groq",
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     sessionFile: R("/root/.pennybot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.pennybot/system-prompt.md"),
@@ -441,7 +449,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     color: "#5a6d7a",
     avatar: "/api/agent-avatar?id=king",
     provider: "groq",
-    modelName: "llama-3.3-70b-versatile",
+    modelName: "openai/gpt-oss-120b",
     temperature: 0.2,
     sessionFile: R("/root/.kingbot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.kingbot/system-prompt.md"),

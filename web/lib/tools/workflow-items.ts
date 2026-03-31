@@ -1,5 +1,32 @@
 import type { ToolModule } from "./types";
 
+/** Workflow item / workflow row ids from the CRM. */
+const ITEM_OR_WORKFLOW_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Board / artifact stage keys (MESSAGE_DRAFT, REPLIED, …) — not a second UUID. */
+const ARTIFACT_OR_BOARD_STAGE_RE = /^[A-Z][A-Z0-9_]+$/;
+
+/**
+ * Groq sometimes emits workflow_items with arg1–arg3 but omits `command` (schema used to require it → 400).
+ * Infer get vs update when arg2 is a stage key and arg2 is not a UUID (avoids add-person: two UUIDs).
+ */
+export function inferWorkflowItemsCommandFromArgs(
+  args: Record<string, string | undefined>
+): string {
+  const explicit = (args.command ?? "").trim();
+  if (explicit) return explicit;
+
+  const a1 = (args.arg1 ?? "").trim();
+  const a2 = (args.arg2 ?? "").trim();
+  const a3 = (args.arg3 ?? "").trim();
+
+  if (!ITEM_OR_WORKFLOW_UUID_RE.test(a1) || !a2) return "";
+  if (ITEM_OR_WORKFLOW_UUID_RE.test(a2)) return "";
+  if (!ARTIFACT_OR_BOARD_STAGE_RE.test(a2)) return "";
+  if (a3.length > 0) return "update-workflow-artifact";
+  return "get-workflow-artifact";
+}
+
 const tool: ToolModule = {
   metadata: {
     id: "workflow_items",
@@ -27,7 +54,7 @@ const tool: ToolModule = {
       "list-items: arg1=workflowId, arg2=stage filter optional. " +
       "move-item: arg1=workflow item id, arg2=newStage (board key, typically UPPERCASE). " +
       "get-workflow-artifact: arg1=workflow item id, arg2=artifact stage (UPPERCASE) — returns current markdown so you can edit it before saving. " +
-      "update-workflow-artifact: arg1=workflow item id, arg2=stage (UPPERCASE), arg3=full markdown (some models use key `artifact` for the body — same as arg3). **Tim outreach:** for MESSAGE_DRAFT / REPLY_DRAFT, arg3 is usually the **entire** outbound message when Govind wants that text sent. " +
+      "update-workflow-artifact: arg1=workflow item id, arg2=stage (UPPERCASE), arg3=full markdown (some models use key `artifact` for the body — same as arg3). **Tim warm MESSAGE_DRAFT / REPLY_DRAFT:** Always **get-workflow-artifact** first. If Govind wants only the LinkedIn body changed, arg3 may be **plain text** — the server merges it into the existing prefix (## Conversation / enrichment) and Tim footer (`---`) so the work panel layout stays intact. If arg3 is already full valid markdown with `---` before the Tim footer, it is stored as-is. " +
       "**Ghost / content pipeline (CAMPAIGN_SPEC, REVIEW, DRAFT_PUBLISHED, DRAFTING, IDEA artifacts):** arg3 must be the **full document after your edits** — first call **get-workflow-artifact**, merge Govind’s change requests into that text, and never replace the whole spec with only his short chat line unless he explicitly asks to scrap and rewrite everything.",
     parameters: {
       type: "object" as const,
@@ -35,7 +62,7 @@ const tool: ToolModule = {
         command: {
           type: "string",
           description:
-            "Command: add-person-to-workflow, add-content-to-workflow, list-items, move-item, get-workflow-artifact, update-workflow-artifact",
+            "Command: add-person-to-workflow, add-content-to-workflow, list-items, move-item, get-workflow-artifact, update-workflow-artifact. Prefer always setting this. If omitted: arg1=item UUID + arg2=UPPERCASE_STAGE + arg3=body → update-workflow-artifact; same with no arg3 → get-workflow-artifact (not for add-person — two UUIDs need an explicit command).",
         },
         arg1: {
           type: "string",
@@ -61,13 +88,15 @@ const tool: ToolModule = {
           description: "Fifth arg: stage for add-content",
         },
       },
-      required: ["command"],
+      required: [],
     },
   },
 
   async execute(args) {
     const { query: dbQuery } = await import("../db");
-    const cmd = args.command;
+    const cmd = inferWorkflowItemsCommandFromArgs(args);
+    if (!cmd)
+      return "Error: workflow_items needs a command (e.g. update-workflow-artifact) or arg1=item id + arg2=STAGE (+ arg3 for updates).";
 
     // ─── add-person-to-workflow ──────────────────────────────────
     if (cmd === "add-person-to-workflow") {
@@ -339,6 +368,23 @@ const tool: ToolModule = {
         return "Error: arg3 (new markdown content) is required";
 
       const stageNorm = stageRaw.toUpperCase();
+      let contentToSave = String(newBody);
+      if (stageNorm === "MESSAGE_DRAFT" || stageNorm === "REPLY_DRAFT") {
+        const prevRows = await dbQuery(
+          `SELECT content FROM "_artifact"
+           WHERE "workflowItemId"::text = $1 AND UPPER(TRIM(stage)) = $2 AND "deletedAt" IS NULL
+           ORDER BY "createdAt" DESC
+           LIMIT 1`,
+          [itemId, stageNorm]
+        );
+        const prev = String((prevRows[0] as Record<string, unknown> | undefined)?.content ?? "");
+        if (prev) {
+          const { coerceWarmLinkedInDraftUpdate } = await import("@/lib/warm-outreach-draft");
+          const coerced = coerceWarmLinkedInDraftUpdate(prev, contentToSave);
+          if (coerced !== null) contentToSave = coerced;
+        }
+      }
+
       const updated = await dbQuery(
         `UPDATE "_artifact" AS a SET content = $1, "updatedAt" = NOW()
          FROM (
@@ -349,7 +395,7 @@ const tool: ToolModule = {
          ) AS sub
          WHERE a.id = sub.id
          RETURNING a.id`,
-        [newBody, itemId, stageNorm]
+        [contentToSave, itemId, stageNorm]
       );
       if (updated.length === 0) {
         return `No artifact found for workflow item ${itemId.slice(0, 8)}… at stage ${stageNorm} (create one first or check stage spelling).`;
@@ -358,7 +404,7 @@ const tool: ToolModule = {
       void maybeNotifyTimAfterLinkedInDraftEdit({
         workflowItemId: itemId,
         stage: stageNorm,
-        markdownContent: String(newBody),
+        markdownContent: contentToSave,
       }).catch(() => {});
       return `Updated artifact ${(updated[0] as Record<string, unknown>).id} (${stageNorm}) for workflow item ${args.arg1.slice(0, 8)}…`;
     }

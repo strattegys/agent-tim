@@ -9,5 +9,12 @@ export async function GET(request: NextRequest) {
   const agentId = request.nextUrl.searchParams.get("agent") || "tim";
   const config = getAgentConfig(agentId);
   const history = getHistory(config.sessionFile);
-  return NextResponse.json({ history });
+  return NextResponse.json(
+    { history },
+    {
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0, must-revalidate",
+      },
+    }
+  );
 }

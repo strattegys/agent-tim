@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import PunchListCard, { type PunchListItem } from "./PunchListCard";
 import PunchListInspectSheet from "./PunchListInspectSheet";
-import { panelBus } from "@/lib/events";
 import { PUNCH_LIST_COLUMNS, punchListColumnLabel } from "@/lib/punch-list-columns";
 import { punchListItemToFocusedContext, type SuziFocusedPunchList } from "@/lib/suzi-work-panel";
 
@@ -27,6 +26,8 @@ interface SuziPunchListPanelProps {
    */
   inspectItem?: PunchListItem | null;
   onInspectItemChange?: (item: PunchListItem | null) => void;
+  /** Parent bumps this on `panelBus` `punch_list` so we refetch even when this panel was unmounted during the tool call. */
+  punchListSync?: number;
 }
 
 export default function SuziPunchListPanel({
@@ -36,6 +37,7 @@ export default function SuziPunchListPanel({
   onFocusedPunchListChange,
   inspectItem: inspectItemProp,
   onInspectItemChange,
+  punchListSync = 0,
 }: SuziPunchListPanelProps) {
   const [items, setItems] = useState<PunchListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,12 +104,7 @@ export default function SuziPunchListPanel({
     setLoading(true);
     fetchItems();
     fetchCategories();
-    const unsub = panelBus.on("punch_list", () => {
-      fetchItems();
-      fetchCategories();
-    });
-    return unsub;
-  }, [fetchItems, fetchCategories]);
+  }, [fetchItems, fetchCategories, punchListSync]);
 
   useEffect(() => {
     if (!inspectItem) return;

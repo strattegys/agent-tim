@@ -5,7 +5,11 @@ import { toolArgumentsToStringRecord } from "./tool-args-normalize";
 import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
-import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import {
+  appendEphemeralContext,
+  applySessionHistoryLimit,
+  type ChatStreamExtraOptions,
+} from "./chat-stream-options";
 import { getGeminiApiKey } from "./gemini-api-key";
 import {
   logGeminiUsageFromResponse,
@@ -374,6 +378,7 @@ export async function autonomousChat(
         role: "model",
         text: replyText,
         timestamp: Date.now(),
+        ambient: true,
       });
 
       return replyText;
@@ -390,6 +395,7 @@ export async function autonomousChat(
       role: "model",
       text: fallbackMsg,
       timestamp: Date.now(),
+      ambient: true,
     });
     return fallbackMsg;
   }
@@ -418,7 +424,8 @@ export async function chatStream(
     await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
     extra?.workQueueContext
   );
-  const history = getHistory(config.sessionFile);
+  let history = getHistory(config.sessionFile);
+  history = applySessionHistoryLimit(history, extra?.sessionHistoryMaxMessages);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const contents: any[] = history.map((msg: ChatMessage) => ({

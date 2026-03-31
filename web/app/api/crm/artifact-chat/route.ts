@@ -6,7 +6,7 @@ import { query } from "@/lib/db";
  * POST { artifactId, message, currentContent, agentId? }
  * Returns { reply, updatedContent? }
  *
- * Uses Groq (GROQ_CHAT_MODEL or llama-3.3-70b-versatile) for the completion.
+ * Uses Groq (GROQ_CHAT_MODEL or openai/gpt-oss-120b) for the completion.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -51,7 +51,7 @@ Keep the document in markdown format. Preserve all existing structure unless ask
       },
       body: JSON.stringify({
         model:
-          process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile",
+          process.env.GROQ_CHAT_MODEL?.trim() || "openai/gpt-oss-120b",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: message },

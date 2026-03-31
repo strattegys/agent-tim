@@ -2,6 +2,8 @@
 
 import { useState, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
+import type { TimContextDebugSnapshot } from "@/lib/tim-chat-debug";
+
 interface MessageBubbleProps {
   role: "user" | "model";
   text: string;
@@ -14,6 +16,8 @@ interface MessageBubbleProps {
   fromAgent?: string;     // inter-agent: who sent this user message
   /** Agent bubble: show typing dots inside the same styled box (no empty shell + separate loader). */
   isThinking?: boolean;
+  /** Tim: optional server snapshot of merged work-queue + UI context (debug). */
+  timContextDebug?: TimContextDebugSnapshot;
 }
 
 /** Subtle agent tint on top of app tertiary bg — low contrast, not a saturated slab. */
@@ -39,6 +43,7 @@ export default function MessageBubble({
   delegatedFrom,
   fromAgent,
   isThinking,
+  timContextDebug,
 }: MessageBubbleProps) {
   const [hovered, setHovered] = useState(false);
   const isUser = role === "user";
@@ -89,6 +94,30 @@ export default function MessageBubble({
                 </span>
               )}
             </div>
+          )}
+          {!isUser && timContextDebug && (
+            <details className="mb-2 rounded border border-amber-500/35 bg-amber-950/25 text-left">
+              <summary className="cursor-pointer select-none px-2 py-1.5 text-[10px] font-medium text-amber-200/90">
+                Context debug (this turn)
+              </summary>
+              <div className="space-y-2 border-t border-amber-500/20 px-2 py-2 text-[10px] leading-snug text-amber-100/85">
+                <p className="text-[var(--text-secondary)]">{timContextDebug.summaryLine}</p>
+                <div>
+                  <div className="mb-0.5 font-semibold text-amber-200/80">Tim work-queue string</div>
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/35 p-2 font-mono text-[9px] text-[var(--text-chat-body)]">
+                    {timContextDebug.timWorkContext || "(empty)"}
+                  </pre>
+                </div>
+                {timContextDebug.uiContext ? (
+                  <div>
+                    <div className="mb-0.5 font-semibold text-amber-200/80">UI context</div>
+                    <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-words rounded bg-black/35 p-2 font-mono text-[9px] text-[var(--text-chat-body)]">
+                      {timContextDebug.uiContext}
+                    </pre>
+                  </div>
+                ) : null}
+              </div>
+            </details>
           )}
           {isThinking ? (
             <div className="flex items-center gap-1.5 py-1" aria-label="Thinking">

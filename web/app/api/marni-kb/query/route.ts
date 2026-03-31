@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isMarniKbDatabaseConfigured, answerKbQuestion } from "@/lib/marni-kb";
+import { resolveKbStudioAgentId } from "@/lib/kb-studio";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,13 @@ export async function POST(req: Request) {
     if (!question) {
       return NextResponse.json({ error: "question is required" }, { status: 400 });
     }
-    const result = await answerKbQuestion(question, "marni");
+    const resolved = resolveKbStudioAgentId(
+      typeof body.agentId === "string" ? body.agentId : null
+    );
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+    const result = await answerKbQuestion(question, resolved.agentId);
     return NextResponse.json(result);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

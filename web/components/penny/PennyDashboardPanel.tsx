@@ -9,6 +9,7 @@ import PackageDetailCard from "./PackageDetailCard";
 import AddPackageModal from "./AddPackageModal";
 import WorkflowTemplateCard from "./WorkflowTemplateCard";
 import HumanTasksPanel from "../friday/HumanTasksPanel";
+import OperationalPackageQueue from "../friday/OperationalPackageQueue";
 import type { PackageSpec } from "@/lib/package-types";
 
 interface PackageRow {
@@ -28,7 +29,7 @@ interface PackageRow {
 const POLL_MS_VISIBLE = 5000;
 const POLL_MS_HIDDEN = 30_000;
 
-type Tab = "packages" | "pkg-templates" | "wf-templates";
+type Tab = "queue" | "packages" | "pkg-templates" | "wf-templates";
 
 interface PennyDashboardPanelProps {
   onClose: () => void;
@@ -41,7 +42,7 @@ export default function PennyDashboardPanel({
   onDashboardTabChange,
 }: PennyDashboardPanelProps) {
   const tabVisible = useDocumentVisible();
-  const [tab, setTab] = useState<Tab>("packages");
+  const [tab, setTab] = useState<Tab>("queue");
 
   useEffect(() => {
     onDashboardTabChange?.(tab);
@@ -136,6 +137,10 @@ export default function PennyDashboardPanel({
 
   const TABS: { key: Tab; label: string; count?: string }[] = [
     {
+      key: "queue",
+      label: "Package queue",
+    },
+    {
       key: "packages",
       label: "Package Planner",
       count: loading ? "..." : `${packages.length}`,
@@ -183,7 +188,11 @@ export default function PennyDashboardPanel({
       </div>
 
       {/* Tab content */}
-      {tab === "wf-templates" ? (
+      {tab === "queue" ? (
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <OperationalPackageQueue />
+        </div>
+      ) : tab === "wf-templates" ? (
         <div className="flex-1 overflow-y-auto p-3 space-y-2.5">
           {wfTemplates.length === 0 ? (
             <div className="flex-1 flex items-center justify-center py-12">

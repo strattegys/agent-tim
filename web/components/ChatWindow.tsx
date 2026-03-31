@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { TimContextDebugSnapshot } from "@/lib/tim-chat-debug";
 import MessageBubble from "./MessageBubble";
 
 export interface Message {
@@ -8,9 +9,13 @@ export interface Message {
   role: "user" | "model";
   text: string;
   timestamp: number;
+  /** Heartbeat/autonomous model lines — shown in thread but not counted in sidebar unread. */
+  ambient?: boolean;
   replyTo?: { id: string; text: string; role: "user" | "model" };
   delegatedFrom?: string; // comma-separated agent IDs (e.g. "scout")
   fromAgent?: string;     // for inter-agent messages: who sent this
+  /** Tim only: server snapshot when `TIM_CHAT_CONTEXT_DEBUG=1` — work queue + UI context actually merged. */
+  timContextDebug?: TimContextDebugSnapshot;
 }
 
 interface ChatWindowProps {
@@ -69,6 +74,7 @@ export default function ChatWindow({
             delegatedFrom={msg.delegatedFrom}
             fromAgent={msg.fromAgent}
             isThinking={thinkingInside}
+            timContextDebug={msg.timContextDebug}
           />
         );
       })}

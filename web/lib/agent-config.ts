@@ -6,9 +6,34 @@
  */
 
 import { existsSync, mkdirSync } from "fs";
-import { join } from "path";
+import { basename, join, dirname } from "path";
 import { getAgentSpec } from "./agent-registry";
 import type { AgentSpec } from "./agent-spec";
+
+/**
+ * When set (e.g. localdev only in compose / npm dev), chat JSONL + on-disk memory dirs live under an extra
+ * directory segment so LOCALDEV cannot clobber production-shaped paths under `agents/.../sessions/`.
+ * LOCALPROD (Docker overlay + `npm run start:local-prod`) leaves this unset — same layout as the droplet.
+ * Production: leave unset. Allowed: [a-zA-Z0-9._-]+
+ */
+function agentChatProfile(): string | null {
+  const raw = process.env.CC_AGENT_CHAT_PROFILE?.trim();
+  if (!raw) return null;
+  // Never isolate to sessions/localprod/: that path is empty while canonical chat lives at
+  // sessions/web_*.jsonl. Compose `CC_AGENT_CHAT_PROFILE=` can inherit host env on Windows; .env.local
+  // and npm scripts used to set localprod — treat it like "use production-shaped paths".
+  if (raw.toLowerCase() === "localprod") return null;
+  if (!/^[a-zA-Z0-9._-]+$/.test(raw)) return null;
+  if (raw === "." || raw === "..") return null;
+  return raw;
+}
+
+/** e.g. .../sessions/web.jsonl → .../sessions/localdev/web.jsonl */
+function isolateAgentChatPath(resolvedPath: string): string {
+  const profile = agentChatProfile();
+  if (!profile) return resolvedPath;
+  return join(dirname(resolvedPath), profile, basename(resolvedPath));
+}
 
 /**
  * Where bot data lives on disk: explicit env, then usual Docker layout, then repo `agents/` next to `web/`.
@@ -92,6 +117,8 @@ export function getAgentConfig(agentId: string): AgentBackendConfig {
     sessionFile = resolveAgentDataPath(sessionFile);
     memoryDir = resolveAgentDataPath(memoryDir);
     systemPromptFile = resolveAgentDataPath(systemPromptFile);
+    sessionFile = isolateAgentChatPath(sessionFile);
+    memoryDir = isolateAgentChatPath(memoryDir);
   }
 
   return {
@@ -107,7 +134,9 @@ export function getAgentConfig(agentId: string): AgentBackendConfig {
       name: r.name,
       schedule: r.schedule,
       description: r.description,
-      logFile: r.logFile ? resolveAgentDataPath(r.logFile) : undefined,
+      logFile: r.logFile
+        ? isolateAgentChatPath(resolveAgentDataPath(r.logFile))
+        : undefined,
     })),
     vectorMemory,
     provider: spec.provider,

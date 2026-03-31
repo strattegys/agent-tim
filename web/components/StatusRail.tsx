@@ -9,6 +9,7 @@ import { HeartbeatActivityIcon } from "@/components/icons/HeartbeatActivityIcon"
 import { KnowledgeRagIcon } from "@/components/icons/KnowledgeRagIcon";
 import { MemoryBrainIcon } from "@/components/icons/MemoryBrainIcon";
 import { getAgentSpec } from "@/lib/agent-registry";
+import { isKbStudioAgentId } from "@/lib/kb-studio";
 
 const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "workflow", "schedule"];
 
@@ -197,6 +198,49 @@ function memoryStroke(s: StatusRailMemory): string {
   if (s === "warn") return "#F59E0B";
   if (s === "error") return "#E54D2E";
   return "#6b7280";
+}
+
+/** Knowledge Studio (Marni/Tim): green when Data Platform OK; warn/error when DB unreachable. */
+function knowledgeRailStatus(
+  agentId: string,
+  services: ServiceRow[] | null
+): { stroke: string; title: string } {
+  if (!isKbStudioAgentId(agentId)) {
+    return {
+      stroke: "#6b7280",
+      title: "Knowledge Studio not enabled for this agent",
+    };
+  }
+  if (services === null) {
+    return {
+      stroke: "#6b7280",
+      title: "Knowledge Studio: loading system status…",
+    };
+  }
+  const dp = services.find((s) => s.id === "data_platform");
+  if (dp?.status === "ok") {
+    const label = agentId === "tim" ? "Tim" : "Marni";
+    return {
+      stroke: "#1D9E75",
+      title: `Knowledge Studio (${label}) — Data Platform OK; topics & RAG corpus available`,
+    };
+  }
+  if (dp?.status === "skipped") {
+    return {
+      stroke: "#F59E0B",
+      title: `Knowledge Studio: Data Platform not configured or unreachable — ${dp.detail ?? "check CRM_DB_* and tunnel"}`,
+    };
+  }
+  if (dp?.status === "down") {
+    return {
+      stroke: "#E54D2E",
+      title: `Knowledge Studio: Data Platform down — ${dp.detail ?? "use Refresh Data Platform or reconnect"}`,
+    };
+  }
+  return {
+    stroke: "#6b7280",
+    title: "Knowledge Studio: Data Platform status unknown",
+  };
 }
 
 /** Per-agent “functioning?”: online + heartbeat (eye icon). */
@@ -404,7 +448,7 @@ export default function StatusRail({
             Agents
           </div>
           <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mb-1.5 font-mono">
-            Per agent: eye · heartbeat · memory · knowledge — work items: bell in the left bar
+            Per agent: eye · heartbeat · memory · book (Knowledge Studio — same icon as header, right of Agent info) — work: bell left
           </p>
           <ul className="font-mono text-[10px] space-y-2">
             {teamAgents.map((a) => {
@@ -421,6 +465,7 @@ export default function StatusRail({
                   : "Memory: loading…"
                 : "Memory tool not enabled for this agent";
               const eyeTitle = perAgentOverviewTitle(a, row);
+              const kb = knowledgeRailStatus(a.id, services);
               return (
                 <li key={a.id} className="flex items-center gap-1 min-w-0">
                   <span className="truncate text-[var(--text-secondary)] min-w-0 flex-1 pr-0.5">{a.name}</span>
@@ -447,9 +492,9 @@ export default function StatusRail({
                     </span>
                     <span
                       className="inline-flex items-center justify-center w-[18px]"
-                      title="Knowledge & external RAG (Marni) — in development"
+                      title={kb.title}
                     >
-                      <KnowledgeRagIcon size={14} stroke="#6b7280" />
+                      <KnowledgeRagIcon size={14} stroke={kb.stroke} />
                     </span>
                   </span>
                 </li>

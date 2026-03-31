@@ -382,13 +382,58 @@ function selectWorkflows(sql: string, params: unknown[]): Row[] {
 
 // ─── SELECT human-tasks queue (JOIN simulation) ─────────────────
 
+/** LIMIT/OFFSET are last two numeric params on human-tasks queries — must strip before reading package filters. */
+function stripTrailingPaginationParams(params: unknown[]): {
+  head: unknown[];
+  limit: number | null;
+  offset: number | null;
+} {
+  if (params.length < 2) return { head: [...params], limit: null, offset: null };
+  const last = params[params.length - 1];
+  const prev = params[params.length - 2];
+  const nLast = typeof last === "number" ? last : Number(String(last));
+  const nPrev = typeof prev === "number" ? prev : Number(String(prev));
+  if (!Number.isFinite(nLast) || !Number.isFinite(nPrev)) {
+    return { head: [...params], limit: null, offset: null };
+  }
+  return {
+    head: params.slice(0, -2),
+    limit: nPrev,
+    offset: nLast,
+  };
+}
+
+/** Stages Tim’s queue always surfaces even when humanTaskOpen is false (matches human-tasks/route fetchHumanTaskRows). */
+const TIM_HUMAN_TASKS_OR_STAGES = new Set([
+  "REPLY_DRAFT",
+  "REPLY_SENT",
+  "LINKEDIN_INBOUND",
+  "MESSAGE_DRAFT",
+  "AWAITING_CONTACT",
+  "INITIATED",
+]);
+
+function specTextHintsWarmOutreach(spec: unknown): boolean {
+  const t = typeof spec === "string" ? spec : JSON.stringify(spec ?? {});
+  return t.includes('"workflowType"') && t.toLowerCase().includes("warm-outreach");
+}
+
 function selectHumanTasksQueueJoin(sql: string, params: unknown[]): Row[] {
   const s = sql.replace(/\s+/g, " ").trim();
   const hasOwner = s.includes('LOWER(TRIM(COALESCE(w."ownerAgent"');
   const hasPkg = s.includes('JOIN "_package"');
+
+  const { head, limit, offset } = stripTrailingPaginationParams(params);
   let i = 0;
-  const ownerWant = hasOwner && params[i] != null ? String(params[i++]).trim().toLowerCase() : null;
-  const pkgStageWant = hasPkg && params[i] != null ? String(params[i++]).trim().toUpperCase() : null;
+  const ownerWant = hasOwner && head[i] != null ? String(head[i++]).trim().toLowerCase() : null;
+  // Second bind is package stage equality only when the query is not using NOT IN (…) for package stages (e.g. Ghost exclude list).
+  const pkgStageWant =
+    hasPkg &&
+    !/\bNOT\s+IN\s*\(/i.test(s) &&
+    head[i] != null &&
+    typeof head[i] === "string"
+      ? String(head[i++]).trim().toUpperCase()
+      : null;
 
   const pkgs = loadTable("packages").filter((r) => !r.deletedAt);
   const workflows = loadTable("workflows").filter((r) => !r.deletedAt);
@@ -399,19 +444,27 @@ function selectHumanTasksQueueJoin(sql: string, params: unknown[]): Row[] {
   for (const wi of items) {
     const w = workflows.find((wf) => wf.id === wi.workflowId);
     if (!w) continue;
-    let wfType = "";
-    try {
-      const spec = typeof w.spec === "string" ? JSON.parse(w.spec) : w.spec;
-      wfType = String((spec as { workflowType?: string })?.workflowType || "").trim();
-    } catch {
-      wfType = "";
-    }
+    const stageUpper = String(wi.stage || "").trim().toUpperCase();
+
     const timMessagedWait =
       ownerWant === "tim" &&
-      String(wi.stage || "").trim().toUpperCase() === "MESSAGED" &&
-      wfType === "warm-outreach";
-    if (wi.humanTaskOpen !== true && !timMessagedWait) continue;
+      stageUpper === "MESSAGED" &&
+      specTextHintsWarmOutreach(w.spec);
+
+    const timStageOrBranch = ownerWant === "tim" && TIM_HUMAN_TASKS_OR_STAGES.has(stageUpper);
+
+    if (wi.humanTaskOpen !== true && !timMessagedWait && !timStageOrBranch) continue;
     if (ownerWant != null && String(w.ownerAgent || "").trim().toLowerCase() !== ownerWant) continue;
+
+    // Tim ops default: only ACTIVE packages or unpackaged workflows (literal ACTIVE in SQL, not a bind param).
+    if (ownerWant === "tim" && hasPkg && pkgStageWant == null) {
+      if (w.packageId) {
+        const pkg = pkgs.find((p) => p.id === w.packageId);
+        const pst = String(pkg?.stage || "").trim().toUpperCase();
+        if (pst && pst !== "ACTIVE") continue;
+      }
+    }
+
     if (pkgStageWant != null) {
       if (w.packageId) {
         const pkg = pkgs.find((p) => p.id === w.packageId);
@@ -442,6 +495,9 @@ function selectHumanTasksQueueJoin(sql: string, params: unknown[]): Row[] {
     if (da !== db) return da - db;
     return String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
   });
+  if (limit != null && offset != null && limit > 0) {
+    return out.slice(offset, offset + limit);
+  }
   return out;
 }
 

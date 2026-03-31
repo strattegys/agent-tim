@@ -3,7 +3,6 @@
  * Inbound messages: CRM note + packaged warm-outreach resolve when applicable, else general inbox
  * queue (`recordGeneralLinkedInInbound`). No LLM triage — work is picked up from the queue / workflows.
  */
-import { execFileSync } from "child_process";
 import { join } from "path";
 import { query } from "@/lib/db";
 import {
@@ -17,6 +16,7 @@ import {
   getPersonStage,
   fetchLinkedInProfile,
   enrichContactFromLinkedIn,
+  isLinkedInCrmShellAvailable,
 } from "./linkedin-crm";
 import { writeNotification } from "./notifications";
 import {
@@ -94,20 +94,27 @@ export async function handleUnipileWebhook(
 
   console.log(`[linkedin-webhook] Inbound message from ${senderName} (${senderProviderId})`);
 
-  // Find or create CRM contact
-  const contactId = findOrCreateContact(senderName, senderProviderId);
+  // Twenty/bash tools when present; else Postgres `person` only (Command Central local / Docker without crm.sh).
+  let contactId = findOrCreateContact(senderName, senderProviderId);
   if (!contactId) {
-    console.error(`[linkedin-webhook] Could not find/create contact for ${senderName}`);
-    return;
+    const pgIds = await resolvePostgresPersonIdsForLinkedInSender(
+      "",
+      senderProviderId,
+      senderName
+    );
+    contactId = pgIds[0] ?? null;
+    if (contactId) {
+      console.log(
+        `[linkedin-webhook] Using Postgres person ${contactId.slice(0, 8)}… (Twenty shell unavailable or no shell contact)`
+      );
+    }
+  }
+  if (!contactId) {
+    console.warn(
+      `[linkedin-webhook] No Twenty/shell contact id for ${senderName} — still routing to Tim inbox (Postgres person created or matched in recordGeneralLinkedInInbound)`
+    );
   }
 
-  // If person was MESSAGED and they're replying → ENGAGED
-  const currentStage = getPersonStage(contactId);
-  if (currentStage === "MESSAGED") {
-    updatePersonStage(contactId, "ENGAGED");
-  }
-
-  // Log as CRM note
   const formattedTime = formatTime(timestamp);
   const linkedinUrl = senderProviderId
     ? `https://www.linkedin.com/in/${senderProviderId}`
@@ -126,13 +133,21 @@ export async function handleUnipileWebhook(
     .filter(Boolean)
     .join("\n");
 
-  writeNote(noteTitle, noteContent, "person", contactId);
+  if (isLinkedInCrmShellAvailable() && contactId) {
+    const currentStage = getPersonStage(contactId);
+    if (currentStage === "MESSAGED") {
+      updatePersonStage(contactId, "ENGAGED");
+    }
+    writeNote(noteTitle, noteContent, "person", contactId);
+  }
+
+  const crmContactForQueue = contactId || "";
 
   // Packaged warm-outreach: MESSAGED → Replied / reply draft (same as human "Replied"). Otherwise general Tim inbox (Postgres person match).
   let packagedWarmItemIds: string[] = [];
   try {
     packagedWarmItemIds = await resolveWarmOutreachItemsForInboundMessage(
-      contactId,
+      crmContactForQueue,
       senderProviderId,
       senderName
     );
@@ -194,7 +209,7 @@ export async function handleUnipileWebhook(
           `[linkedin-webhook] Packaged match but 0 resolves OK (${resolveErrors.join("; ")}) — falling back to general inbox`
         );
         const gen = await recordGeneralLinkedInInbound({
-          crmContactId: contactId,
+          crmContactId: crmContactForQueue,
           senderProviderId,
           senderDisplayName: senderName,
           eventKind: "message",
@@ -214,7 +229,7 @@ export async function handleUnipileWebhook(
       }
     } else {
       const gen = await recordGeneralLinkedInInbound({
-        crmContactId: contactId,
+        crmContactId: crmContactForQueue,
         senderProviderId,
         senderDisplayName: senderName,
         eventKind: "message",
@@ -236,7 +251,9 @@ export async function handleUnipileWebhook(
     console.error("[linkedin-webhook] Warm-outreach / inbox routing error:", e);
   }
 
-  console.log(`[linkedin-webhook] Processed inbound from ${senderName} → contact ${contactId}`);
+  console.log(
+    `[linkedin-webhook] Processed inbound from ${senderName} → shell contact ${contactId ?? "none"} (Tim inbox uses Postgres match / auto-person)`
+  );
 }
 
 /**
@@ -296,38 +313,37 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
     );
   }
 
-  if (contactId) {
-    try {
-      const pids = await resolvePostgresPersonIdsForLinkedInSender(
-        contactId,
-        senderProviderId,
-        senderName
-      );
-      let packagedPending = false;
-      for (const pid of pids) {
-        if (await hasPackagedLinkedinOutreachPendingAcceptance(pid)) {
-          packagedPending = true;
-          console.log(
-            `[linkedin-webhook] new_relation: linkedin-outreach INITIATED exists for person ${pid.slice(0, 8)}… (package path)`
-          );
-          break;
-        }
+  try {
+    const crmForQueue = contactId || "";
+    const pids = await resolvePostgresPersonIdsForLinkedInSender(
+      crmForQueue,
+      senderProviderId,
+      senderName
+    );
+    let packagedPending = false;
+    for (const pid of pids) {
+      if (await hasPackagedLinkedinOutreachPendingAcceptance(pid)) {
+        packagedPending = true;
+        console.log(
+          `[linkedin-webhook] new_relation: linkedin-outreach INITIATED exists for person ${pid.slice(0, 8)}… (package path)`
+        );
+        break;
       }
-      if (!packagedPending && pids.length > 0) {
-        const gen = await recordGeneralLinkedInInbound({
-          crmContactId: contactId,
-          senderProviderId,
-          senderDisplayName: senderName,
-          eventKind: "connection_accepted",
-          timestampIso: timestamp,
-        });
-        if (!gen.ok && gen.reason) {
-          console.log(`[linkedin-webhook] General inbox (accept) skipped: ${gen.reason}`);
-        }
-      }
-    } catch (e) {
-      console.error("[linkedin-webhook] General inbox (new_relation) error:", e);
     }
+    if (!packagedPending) {
+      const gen = await recordGeneralLinkedInInbound({
+        crmContactId: crmForQueue,
+        senderProviderId,
+        senderDisplayName: senderName,
+        eventKind: "connection_accepted",
+        timestampIso: timestamp,
+      });
+      if (!gen.ok && gen.reason) {
+        console.log(`[linkedin-webhook] General inbox (accept) skipped: ${gen.reason}`);
+      }
+    }
+  } catch (e) {
+    console.error("[linkedin-webhook] General inbox (new_relation) error:", e);
   }
 
   console.log(`[linkedin-webhook] Processed invitation acceptance from ${senderName}`);

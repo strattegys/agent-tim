@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { SuziWorkSubTab } from "@/lib/suzi-work-panel";
 import { SUZI_WORK_TAB_HEADER_HINT } from "@/lib/suzi-work-panel";
 
-const TAB_ORDER: SuziWorkSubTab[] = ["intake", "punchlist", "reminders", "notes"];
+const TAB_ORDER: SuziWorkSubTab[] = ["punchlist", "intake", "reminders", "notes"];
 
 const TAB_LABEL: Record<SuziWorkSubTab, string> = {
   intake: "Intake",

@@ -1,6 +1,11 @@
 import { signIn, auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getAppBrandTitle, getAppHeadline } from "@/lib/app-brand";
+import {
+  getAppBrandTitle,
+  getAppHeadline,
+  getLocalRuntimeLabel,
+  getLoginBadgeLetter,
+} from "@/lib/app-brand";
 import { isBackendOnlyUiMode } from "@/lib/backend-only-ui";
 
 export default async function LoginPage() {
@@ -12,13 +17,18 @@ export default async function LoginPage() {
 
   const brandTitle = getAppBrandTitle();
   const tagline = getAppHeadline();
+  const badgeLetter = getLoginBadgeLetter();
+  const badgeTextClass =
+    getLocalRuntimeLabel() === "LOCALDEV"
+      ? "text-2xl font-bold text-[#f97316]"
+      : "text-2xl font-bold text-white";
 
   return (
     <div className="h-screen flex items-center justify-center bg-[#0e1621]">
       <div className="text-center">
         <div className="mb-6">
           <div className="w-16 h-16 rounded-full bg-[#2b5278] mx-auto flex items-center justify-center mb-4">
-            <span className="text-2xl font-bold text-white">S</span>
+            <span className={badgeTextClass}>{badgeLetter}</span>
           </div>
           <h1 className="text-lg sm:text-xl font-semibold text-[#f5f5f5] leading-snug max-w-md mx-auto px-2">
             {brandTitle}

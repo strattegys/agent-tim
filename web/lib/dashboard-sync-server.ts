@@ -19,7 +19,7 @@ export async function fetchDashboardSyncPayload(
 ): Promise<DashboardSyncResponse> {
   const h = { cookie: cookieHeader } as HeadersInit;
 
-  const [rActive, rApproval, rTim, rGhost, rNotif] = await Promise.all([
+  const [rActive, rApproval, rTim, rGhost, rNotif, rSuziDue] = await Promise.all([
     fetch(`${origin}/api/crm/human-tasks?packageStage=ACTIVE`, { headers: h, cache: "no-store" }),
     fetch(`${origin}/api/crm/human-tasks?packageStage=PENDING_APPROVAL`, { headers: h, cache: "no-store" }),
     fetch(`${origin}/api/crm/human-tasks?ownerAgent=tim&summary=1`, { headers: h, cache: "no-store" }),
@@ -28,14 +28,16 @@ export async function fetchDashboardSyncPayload(
       { headers: h, cache: "no-store" }
     ),
     fetch(`${origin}/api/notifications`, { headers: h, cache: "no-store" }),
+    fetch(`${origin}/api/reminders?dueSummary=1&agentId=suzi`, { headers: h, cache: "no-store" }),
   ]);
 
-  const [dActive, dApproval, dTim, dGhost, dNotif] = await Promise.all([
+  const [dActive, dApproval, dTim, dGhost, dNotif, dSuziDue] = await Promise.all([
     readJson(rActive),
     readJson(rApproval),
     readJson(rTim),
     readJson(rGhost),
     readJson(rNotif),
+    readJson(rSuziDue),
   ]);
 
   const pendingTaskCount = typeof dActive?.count === "number" ? dActive.count : 0;
@@ -56,6 +58,9 @@ export async function fetchDashboardSyncPayload(
 
   const ghostContentTaskCount = typeof dGhost?.count === "number" ? dGhost.count : 0;
 
+  const suziDueReminderCount =
+    typeof dSuziDue?.dueCount === "number" ? dSuziDue.dueCount : 0;
+
   const rawList = dNotif?.notifications;
   const notifications = Array.isArray(rawList) ? (rawList as DashboardSyncResponse["notifications"]) : [];
 
@@ -66,6 +71,7 @@ export async function fetchDashboardSyncPayload(
       timMessagingTaskCount,
       timPendingQueueCount,
       ghostContentTaskCount,
+      suziDueReminderCount,
     },
     notifications,
   };

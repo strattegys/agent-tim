@@ -1,4 +1,4 @@
-import { query } from "./db";
+import { query, transaction } from "./db";
 
 export interface Reminder {
   id: string;
@@ -171,31 +171,127 @@ export async function deleteReminder(id: string): Promise<void> {
   );
 }
 
+/** Soft-delete every inactive (already toggled off) row for an agent — bulk cleanup. */
+export async function softDeleteInactiveReminders(agentId: string): Promise<number> {
+  const rows = await query<{ id: string }>(
+    `UPDATE "_reminder"
+     SET "deletedAt" = NOW(), "updatedAt" = NOW()
+     WHERE "agentId" = $1 AND "deletedAt" IS NULL AND "isActive" = FALSE
+     RETURNING id`,
+    [agentId]
+  );
+  return rows.length;
+}
+
 /**
  * Get reminders that are due now (considering advanceNoticeDays).
  * A reminder is due when: nextDueAt - advanceNoticeDays <= NOW()
  * and it hasn't been delivered for this occurrence yet.
  */
+/** Shared WHERE for “due for delivery” (keep claim + list in sync). */
+const REMINDER_DUE_SQL = `
+     AND "nextDueAt" IS NOT NULL
+     AND ("nextDueAt" - (COALESCE("advanceNoticeDays", 0) || ' days')::INTERVAL) <= NOW()
+     AND ("lastDeliveredAt" IS NULL OR "lastDeliveredAt" < "nextDueAt" - (COALESCE("advanceNoticeDays", 0) || ' days')::INTERVAL)`;
+
 export async function getDueReminders(agentId: string): Promise<Reminder[]> {
   const rows = await query<Record<string, unknown>>(
     `SELECT * FROM "_reminder"
      WHERE "agentId" = $1
        AND "deletedAt" IS NULL
        AND "isActive" = TRUE
-       AND "nextDueAt" IS NOT NULL
-       AND ("nextDueAt" - ("advanceNoticeDays" || ' days')::INTERVAL) <= NOW()
-       AND ("lastDeliveredAt" IS NULL OR "lastDeliveredAt" < "nextDueAt" - ("advanceNoticeDays" || ' days')::INTERVAL)
+       ${REMINDER_DUE_SQL}
      ORDER BY "nextDueAt" ASC`,
     [agentId]
   );
   return rows.map(rowToReminder);
 }
 
+/** For dashboard work-bell: rows matching the same “due for delivery” rule as heartbeat claim. */
+export async function countDueReminders(agentId: string): Promise<number> {
+  const rows = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM "_reminder"
+     WHERE "agentId" = $1
+       AND "deletedAt" IS NULL
+       AND "isActive" = TRUE
+       ${REMINDER_DUE_SQL}`,
+    [agentId]
+  );
+  const raw = rows[0]?.count;
+  const n = raw != null ? parseInt(raw, 10) : 0;
+  return Number.isFinite(n) ? n : 0;
+}
+
+type SqlRunner = (
+  sql: string,
+  params?: unknown[]
+) => Promise<{ rows: Record<string, unknown>[] }>;
+
+async function markReminderDeliveredWithRunner(
+  run: SqlRunner,
+  reminder: Reminder
+): Promise<void> {
+  const id = reminder.id;
+  if (reminder.recurrence && reminder.recurrenceAnchor && reminder.nextDueAt) {
+    const next = computeNextOccurrence(
+      new Date(reminder.nextDueAt),
+      reminder.recurrence,
+      reminder.recurrenceAnchor
+    );
+    // Use the scheduled occurrence instant, not NOW(). If we fired during advance-notice
+    // (days before nextDueAt), NOW() is still before (nextDueAt - advance) for the *next*
+    // row state after we bump nextDueAt — the due SQL matches again every day → bell spam.
+    const occurrenceTs = reminder.nextDueAt;
+    await run(
+      `UPDATE "_reminder" SET "lastDeliveredAt" = $1::timestamptz, "nextDueAt" = $2, "updatedAt" = NOW() WHERE id = $3`,
+      [occurrenceTs, next.toISOString(), id]
+    );
+  } else {
+    await run(
+      `UPDATE "_reminder" SET "lastDeliveredAt" = NOW(), "isActive" = FALSE, "updatedAt" = NOW() WHERE id = $1`,
+      [id]
+    );
+  }
+}
+
+/**
+ * Atomically claim due reminders for delivery: row-locks with SKIP LOCKED, advances DB state,
+ * returns snapshots from before advance (for notification / LLM copy). Safe under concurrent
+ * heartbeat workers (no duplicate bells for the same occurrence).
+ */
+/** Max rows claimed per heartbeat tick (drains backlog without one giant bell payload). */
+const REMINDER_CLAIM_BATCH_LIMIT = 25;
+
+export async function claimDueRemindersForDelivery(agentId: string): Promise<Reminder[]> {
+  return transaction(async (run) => {
+    const result = await run(
+      `SELECT * FROM "_reminder"
+       WHERE "agentId" = $1
+         AND "deletedAt" IS NULL
+         AND "isActive" = TRUE
+         ${REMINDER_DUE_SQL}
+       ORDER BY "nextDueAt" ASC
+       LIMIT ${REMINDER_CLAIM_BATCH_LIMIT}
+       FOR UPDATE SKIP LOCKED`,
+      [agentId]
+    );
+
+    const claimedSnapshots: Reminder[] = [];
+
+    for (const row of result.rows) {
+      const reminder = rowToReminder(row);
+      claimedSnapshots.push(reminder);
+      await markReminderDeliveredWithRunner(run, reminder);
+    }
+
+    return claimedSnapshots;
+  });
+}
+
 /**
  * Mark a reminder as delivered and advance to next occurrence if recurring.
  */
 export async function markDeliveredAndAdvance(id: string): Promise<void> {
-  // First get the reminder
   const rows = await query<Record<string, unknown>>(
     `SELECT * FROM "_reminder" WHERE id = $1`,
     [id]
@@ -203,25 +299,10 @@ export async function markDeliveredAndAdvance(id: string): Promise<void> {
   if (rows.length === 0) return;
 
   const reminder = rowToReminder(rows[0]);
-
-  if (reminder.recurrence && reminder.recurrenceAnchor && reminder.nextDueAt) {
-    // Compute next occurrence
-    const next = computeNextOccurrence(
-      new Date(reminder.nextDueAt),
-      reminder.recurrence,
-      reminder.recurrenceAnchor
-    );
-    await query(
-      `UPDATE "_reminder" SET "lastDeliveredAt" = NOW(), "nextDueAt" = $1, "updatedAt" = NOW() WHERE id = $2`,
-      [next.toISOString(), id]
-    );
-  } else {
-    // One-time reminder: mark delivered and deactivate
-    await query(
-      `UPDATE "_reminder" SET "lastDeliveredAt" = NOW(), "isActive" = FALSE, "updatedAt" = NOW() WHERE id = $1`,
-      [id]
-    );
-  }
+  await markReminderDeliveredWithRunner(async (sql, params) => {
+    const r = await query(sql, params);
+    return { rows: r };
+  }, reminder);
 }
 
 function computeNextOccurrence(

@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { isMarniKbDatabaseConfigured, runKbResearch } from "@/lib/marni-kb";
+import {
+  isMarniKbDatabaseConfigured,
+  getKbTopic,
+  runKbResearch,
+} from "@/lib/marni-kb";
+import { resolveKbStudioAgentId } from "@/lib/kb-studio";
 
 export const runtime = "nodejs";
 
@@ -22,15 +27,23 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
+  const b = body as Record<string, unknown>;
   const topicId =
-    typeof body === "object" &&
-    body !== null &&
-    "topicId" in body &&
-    typeof (body as { topicId: unknown }).topicId === "string"
-      ? (body as { topicId: string }).topicId.trim()
+    typeof body === "object" && body !== null && typeof b.topicId === "string"
+      ? b.topicId.trim()
       : "";
   if (!topicId) {
     return NextResponse.json({ error: "topicId is required" }, { status: 400 });
+  }
+  if (typeof b.agentId === "string" && b.agentId.trim() !== "") {
+    const resolved = resolveKbStudioAgentId(b.agentId);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: 400 });
+    }
+    const topic = await getKbTopic(topicId);
+    if (!topic || topic.agentId !== resolved.agentId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
   }
   try {
     const run = await runKbResearch(topicId);

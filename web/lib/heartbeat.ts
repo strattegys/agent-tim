@@ -1,6 +1,9 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { dirname } from "path";
 import { readMemory } from "./memory";
 import { getPendingTasks, getCompletedTasks, updateTask, acknowledgeTask } from "./tasks";
 import { writeNotification } from "./notifications";
+import { notifyDashboardSyncChange } from "./dashboard-sync-hub";
 import type { WarmOutreachHeartbeatFinding } from "./warm-outreach-discovery";
 import { checkWarmOutreachBacklogFindings } from "./warm-outreach-discovery";
 import { checkWarmOutreachDailyPaceFindings } from "./warm-outreach-daily-progress";
@@ -19,7 +22,7 @@ export interface HeartbeatFinding {
   category: string;
   title: string;
   detail: string;
-  priority: "high" | "medium" | "low";
+  priority: "critical" | "high" | "medium" | "low";
 }
 
 const lastNotifiedAt = new Map<string, number>();
@@ -119,7 +122,12 @@ export async function runTimHeartbeat(
     return [];
   }
 
-  const priorityOrder = { high: 0, medium: 1, low: 2 };
+  const priorityOrder: Record<HeartbeatFinding["priority"], number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
   allFindings.sort(
     (a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]
   );
@@ -219,35 +227,86 @@ export async function runSimpleHeartbeat(agentId: string): Promise<void> {
   }
 }
 
+/** Nanobot JSONL bell: at most one "Suzi Reminders" line per this window (per file; cross-process). */
+const DEFAULT_SUZI_BELL_COOLDOWN_MS = 4 * 60 * 60 * 1000;
+
+function suziReminderBellCooldownPath(): string {
+  if (process.env.SUZI_REMINDER_BELL_COOLDOWN_FILE?.trim()) {
+    return process.env.SUZI_REMINDER_BELL_COOLDOWN_FILE.trim();
+  }
+  const base = process.env.WEB_NOTIFICATIONS_FILE || "/root/.nanobot/web_notifications.jsonl";
+  return `${dirname(base)}/suzi_reminder_bell_last`;
+}
+
+/** Cross-process throttle so multiple app instances cannot spam the bell. */
+function shouldThrottleSuziReminderBell(): boolean {
+  const rawMs = process.env.SUZI_REMINDER_BELL_THROTTLE_MS?.trim();
+  if (rawMs === "0") return false;
+  const parsed = rawMs ? parseInt(rawMs, 10) : NaN;
+  const cooldownMs =
+    Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SUZI_BELL_COOLDOWN_MS;
+  try {
+    const p = suziReminderBellCooldownPath();
+    if (!existsSync(p)) return false;
+    const t = parseInt(readFileSync(p, "utf8").trim(), 10);
+    if (!Number.isFinite(t)) return false;
+    return Date.now() - t < cooldownMs;
+  } catch {
+    return false;
+  }
+}
+
+function touchSuziReminderBellCooldown(): void {
+  try {
+    const p = suziReminderBellCooldownPath();
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, String(Date.now()), "utf8");
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * DB-based heartbeat for Suzi. Checks _reminder table for due items.
+ * Sidebar work bell uses `countDueReminders` (dashboard-sync); JSONL bell is separately throttled
+ * via `SUZI_REMINDER_BELL_THROTTLE_MS` / `SUZI_REMINDER_BELL_COOLDOWN_FILE`. Heartbeat chat lines
+ * are saved with `ambient: true` so they do not drive the avatar unread badge.
  */
 async function runSuziDbHeartbeat(): Promise<void> {
+  const hbOff =
+    process.env.DISABLE_SUZI_REMINDER_HEARTBEAT === "1" ||
+    process.env.DISABLE_SUZI_REMINDER_HEARTBEAT === "true";
+  if (hbOff) {
+    return;
+  }
+
   try {
-    const { getDueReminders, markDeliveredAndAdvance } = await import("./reminders");
-    const due = await getDueReminders("suzi");
+    const { claimDueRemindersForDelivery } = await import("./reminders");
+    const claimed = await claimDueRemindersForDelivery("suzi");
 
-    // Filter out already-delivered (dedup for minute-level polling)
-    const newDue = due.filter(
-      (r) => !deliveredReminders.has(`suzi:${r.id}`)
-    );
-
-    if (newDue.length === 0) {
-      if (due.length === 0) {
-        console.log(`[heartbeat] suzi heartbeat OK`);
-      }
+    if (claimed.length === 0) {
+      console.log(`[heartbeat] suzi heartbeat OK`);
       return;
     }
 
-    console.log(`[heartbeat] suzi found ${newDue.length} due reminder(s) from DB`);
+    notifyDashboardSyncChange();
 
-    // Mark as delivered in dedup set
-    for (const r of newDue) {
-      deliveredReminders.add(`suzi:${r.id}`);
+    console.log(`[heartbeat] suzi claimed ${claimed.length} due reminder(s) from DB (atomic)`);
+
+    if (!shouldThrottleSuziReminderBell()) {
+      writeNotification(
+        "Suzi Reminders",
+        claimed.map((r) => r.title).join("; ")
+      );
+      touchSuziReminderBellCooldown();
+    } else {
+      console.warn(
+        `[heartbeat] suzi: suppressed bell (${claimed.length} reminder(s) claimed) — file throttle active`
+      );
     }
 
     const { agentAutonomousChat } = await import("./agent-llm");
-    const reminderList = newDue
+    const reminderList = claimed
       .map((r) => {
         const dueDate = r.nextDueAt
           ? new Date(r.nextDueAt).toLocaleDateString("en-US", {
@@ -270,23 +329,13 @@ async function runSuziDbHeartbeat(): Promise<void> {
       `Deliver these reminders to Govind in a friendly, warm way. These have already been automatically marked as delivered in the database — no need to update memory.`,
     ].join("\n");
 
-    await agentAutonomousChat("suzi", prompt);
-
-    // Mark delivered in DB and advance recurring ones
-    for (const r of newDue) {
-      await markDeliveredAndAdvance(r.id);
+    try {
+      await agentAutonomousChat("suzi", prompt);
+    } catch (llmErr) {
+      console.error(`[heartbeat] suzi reminder LLM delivery failed (DB already updated):`, llmErr);
     }
-
-    writeNotification(
-      "Suzi Reminders",
-      newDue.map((r) => r.title).join("; ")
-    );
   } catch (err) {
     console.error(`[heartbeat] suzi DB reminder check failed:`, err);
-    // Clear dedup entries so they retry
-    for (const key of deliveredReminders) {
-      if (key.startsWith("suzi:")) deliveredReminders.delete(key);
-    }
   }
 
   if (deliveredReminders.size > 200) {

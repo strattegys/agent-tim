@@ -523,9 +523,9 @@ export default function MarniKnowledgePanel({
         </div>
       )}
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden text-[11px] text-[var(--text-secondary)]">
-        <div className="shrink-0 flex flex-col lg:flex-row border-b border-[var(--border-color)]">
-          <div className="lg:flex-[3] min-w-0 w-full max-h-[min(42vh,22rem)] min-h-[160px] lg:min-h-[200px] overflow-y-auto p-2 sm:p-3 border-b lg:border-b-0 lg:border-r border-[var(--border-color)]">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row lg:items-stretch overflow-hidden text-[11px] text-[var(--text-secondary)]">
+        {/* Left: CRM + PDFs + topics — full height scroll; majority width on large screens */}
+        <div className="min-w-0 flex-1 lg:flex-[11] min-h-[min(50vh,28rem)] lg:min-h-0 overflow-y-auto p-2 sm:p-3 border-b lg:border-b-0 lg:border-r border-[var(--border-color)]">
             {loadingTopics ? (
               <p className="text-[var(--text-tertiary)] p-2">Loading topics…</p>
             ) : (
@@ -689,7 +689,7 @@ export default function MarniKnowledgePanel({
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 min-w-0">
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 min-w-0">
                     {researchTopics.map((t) => {
                       const isSelected = selTopicId === t.id;
                       const isRunning = runningTopicId === t.id;
@@ -759,23 +759,27 @@ export default function MarniKnowledgePanel({
                 )}
               </div>
             )}
-          </div>
+        </div>
 
-          <div className="lg:flex-[2] lg:max-w-[40%] w-full min-h-[200px] h-[min(260px,36vh)] lg:h-[min(320px,min(42vh,22rem))] shrink-0 flex flex-col bg-[var(--bg-primary)]/25 border-[var(--border-color)]">
-            <div className="shrink-0 flex items-center justify-between gap-2 px-2 sm:px-3 py-1 border-b border-[var(--border-color)]/60">
-              {selTopicId ? (
-                <span className="text-[10px] text-[var(--text-tertiary)] tabular-nums">{chunks.length} chunks</span>
-              ) : (
-                <span />
-              )}
-              <button
-                type="button"
-                onClick={loadChunks}
-                disabled={!selTopicId || loadingChunks}
-                className="text-[10px] text-[#D4A017] hover:underline disabled:opacity-40 shrink-0"
-              >
-                {loadingChunks ? "Loading…" : "Refresh"}
-              </button>
+        {/* Right: word cloud (~40% height) + Activity (~60%) — fixed width band on large screens */}
+        <div className="flex w-full min-h-[min(52vh,24rem)] lg:min-h-0 lg:h-auto lg:flex-[9] lg:max-w-[min(100%,28rem)] xl:max-w-[min(100%,32rem)] shrink-0 flex-col bg-[var(--bg-primary)]/20 border-[var(--border-color)] lg:border-l">
+          {/* Visualization */}
+          <div className="flex flex-col border-b border-[var(--border-color)] min-h-[11rem] flex-[2] min-h-0 basis-0 lg:min-h-[9.5rem]">
+            <div className="shrink-0 flex items-center justify-between gap-2 px-2 sm:px-3 py-1 border-b border-[var(--border-color)]/60 bg-[var(--bg-primary)]/25">
+              <span className="text-[10px] font-semibold text-[var(--text-primary)]">Corpus terms</span>
+              <div className="flex items-center gap-2 shrink-0">
+                {selTopicId ? (
+                  <span className="text-[10px] text-[var(--text-tertiary)] tabular-nums">{chunks.length} chunks</span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={loadChunks}
+                  disabled={!selTopicId || loadingChunks}
+                  className="text-[10px] text-[#D4A017] hover:underline disabled:opacity-40"
+                >
+                  {loadingChunks ? "Loading…" : "Refresh"}
+                </button>
+              </div>
             </div>
             <div className="flex-1 min-h-0 min-w-0 p-2 relative">
               {!selTopicId ? (
@@ -790,72 +794,73 @@ export default function MarniKnowledgePanel({
               ) : corpusTerms.length === 0 ? (
                 <p className="text-[10px] text-[var(--text-tertiary)] text-center px-2 pt-4">
                   {selectedTopic?.topicKind === "crm_mirror"
-                    ? "No terms yet. Run Sync CRM corpus, then refresh."
+                    ? "No terms yet. Run Sync CRM corpus or upload PDFs, then refresh."
                     : "No terms yet. Run research, then refresh."}
                 </p>
               ) : (
-                <MarniCorpusWordCloud terms={corpusTerms} className="absolute inset-2 min-h-[140px]" />
+                <MarniCorpusWordCloud terms={corpusTerms} className="absolute inset-2 min-h-[120px]" />
               )}
             </div>
           </div>
-        </div>
 
-        <div className="flex-1 min-h-0 flex flex-col border-t border-[var(--border-color)]">
-          <div className="shrink-0 flex items-center justify-between gap-2 px-2 sm:px-3 py-1.5 bg-[var(--bg-primary)]/40 border-b border-[var(--border-color)]/60">
-            <span className="text-[11px] font-semibold text-[var(--text-primary)]">
-              Activity
-              {selectedTopic ? (
-                <span className="font-normal text-[var(--text-tertiary)]"> · {selectedTopic.name}</span>
+          {/* Activity — ~60% of right column on desktop */}
+          <div className="flex flex-col min-h-0 flex-[3] basis-0 border-[var(--border-color)]">
+            <div className="shrink-0 flex items-center justify-between gap-2 px-2 sm:px-3 py-1.5 bg-[var(--bg-primary)]/40 border-b border-[var(--border-color)]/60">
+              <span className="text-[11px] font-semibold text-[var(--text-primary)]">
+                Activity
+                {selectedTopic ? (
+                  <span className="font-normal text-[var(--text-tertiary)]"> · {selectedTopic.name}</span>
+                ) : (
+                  <span className="font-normal text-[var(--text-tertiary)]"> · select a topic</span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={loadRuns}
+                disabled={!selTopicId || loadingRuns}
+                className="text-[10px] text-[#D4A017] hover:underline disabled:opacity-40"
+              >
+                {loadingRuns ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3 space-y-2">
+              {!selTopicId ? (
+                <p className="text-[var(--text-tertiary)] text-[10px]">Select a topic card to see its run history.</p>
+              ) : loadingRuns && runs.length === 0 ? (
+                <p className="text-[var(--text-tertiary)] text-[10px]">Loading runs…</p>
+              ) : runs.length === 0 ? (
+                <p className="text-[var(--text-tertiary)] text-[10px]">
+                  {selectedTopic?.topicKind === "crm_mirror"
+                    ? "CRM corpus — no Brave research runs. History is from Unipile + CRM sync only."
+                    : "No runs for this topic yet."}
+                </p>
               ) : (
-                <span className="font-normal text-[var(--text-tertiary)]"> · select a topic</span>
+                runs.map((r) => (
+                  <div
+                    key={r.id}
+                    className="rounded border border-[var(--border-color)] p-2 font-mono text-[10px]"
+                  >
+                    <div className="flex justify-between gap-2">
+                      <span className={r.status === "error" ? "text-red-400" : "text-[var(--text-primary)]"}>
+                        {r.status}
+                      </span>
+                      <span className="text-[var(--text-tertiary)] shrink-0">{r.startedAt?.slice(0, 19)}</span>
+                    </div>
+                    <div>
+                      sources {r.sourcesFound} · chunks {r.chunksIngested}
+                    </div>
+                    {Array.isArray(r.detail?.warnings) && (r.detail.warnings as string[]).length > 0 && (
+                      <ul className="mt-1.5 text-amber-400/95 list-disc pl-4 space-y-0.5 normal-case">
+                        {(r.detail.warnings as string[]).map((w, i) => (
+                          <li key={i}>{w}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {r.errorMessage && <div className="text-red-400 mt-1">{r.errorMessage}</div>}
+                  </div>
+                ))
               )}
-            </span>
-            <button
-              type="button"
-              onClick={loadRuns}
-              disabled={!selTopicId || loadingRuns}
-              className="text-[10px] text-[#D4A017] hover:underline disabled:opacity-40"
-            >
-              {loadingRuns ? "Refreshing…" : "Refresh"}
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-3 space-y-2">
-            {!selTopicId ? (
-              <p className="text-[var(--text-tertiary)] text-[10px]">Select a topic card to see its run history.</p>
-            ) : loadingRuns && runs.length === 0 ? (
-              <p className="text-[var(--text-tertiary)] text-[10px]">Loading runs…</p>
-            ) : runs.length === 0 ? (
-              <p className="text-[var(--text-tertiary)] text-[10px]">
-                {selectedTopic?.topicKind === "crm_mirror"
-                  ? "CRM corpus — no Brave research runs. History is from Unipile + CRM sync only."
-                  : "No runs for this topic yet."}
-              </p>
-            ) : (
-              runs.map((r) => (
-                <div
-                  key={r.id}
-                  className="rounded border border-[var(--border-color)] p-2 font-mono text-[10px]"
-                >
-                  <div className="flex justify-between gap-2">
-                    <span className={r.status === "error" ? "text-red-400" : "text-[var(--text-primary)]"}>
-                      {r.status}
-                    </span>
-                    <span className="text-[var(--text-tertiary)] shrink-0">{r.startedAt?.slice(0, 19)}</span>
-                  </div>
-                  <div>
-                    sources {r.sourcesFound} · chunks {r.chunksIngested}
-                  </div>
-                  {Array.isArray(r.detail?.warnings) && (r.detail.warnings as string[]).length > 0 && (
-                    <ul className="mt-1.5 text-amber-400/95 list-disc pl-4 space-y-0.5 normal-case">
-                      {(r.detail.warnings as string[]).map((w, i) => (
-                        <li key={i}>{w}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {r.errorMessage && <div className="text-red-400 mt-1">{r.errorMessage}</div>}
-                </div>
-              ))
-            )}
+            </div>
           </div>
         </div>
       </div>

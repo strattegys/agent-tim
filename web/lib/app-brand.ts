@@ -53,3 +53,27 @@ export function getAppleWebAppShortName(): string {
   if (isDevAppBranding()) return "Command Central · Local";
   return "Command Central";
 }
+
+/** In-browser tab favicon (SVG is fine in modern desktop Chrome). */
+export function getInstallAppIconPath(): string {
+  const label = getLocalRuntimeLabel();
+  if (label === "LOCALDEV") return "/icons/app-icon-localdev.svg";
+  if (label === "LOCALPROD") return "/icons/app-icon-localprod.svg";
+  return "/icons/app-construction.svg";
+}
+
+/**
+ * PWA manifest + installers (iOS / many Android builds) need PNG; they often ignore SVG and
+ * show a monogram from the app name instead. Served by `app/apple-icon.tsx`.
+ */
+export function getPwaManifestIconPath(): string {
+  return "/apple-icon";
+}
+
+/** Login avatar letters; matches install icon labeling for local builds. */
+export function getLoginBadgeLetter(): string {
+  const label = getLocalRuntimeLabel();
+  if (label === "LOCALDEV") return "CD";
+  if (label === "LOCALPROD") return "CC";
+  return "S";
+}

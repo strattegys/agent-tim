@@ -1,26 +1,54 @@
-# Local-only overlay: use on your PC so Docker Desktop shows project **cc-localprod** and friendly container names.
-# Do NOT use on the droplet — production keeps the default Compose project name from the server directory.
+# Local-only overlay: LOCALPROD Docker stack on your PC.
+# Do NOT use on the droplet — production uses docker-compose.yml only.
+#
+# Web uses the **Command Central droplet CRM Postgres** via a host forward (SSH tunnel or similar):
+#   CRM_DB_HOST=host.docker.internal  +  CRM_DB_PORT (default 5433)
+# Start a tunnel first — see scripts/localprod-crm-tunnel.ps1 or dev-docker-up.ps1 -UseRemoteCrm.
+#
+# The real **crm-db** service from the base compose is replaced here with a tiny **stub** so
+# `depends_on: crm-db` still resolves; no local Postgres data is written for LOCALPROD.
 #
 #   docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml up -d --build
 #
-# Stop:
-#   docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml down
-#
-# For LOCALDEV hot reload use docker-compose.dev.yml (project **cc-localdev**, container **cc-localdev-web**).
-
 name: cc-localprod
 
 services:
   web:
-    container_name: cc-localprod-web
+    container_name: cc-localprod-p3001
+    ports:
+      - "3001:3001"
     build:
       args:
         NEXT_PUBLIC_CC_RUNTIME_LABEL: LOCALPROD
+    labels:
+      - cc.localprod.port=3001
+      - cc.localprod.url=http://localhost:3001
+    # Use mapping form so CC_AGENT_CHAT_PROFILE is really empty. List form `- CC_AGENT_CHAT_PROFILE=`
+    # can inherit the **host** variable on Windows (e.g. localprod) and hide all canonical session files.
     environment:
-      # Local browser origin (overrides production Caddy URLs from base compose).
-      - AUTH_URL=http://localhost:3001
-      - NEXTAUTH_URL=http://localhost:3001
+      CC_AGENT_CHAT_PROFILE: ""
+      AUTH_URL: http://localhost:3001
+      NEXTAUTH_URL: http://localhost:3001
+      CRM_DB_HOST: ${CRM_LOCALPROD_DB_HOST:-host.docker.internal}
+      CRM_DB_PORT: ${CRM_LOCALPROD_DB_PORT:-5433}
+    depends_on:
+      crm-db:
+        condition: service_healthy
+
+  # Satisfies web.depends_on without running Postgres on the laptop.
   crm-db:
-    container_name: cc-localprod-crm-db
+    container_name: cc-localprod-crm-stub
+    image: alpine:3.19
+    restart: unless-stopped
+    command: ["sleep", "infinity"]
+    volumes: !override []
+    ports: !override []
+    healthcheck:
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 3s
+      timeout: 2s
+      retries: 3
+      start_period: 2s
+
   caddy:
     container_name: cc-localprod-caddy

@@ -10,7 +10,11 @@ import {
   formatUnipileProfileMarkdown,
 } from "@/lib/unipile-profile";
 import { sendWarmOutreachLinkedInDm } from "@/lib/unipile-send";
-import { extractPlainDmFromDraftMarkdown } from "@/lib/warm-outreach-draft";
+import {
+  buildStructuredWarmThreadTranscriptForLlm,
+  extractLastWarmInboundFromArtifactRows,
+  extractPlainDmFromDraftMarkdown,
+} from "@/lib/warm-outreach-draft";
 import { insertPackageBriefArtifactIfPresent, PACKAGE_BRIEF_STAGE } from "@/lib/package-brief-artifact";
 import {
   scheduleNextWarmDiscoveryAfterIntake,
@@ -43,7 +47,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
  *
  * Body: {
  *   itemId: string,        — workflow item ID
- *   action: "approve" | "reject" | "input" | "replied" | "ended" | "undo_replied",
+ *   action: "approve" | "reject" | "input" | "replied" | "ended" | "undo_replied" | "dismiss",
  *   notes?: string,        — human's notes/feedback
  *   data?: Record<string, string>,  — structured data (e.g., { url: "..." })
  *   nextStage?: string,    — explicit next stage (if not provided, uses first valid transition)
@@ -58,7 +62,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
  */
 export async function POST(req: NextRequest) {
   try {
-    const { itemId, action, notes, data, nextStage, confirmUndo } = await req.json();
+    const { itemId, action, notes, data, nextStage, confirmUndo, confirmDismiss } = await req.json();
 
     if (!itemId || !action) {
       return NextResponse.json(
@@ -67,7 +71,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const allowedActions = ["approve", "reject", "input", "replied", "ended", "undo_replied"];
+    const allowedActions = ["approve", "reject", "input", "replied", "ended", "undo_replied", "dismiss"];
     if (!allowedActions.includes(action)) {
       return NextResponse.json(
         { error: `Invalid action. Use one of: ${allowedActions.join(", ")}` },
@@ -126,6 +130,51 @@ export async function POST(req: NextRequest) {
         boardStages: wf.board_stages,
       }) ?? "";
     const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
+
+    /** Remove row from Tim’s queue: soft-delete item + artifacts (general inbox, or mistaken warm reply stages). */
+    if (action === "dismiss") {
+      const owner = String(wf.ownerAgent || "").trim().toLowerCase();
+      if (owner !== "tim") {
+        return NextResponse.json(
+          { error: "dismiss is only available for Tim-owned workflows" },
+          { status: 400 }
+        );
+      }
+      const st = (item.stage || "").trim().toUpperCase();
+      const allowGeneralInbox =
+        wfTypeId === "linkedin-general-inbox" && st === "LINKEDIN_INBOUND";
+      const allowWarmMistake =
+        wfTypeId === "warm-outreach" &&
+        (st === "REPLY_DRAFT" || st === "REPLIED") &&
+        confirmDismiss === true;
+      if (!allowGeneralInbox && !allowWarmMistake) {
+        return NextResponse.json(
+          {
+            error:
+              "dismiss: use for LinkedIn general inbox (triage stage), or warm-outreach Reply Draft / Replied with confirmDismiss: true",
+          },
+          { status: 400 }
+        );
+      }
+      await query(
+        `UPDATE "_artifact" SET "deletedAt" = NOW(), "updatedAt" = NOW()
+         WHERE "workflowItemId" = $1 AND "deletedAt" IS NULL`,
+        [itemId]
+      );
+      await query(
+        `UPDATE "_workflow_item" SET "deletedAt" = NOW(), "humanTaskOpen" = false, "updatedAt" = NOW()
+         WHERE id = $1 AND "deletedAt" IS NULL`,
+        [itemId]
+      );
+      notifyDashboardSyncChange();
+      return NextResponse.json({
+        ok: true,
+        itemId,
+        packageId: wf.packageId,
+        dismissed: true,
+        logs: [logTs(`Dismissed from Tim queue (${wfTypeId || "?"} · ${st})`)],
+      });
+    }
 
     // Packaged workflows: fake/template only in DRAFT / PENDING_APPROVAL; ACTIVE+ always real
     let useFakeData = true;
@@ -394,6 +443,13 @@ export async function POST(req: NextRequest) {
     }
 
     const artifactOverrides: Partial<Record<string, { name: string; content: string }>> = {};
+    if (wfTypeId === "warm-outreach" && action === "replied" && typeof notes === "string" && notes.trim()) {
+      const inbound = notes.trim();
+      artifactOverrides.REPLIED = {
+        name: "Contact replied",
+        content: `# Contact replied\n\n**Their LinkedIn message** (captured when this thread opened):\n\n${inbound}\n\n---\n\nYou’re in **conversation mode** — Tim drafts replies until you **End Sequence**. Open **Reply draft** for the next send.\n\n---\n*Transition artifact*`,
+      };
+    }
     if (wfTypeId === "warm-outreach" && action === "approve") {
       if (item.stage === "MESSAGE_DRAFT" && targetStage === "MESSAGED") {
         const draftRows = await query<{ content: string }>(
@@ -1283,41 +1339,70 @@ ${notes || "(none)"}`;
 async function generateWarmReplyDraftLLM(
   notes: string,
   enrichment: string,
-  threadSummary: string,
+  structuredThreadTranscript: string,
+  theirLatestMessage: string,
   workflowName: string,
   packageBrief: string,
-  crmContactFirstName: string
+  crmContactFirstName: string,
+  timKnowledgeContext: string
 ): Promise<string | null> {
   const nameBlock = crmContactFirstName.trim()
     ? `You are replying to **${crmContactFirstName.trim()}** only. If you use their name, use that first name — not any other name from examples in the brief.`
     : `No CRM first name on file — do not invent a name; stay neutral or mirror how they signed their message.`;
-  const system = `You draft LinkedIn DM replies for Govind Davis, first person as Govind. The contact has replied (warm thread). Match a natural, friendly tone — no corporate pitch, no pricing, no strattegys.com links unless they asked or the package brief allows.
-${nameBlock}
-Honor the PACKAGE BRIEF for tone and boundaries.
+  const system = `You draft ONE LinkedIn DM reply for Govind Davis, first person as Govind (sign off as Govind).
 
-Output Markdown:
+**Primary rule — answer their actual message:** The user message includes **THEIR LATEST MESSAGE** and a **FULL THREAD** transcript. Your reply must respond to what they *just* said (topic, question, objection, tone). Quote or paraphrase their point so it is obvious you read it. Do **not** pivot to a generic story (e.g. random pilot, pipeline speed, fintech) unless it directly answers something they wrote or they explicitly asked what Govind is working on.
+
+**Secondary context:** Use enrichment, Govind's notes, package brief, and Tim's memory snippets for relationship background, voice, and boundaries — they must not override answering their latest turn.
+
+**Tim knowledge (memory + corpus):** Supporting facts and tone only; never replace a direct response to the contact.
+
+Tone: natural, friendly peer — no corporate pitch, no pricing, no strattegys.com links unless they asked or the package brief explicitly allows.
+
+${nameBlock}
+Honor the PACKAGE BRIEF for tone and taboos.
+
+Output Markdown in this exact structure (Govind reads the ## sections in the UI; the # h1 block is the draft to send):
+
+## Conversation & relationship
+- Who they are and how Govind knows them (from notes / enrichment / thread).
+- What they said last and what Govind already sent (short).
+
+## Suggested reply angle
+1–2 sentences: how this reply addresses *their* last message and the tone.
+
 # Reply — Ready for Review
 
 (body — sign off as Govind)
 
 ---
 *Tim — approve to send via LinkedIn DM*`;
+  const latestBlock =
+    theirLatestMessage.trim().length > 0
+      ? theirLatestMessage.trim()
+      : "(Exact text not stored in CRM — infer from FULL THREAD below, especially CONTACT lines, or state that Govind should read LinkedIn.)";
   const user = `Workflow: ${workflowName}
 
-PACKAGE BRIEF:
+## THEIR LATEST MESSAGE (this is what you must respond to — highest priority)
+${latestBlock}
+
+## FULL THREAD (chronological; GOVIND = sent, CONTACT = their replies, DRAFT = proposed text that may differ from sends)
+${structuredThreadTranscript}
+
+## PACKAGE BRIEF (tone, boundaries, positioning)
 ${packageBrief || "(none)"}
 
-Enrichment:
-${enrichment.slice(0, 6000)}
+## Enrichment (research on the contact)
+${enrichment.slice(0, 7000)}
 
-Govind's original contact notes:
+## Govind's original contact notes
 ${notes || "(none)"}
 
-Outbound thread so far (your prior messages / sends):
-${threadSummary || "(none yet)"}
+## Tim knowledge (vector memory + CRM/LinkedIn corpus — supporting only; do not override answering their message)
+${timKnowledgeContext.trim() || "(none retrieved)"}
 
-Draft the next reply Govind should send.`;
-  return groqCompletion(system, user, { max_tokens: 1200, temperature: 0.45 });
+Write the next reply Govind should send.`;
+  return groqCompletion(system, user, { max_tokens: 1600, temperature: 0.4 });
 }
 
 /**
@@ -1617,20 +1702,75 @@ ${synthesis}${crmSection}`;
     );
     const enrichment = enrichRows[0]?.content || "";
     const contactFirst = await getWarmWorkflowPersonFirstName(itemId);
-    const threadRows = await query<{ stage: string; content: string }>(
-      `SELECT stage, content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage IN ('MESSAGE_DRAFT', 'REPLY_DRAFT', 'REPLY_SENT') AND "deletedAt" IS NULL ORDER BY "createdAt" ASC`,
+    const threadRows = await query<{ stage: string; content: string; createdAt: string }>(
+      `SELECT stage, content, "createdAt" FROM "_artifact" WHERE "workflowItemId" = $1 AND stage IN ('MESSAGE_DRAFT', 'REPLY_DRAFT', 'MESSAGED', 'REPLY_SENT', 'REPLIED') AND "deletedAt" IS NULL ORDER BY "createdAt" ASC`,
       [itemId]
     );
-    const threadSummary = threadRows
-      .map((r) => `### ${r.stage}\n${r.content.slice(0, 2000)}`)
-      .join("\n\n");
+    const structuredThread = buildStructuredWarmThreadTranscriptForLlm(threadRows);
+    const theirLatest = extractLastWarmInboundFromArtifactRows(threadRows);
+
+    const wiPerson = await query<{ sourceId: string; sourceType: string }>(
+      `SELECT "sourceId", "sourceType" FROM "_workflow_item" WHERE id = $1 AND "deletedAt" IS NULL`,
+      [itemId]
+    );
+    const crmPersonId =
+      (wiPerson[0]?.sourceType || "").toLowerCase() === "person"
+        ? (wiPerson[0]?.sourceId || "").trim() || null
+        : null;
+
+    const memoryQuery = [contactFirst, theirLatest, notes, packageBrief]
+      .filter((s) => String(s).trim().length > 0)
+      .join("\n")
+      .slice(0, 2000);
+
+    const kbParts: string[] = [];
+
+    if (memoryQuery.trim().length >= 12) {
+      try {
+        const { searchMemories } = await import("@/lib/vector-memory");
+        const mem = await searchMemories("tim", memoryQuery, { topK: 10 });
+        if (mem.length > 0) {
+          kbParts.push(
+            "### Vector memory\n" + mem.map((m) => `- [${m.category}] ${m.content}`).join("\n")
+          );
+        }
+      } catch (e) {
+        console.warn("[warm-outreach REPLY_DRAFT] Tim vector memory search skipped:", e);
+      }
+
+      try {
+        const { searchAgentKnowledge, isMarniKbDatabaseConfigured } = await import("@/lib/marni-kb");
+        if (isMarniKbDatabaseConfigured()) {
+          let chunks = await searchAgentKnowledge("tim", memoryQuery, {
+            topK: 8,
+            personId: crmPersonId,
+          });
+          if (chunks.length === 0 && crmPersonId) {
+            chunks = await searchAgentKnowledge("tim", memoryQuery, { topK: 6 });
+          }
+          if (chunks.length > 0) {
+            kbParts.push(
+              "### Knowledge Studio (CRM / LinkedIn sync)\n" +
+                chunks.map((c) => c.content.trim().slice(0, 900)).join("\n\n---\n\n")
+            );
+          }
+        }
+      } catch (e) {
+        console.warn("[warm-outreach REPLY_DRAFT] Tim Knowledge Studio search skipped:", e);
+      }
+    }
+
+    const timKnowledgeContext = kbParts.join("\n\n");
+
     const llm = await generateWarmReplyDraftLLM(
       notes,
       enrichment,
-      threadSummary,
+      structuredThread,
+      theirLatest,
       workflowName,
       packageBrief,
-      contactFirst
+      contactFirst,
+      timKnowledgeContext
     );
     if (llm) {
       await insertWarmLinkedInDraftAndNotifyChat(
@@ -1689,11 +1829,11 @@ ${synthesis}${crmSection}`;
     },
     REPLIED: {
       name: "Contact replied",
-      content: `# Contact replied\n\nGovind marked **Replied** — the contact responded on LinkedIn. Entering conversation mode: Tim will draft replies until you **End Sequence**.\n\n---\n*Transition artifact*`,
+      content: `# Contact replied\n\nGovind marked **Replied** — the contact responded on LinkedIn. _(No message text was stored — use LinkedIn to read their latest DM.)_\n\nTim will draft replies until you **End Sequence**.\n\n---\n*Transition artifact*`,
     },
     REPLY_DRAFT: {
       name: "Reply draft",
-      content: `# Reply — Ready for Review\n\nThanks for getting back — [draft body matching their energy, continuing naturally].\n\n— Govind\n\n---\n*Tim — approve to send via LinkedIn DM, reject to redraft, or End Sequence.*`,
+      content: `## Conversation & relationship\n\n- Check the **Contact replied** artifact in History for their latest LinkedIn message.\n- Match how Govind knows this person (enrichment / intake notes).\n\n## Suggested reply angle\n\nAcknowledge what they said; keep it brief and human; no hard pitch unless they asked.\n\n# Reply — Ready for Review\n\nThanks for getting back — [draft body matching their energy, continuing naturally].\n\n— Govind\n\n---\n*Tim — approve to send via LinkedIn DM, reject to redraft, or End Sequence.*`,
     },
     REPLY_SENT: {
       name: "Reply sent",

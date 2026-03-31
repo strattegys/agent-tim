@@ -5,22 +5,21 @@ import {
   getAppBrandTitle,
   getAppleWebAppShortName,
   getAppHeadline,
+  getInstallAppIconPath,
+  getLocalRuntimeLabel,
 } from "@/lib/app-brand";
 
 const appleWebAppTitle = () => getAppleWebAppShortName();
 
 export function generateMetadata(): Metadata {
   const title = getAppBrandTitle();
+  const installIcon = getInstallAppIconPath();
   return {
     title,
     description: getAppHeadline(),
-    manifest: "/manifest.json",
+    // Tab favicon: SVG. Home screen / PWA: `app/apple-icon.tsx` (PNG) — linked automatically by Next.
     icons: {
-      icon: [
-        { url: "/icons/app-construction.svg", type: "image/svg+xml" },
-      ],
-      apple: "/icons/app-construction.svg",
-      shortcut: "/icons/app-construction.svg",
+      icon: [{ url: installIcon, type: "image/svg+xml" }],
     },
     appleWebApp: {
       capable: true,
@@ -30,13 +29,16 @@ export function generateMetadata(): Metadata {
   };
 }
 
-export const viewport: Viewport = {
-  themeColor: "#0e1621",
-  width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-};
+export function generateViewport(): Viewport {
+  const localDev = getLocalRuntimeLabel() === "LOCALDEV";
+  return {
+    themeColor: localDev ? "#c2410c" : "#0e1621",
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+  };
+}
 
 export default function RootLayout({
   children,

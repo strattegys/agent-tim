@@ -7,6 +7,8 @@ import {
   addNote,
   insertPunchListItemAction,
   patchPunchListItemAction,
+  getPunchListItemByItemNumber,
+  getPunchListItemById,
 } from "../punch-list";
 import {
   parsePunchListRank,
@@ -123,13 +125,15 @@ const tool: ToolModule = {
   declaration: {
     name: "punch_list",
     description: `Manage the punch list (Kanban columns). Use parameter command (not "action"): list, add, update, done, reopen, archive, archive_done, note, action_add, action_toggle.
+**Stable target = row \`id\` (UUID):** Prefer **id** from **ACTIVE PUNCH LIST TARGET**, from **list** (each row has \`id:\`), or after **add**. **#N** on cards is a display label — **id** is the primary key. Use **item_number** when the user cites **#N** without an id, or for batch **#** lists.
+**Punch # vs Intake #:** Big Kanban **#** (e.g. **#1049**) are punch-list labels, not Intake. **Intake** is **#1, #2…** only; never use **intake** for "mark #1049 done".
 **Notes vs Actions (Inspect panel):** **note** appends a **journal entry** to the card's **Notes** section (timestamped log, commentary). **action_add** adds a **checkbox subtask** to the **Actions** section. When the user asks to **add an action**, **action item**, **subtask**, **checkbox**, **step**, or **to-do on this card / on #N**, use **action_add** with **content** — **not** **note**. Use **note** only when they want a **note**, **comment**, **log**, or freeform **journal** text, not a checklist item.
-CRITICAL — Moving an existing card to another column (e.g. "move #1040 to Next"): use command **update** with item_number="1040" and rank="next" (or 1–6). Do **NOT** use **add** when the user names an existing item number — add always creates a NEW # and duplicates work.
+CRITICAL — Moving a card (e.g. "move #1040 to Next"): **update** with **id** (preferred) or item_number="1040", plus rank="next" (or 1–6). Do **NOT** use **add** for an existing card — **add** creates a NEW #.
 **add** only when creating a brand-new item (needs title, rank, category). When **promoting from Intake** (focused capture + user wants it on the board): **title** = short actionable summary you write; **description** = original intake **title**, **body**, **URL** preserved; **rank** = **now** unless user said otherwise; **category** = best fit unless user specified. **update** to change column (rank), title, description, or category on an existing #. The tool result lists **only fields that changed** (e.g. title only → no column move). Do not tell the user you moved a card unless the result includes **moved to column**.
-**done** (or **close_out**, **close**, **finish**, **close this out**, **it’s a duplicate**) marks an item complete. If context has **ACTIVE PUNCH LIST TARGET** / green-highlighted card and they say **this / highlighted / green / close it / duplicate** without another #, use **item_number (focused)**. If they name a # (e.g. "close out 1043"), use that. After marking done, do **not** dump the full **list** unless asked; confirm briefly. Do **not** ask which # when that section is present.
-For item IDs use item_number with the # shown on cards. Batch mark done: command done and item_number "1032,1033". ${RANK_HELP} Category is a short tag for new items.
-**Subtasks / Actions (Inspect panel):** **action_add** with item_number + **content** adds a checkbox line under **Actions**. **action_toggle** with **action_id** (UUID from focused context or action_add result) and **done** "true" or "false" marks it done or reopens it. Synonyms for **action_add**: add_action, add_action_item, new_action (normalized server-side).
-When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**, Govind has that row selected on screen (green border) — **Inspect may be closed**. **This / highlighted / green / close this / update title / duplicate** → use **item_number (focused)** from that section; do not substitute another # or **list** first. **One-two-five** (spoken digits) → **125**, not 1025.`,
+**done** / **close_out** / **finish** / **duplicate**: pass **id** when you have it; if they name **#1043** only, use **item_number**="1043". If **id** and **item_number** disagree, **item_number** wins. After done, reply briefly; do **not** dump **list** unless asked.
+Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK_HELP} Category is a short tag for new items.
+**Subtasks / Actions:** **action_add** with **id** (preferred) or item_number + **content**. **action_toggle** uses **action_id** only. Synonyms for **action_add**: add_action, add_action_item, new_action (normalized server-side).
+**ACTIVE PUNCH LIST TARGET:** For **this / highlighted / green / close this** without a cited **#**, pass **id** from context. **One-two-five** → item_number **125**, not 1025.`,
     parameters: {
       type: "object" as const,
       properties: {
@@ -148,26 +152,27 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
         },
         rank: {
           type: "string",
-          description: `Kanban column for add or update: 1–6 or name (Now, Later, Next, Sometime, Backlog, Idea). Required to move an item: update + item_number + rank. ${RANK_HELP}`,
+          description: `Kanban column for add or update: 1–6 or name (Now, Later, Next, Sometime, Backlog, Idea). Required to move an item: update + **id** (preferred) or item_number + rank. ${RANK_HELP}`,
         },
         category: {
           type: "string",
           description:
             "Required for add. Short tag (e.g. ui, bug, feature). Prefer matching an existing category from the punch list UI when the user's words map clearly; otherwise ask.",
         },
+        id: {
+          type: "string",
+          description:
+            "Preferred row key: UUID from ACTIVE PUNCH LIST TARGET, list output (`id:` line), or add result. Use for done/update/reopen/archive/note/action_add when available.",
+        },
         item_number: {
           type: "string",
           description:
-            "Card # from the board. If **ACTIVE PUNCH LIST TARGET** / green-highlighted card is in context, that is the row with the **green border** (Inspect optional). For **this / highlighted / green / close out / duplicate** without another #, use **item_number (focused)**. Do not guess from older messages or list first. Spoken 'one two five' = **125**, not 1025. Comma-separate for batch done (e.g. '1032,1033').",
+            "Fallback: display # on Kanban card. Use when the user cites **#N** and you have no id, or for batch done ('1032,1033'). For focused **this card** without a cited #, pass **id** from context instead. Spoken 'one two five' = **125**.",
         },
         item_numbers: {
           type: "string",
           description:
             "Optional extra numbers when batching (usually prefer comma-separated item_number). Same format as item_number.",
-        },
-        id: {
-          type: "string",
-          description: "Item UUID (for update/done/reopen/archive/note — use item_number instead when possible)",
         },
         content: {
           type: "string",
@@ -203,6 +208,7 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
             const latestNote = item.notes?.[0];
             const col = punchListColumnLabel(item.rank);
             let line = `#${item.itemNumber} [${col}]${item.category ? ` [${item.category}]` : ""} ${item.status === "done" ? "DONE " : ""}${item.title}`;
+            line += `\n   id: ${item.id}`;
             if (item.description) line += ` — ${item.description}`;
             if (latestNote) line += `\n   Latest note: "${latestNote.content}"`;
             if (item.actions?.length) {
@@ -220,7 +226,7 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
       if (addTokens.length > 0 || (args.item_number && String(args.item_number).trim())) {
         return (
           "Error: You passed an item number with command **add**. **add** only creates NEW items. " +
-          "To move or edit an existing card (e.g. #1040 to Next), use command **update** with item_number and rank (e.g. rank=next). " +
+          "To move or edit an existing card (e.g. #1040 to Next), use command **update** with **id** (preferred) or item_number and rank (e.g. rank=next). " +
           "Do not create a duplicate item."
         );
       }
@@ -241,7 +247,7 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
         rank,
         category: args.category,
       });
-      return `Punch list item created: #${item.itemNumber} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}]`;
+      return `Punch list item created: #${item.itemNumber} id=${item.id} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}]`;
     }
 
     const tokens = itemNumberTokens(args);
@@ -249,7 +255,6 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
       tokens.length > 1 &&
       (cmd === "done" || cmd === "reopen" || cmd === "archive")
     ) {
-      const items = await listPunchListItems(agentId);
       const lines: string[] = [];
       for (const t of tokens) {
         const itemNum = parseInt(t, 10);
@@ -257,7 +262,7 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
           lines.push(`Error: Invalid item number "${t}".`);
           continue;
         }
-        const match = items.find((i) => i.itemNumber === itemNum);
+        const match = await getPunchListItemByItemNumber(agentId, itemNum);
         if (!match) {
           lines.push(`Error: Item #${t} not found.`);
           continue;
@@ -284,24 +289,34 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
       return `Error: One item per call for "${cmd}". To mark several done at once, use command "done" with item_number "1032,1033" (comma-separated).`;
     }
 
-    // Resolve single item number to ID
-    let resolvedId = args.id;
-    if (tokens.length === 1 && !resolvedId) {
-      const items = await listPunchListItems(agentId);
-      const itemNum = parseInt(tokens[0], 10);
-      const match = Number.isNaN(itemNum)
-        ? undefined
-        : items.find((i) => i.itemNumber === itemNum);
-      if (match) {
-        resolvedId = match.id;
-      } else if (["update", "done", "reopen", "archive", "note", "action_add"].includes(cmd || "")) {
-        return `Error: Item #${tokens[0]} not found.`;
-      }
+    // Resolve to row id: prefer UUID **id** when it matches the agent's row; if both **id** and
+    // **item_number** point to different rows, **item_number** wins (explicit # from user/model).
+    const rawId = args.id?.trim() || "";
+    let resolvedId: string | undefined;
+    const firstToken = tokens.length === 1 ? tokens[0] : undefined;
+    const singleNum =
+      firstToken && /^\d+$/.test(firstToken) ? parseInt(firstToken, 10) : null;
+    const rowById = rawId ? await getPunchListItemById(agentId, rawId) : null;
+    const rowByNum =
+      singleNum !== null ? await getPunchListItemByItemNumber(agentId, singleNum) : null;
+    if (rowById && rowByNum && rowById.id !== rowByNum.id) {
+      resolvedId = rowByNum.id;
+    } else if (rowById) {
+      resolvedId = rowById.id;
+    } else if (rowByNum) {
+      resolvedId = rowByNum.id;
+    }
+    if (
+      !resolvedId &&
+      ["update", "done", "reopen", "archive", "note", "action_add"].includes(cmd || "")
+    ) {
+      if (singleNum !== null) return `Error: Item #${firstToken} not found.`;
+      if (rawId) return "Error: Item id not found.";
     }
 
     if (cmd === "update") {
       if (!resolvedId) return "Error: id or item_number is required for update";
-      const before = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      const before = await getPunchListItemById(agentId, resolvedId);
       if (!before) return "Error: Item not found for update.";
 
       const updates: Record<string, unknown> = {};
@@ -317,7 +332,7 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
         return "Error: update needs at least one of: rank (column move), title, description, category";
       }
       await updatePunchListItem(resolvedId, updates);
-      const after = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      const after = await getPunchListItemById(agentId, resolvedId);
       if (!after) return "Punch list item updated.";
 
       /** Only name what actually changed so the model does not infer a column move from a title edit. */
@@ -340,27 +355,28 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
 
     if (cmd === "done") {
       if (!resolvedId) return "Error: id or item_number is required";
-      const before = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      const before = await getPunchListItemById(agentId, resolvedId);
+      if (!before) return "Error: Item not found.";
       await updatePunchListItem(resolvedId, { status: "done" });
-      const num = before?.itemNumber ?? tokens[0] ?? "?";
-      const title = before?.title ? ` "${before.title}"` : "";
+      const num = before.itemNumber;
+      const title = before.title ? ` "${before.title}"` : "";
       return `Punch list item #${num}${title} marked done.`;
     }
 
     if (cmd === "reopen") {
       if (!resolvedId) return "Error: id or item_number is required";
-      const before = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      const before = await getPunchListItemById(agentId, resolvedId);
+      if (!before) return "Error: Item not found.";
       await updatePunchListItem(resolvedId, { status: "open" });
-      const num = before?.itemNumber ?? tokens[0] ?? "?";
-      return `Punch list item #${num} reopened.`;
+      return `Punch list item #${before.itemNumber} reopened.`;
     }
 
     if (cmd === "archive") {
       if (!resolvedId) return "Error: id or item_number is required";
-      const before = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      const before = await getPunchListItemById(agentId, resolvedId);
+      if (!before) return "Error: Item not found.";
       await archivePunchListItem(resolvedId);
-      const num = before?.itemNumber ?? tokens[0] ?? "?";
-      return `Punch list item #${num} archived.`;
+      return `Punch list item #${before.itemNumber} archived.`;
     }
 
     if (cmd === "archive_done") {
@@ -371,20 +387,20 @@ When context includes **ACTIVE PUNCH LIST TARGET** / **green-highlighted card**,
     if (cmd === "note") {
       if (!resolvedId) return "Error: id or item_number is required";
       if (!args.content) return "Error: content is required for adding a note";
-      const row = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
+      const row = await getPunchListItemById(agentId, resolvedId);
+      if (!row) return "Error: Item not found.";
       await addNote(resolvedId, args.content);
-      const itemNum = row?.itemNumber ?? tokens[0] ?? "?";
-      return `Note added to punch list item #${itemNum}.`;
+      return `Note added to punch list item #${row.itemNumber}.`;
     }
 
     if (cmd === "action_add") {
       if (!resolvedId) return "Error: id or item_number is required for action_add";
       if (!args.content?.trim()) return "Error: content is required for action_add (subtask text)";
+      const rowBefore = await getPunchListItemById(agentId, resolvedId);
+      if (!rowBefore) return "Error: Item not found.";
       try {
         const inserted = await insertPunchListItemAction(agentId, resolvedId, args.content);
-        const row = (await listPunchListItems(agentId)).find((i) => i.id === resolvedId);
-        const itemNum = row?.itemNumber ?? tokens[0] ?? "?";
-        return `Subtask added to punch list #${itemNum}. action_id=${inserted.id}`;
+        return `Subtask added to punch list #${rowBefore.itemNumber}. action_id=${inserted.id}`;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "Failed to add subtask";
         return msg === "Item not found" ? "Error: Item not found." : `Error: ${msg}`;

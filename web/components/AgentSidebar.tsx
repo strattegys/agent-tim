@@ -19,6 +19,7 @@ interface AgentSidebarProps {
   testingTaskCount?: number;
   timMessagingTaskCount?: number;
   ghostContentTaskCount?: number;
+  suziDueReminderCount?: number;
 }
 
 export default function AgentSidebar({
@@ -30,12 +31,14 @@ export default function AgentSidebar({
   testingTaskCount = 0,
   timMessagingTaskCount = 0,
   ghostContentTaskCount = 0,
+  suziDueReminderCount = 0,
 }: AgentSidebarProps) {
   const workBadges = {
     pendingTaskCount,
     testingTaskCount,
     timMessagingTaskCount,
     ghostContentTaskCount,
+    suziDueReminderCount,
   };
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">

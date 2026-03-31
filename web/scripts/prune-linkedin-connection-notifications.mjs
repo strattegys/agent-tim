@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Remove legacy LinkedIn **connection** lines from web_notifications.jsonl (disk cleanup).
- * Rules must stay aligned with web/lib/notification-filters.ts (isLinkedInConnectionBellNoise).
+ * Rules must stay aligned with web/lib/notification-filters.ts (connection noise + Tim-queue duplicates).
  *
  * Usage (droplet / Docker host):
  *   WEB_NOTIFICATIONS_FILE=/path/to/web_notifications.jsonl node scripts/prune-linkedin-connection-notifications.mjs
@@ -17,6 +17,8 @@ function isNoise(n) {
   if (t.startsWith("New LinkedIn Connection:")) return true;
   if (t.startsWith("Connection Accepted:")) return true;
   if (/^LinkedIn: .+ accepted \(inbox\)$/.test(t)) return true;
+  if (t.startsWith("Warm outreach:")) return true;
+  if (/^LinkedIn: .+\(inbox/.test(t)) return true;
   return false;
 }
 
@@ -71,5 +73,5 @@ fs.writeFileSync(tmp, out.length ? out.join("\n") + "\n" : "", "utf8");
 fs.renameSync(tmp, file);
 
 console.log(
-  `[prune-notifications] Wrote ${file}: kept ${kept} line(s), removed ${dropped} LinkedIn connection alert(s).`
+  `[prune-notifications] Wrote ${file}: kept ${kept} line(s), removed ${dropped} filtered LinkedIn inbound line(s).`
 );

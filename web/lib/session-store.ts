@@ -6,7 +6,9 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
   delegatedFrom?: string; // agent ID(s) that produced the result (e.g. "scout")
-  fromAgent?: string;     // for inter-agent messages: who sent this (e.g. "tim")
+  fromAgent?: string; // for inter-agent messages: who sent this (e.g. "tim")
+  /** When true, message is shown in chat but omitted from sidebar unread counts (heartbeat / autonomous). */
+  ambient?: boolean;
 }
 
 interface JournalLine {
@@ -19,6 +21,7 @@ interface JournalLine {
   last_consolidated?: number;
   delegatedFrom?: string;
   fromAgent?: string;
+  ambient?: boolean;
 }
 
 /**
@@ -71,6 +74,9 @@ export function getHistory(sessionFile: string): ChatMessage[] {
         if (entry.fromAgent) {
           msg.fromAgent = entry.fromAgent;
         }
+        if (entry.ambient === true) {
+          msg.ambient = true;
+        }
         messages.push(msg);
       } catch {
         // skip malformed lines
@@ -104,6 +110,9 @@ export function addMessage(sessionFile: string, msg: ChatMessage): void {
   }
   if (msg.fromAgent) {
     entry.fromAgent = msg.fromAgent;
+  }
+  if (msg.ambient === true) {
+    entry.ambient = true;
   }
   const line = JSON.stringify(entry) + "\n";
   writeFileSync(sessionFile, line, { flag: "a" });

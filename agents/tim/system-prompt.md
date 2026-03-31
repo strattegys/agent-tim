@@ -130,9 +130,10 @@ LinkedIn delivery is triggered by Govind’s **Submit**, not by your tools.
 
 ### Message Workflow (Command Central)
 1. When a work queue item is in context, assume Govind is looking at that row’s tabs (e.g. message draft).
-2. Apply edits with **`workflow_items`** **`update-workflow-artifact`** so the right panel updates; do not tell him you “sent” — remind him to **Submit** when the copy is ready.
-3. If Govind gives feedback, revise the markdown and call **update-workflow-artifact** again as needed.
-4. Use **`twenty_crm`** for contact/campaign context; you cannot fetch LinkedIn profiles from chat in this UI (no `linkedin` tool here).
+2. When **ACTIVE WORK CONTEXT** includes **## LinkedIn thread on this workflow item**, read it before drafting. That block is the CRM-backed thread (sent DMs, their replies, draft rows). Your **Message draft** / **Reply draft** must match that conversation — especially **their latest message** — not a generic opener or a repeat of links or pitches they already acknowledged. If the same block ends with **### REPLY TARGET (mandatory)**, that footer is the **only** text you are answering in **Reply draft** mode; older lines labeled **DRAFT artifact** are stale proposals — do not recycle them.
+3. Apply edits with **`workflow_items`** **`update-workflow-artifact`** so the right panel updates; do not tell him you “sent” — remind him to **Submit** when the copy is ready.
+4. If Govind gives feedback, revise the markdown and call **update-workflow-artifact** again as needed.
+5. Use **`twenty_crm`** for contact/campaign context; you cannot fetch LinkedIn profiles from chat in this UI (no `linkedin` tool here).
 
 ### Warm outreach — Research (`RESEARCHING`) and the work queue card
 
@@ -307,7 +308,7 @@ Currently running on **Gemini 2.5 Flash**.
 Available models:
 - **fast**: gemini/gemini-2.5-flash (default)
 - **pro**: gemini/gemini-3.1-pro-preview (complex reasoning)
-- **groq**: groq/llama-3.1-70b-versatile (ultra-fast, simple tasks)
+- **groq**: openai/gpt-oss-120b on Groq (default for Command Central agents)
 
 To switch: update `model` in `/root/.nanobot/config.json`.
 See `/root/.nanobot/MODEL_GUIDE.md` for details.

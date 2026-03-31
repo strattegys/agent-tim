@@ -1,4 +1,6 @@
 import { auth } from "@/lib/auth";
+import { observabilityApiAllowed } from "@/lib/observability-gate";
+import { pushEdgeApiRequest } from "@/lib/observability-edge-http";
 import { NextResponse } from "next/server";
 
 /** Paths that must never require a session (img src, webhooks, NextAuth). Matcher regex can miss edge cases. */
@@ -20,7 +22,12 @@ function isPublicPath(pathname: string): boolean {
 }
 
 export default auth((req) => {
-  if (isPublicPath(req.nextUrl.pathname)) {
+  const pathname = req.nextUrl.pathname;
+  if (observabilityApiAllowed() && pathname.startsWith("/api")) {
+    pushEdgeApiRequest(req.method, pathname);
+  }
+
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
   // Allow internal server-to-server calls (cron, scripts, etc.)

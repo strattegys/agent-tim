@@ -7,6 +7,7 @@
 import { randomUUID } from "crypto";
 import { query } from "./db";
 import { insertPackageBriefArtifactIfPresent } from "./package-brief-artifact";
+import { resolveWorkflowRegistryForQueue } from "./workflow-spec";
 import { syncHumanTaskOpenForItem } from "./workflow-item-human-task";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "./warm-discovery-item";
 
@@ -94,7 +95,7 @@ export interface WarmOutreachHeartbeatFinding {
   category: string;
   title: string;
   detail: string;
-  priority: "high" | "medium" | "low";
+  priority: "critical" | "high" | "medium" | "low";
 }
 
 export type DiscoveryCadenceState = {
@@ -263,35 +264,47 @@ export async function queryWarmOutreachActiveRows(): Promise<WarmOutreachActiveR
     packageName: string;
     wf_spec: unknown;
     pkg_spec: unknown;
+    ownerAgent: string | null;
+    board_stages: unknown;
   }>(
     `SELECT w.id AS workflow_id,
             w."packageId" AS "packageId",
             p."packageNumber" AS "packageNumber",
             p.name AS "packageName",
             w.spec AS wf_spec,
-            p.spec AS pkg_spec
+            p.spec AS pkg_spec,
+            w."ownerAgent" AS "ownerAgent",
+            b.stages AS board_stages
      FROM "_workflow" w
      INNER JOIN "_package" p ON p.id = w."packageId" AND p."deletedAt" IS NULL
+     LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
      WHERE w."deletedAt" IS NULL
        AND UPPER(w.stage::text) = 'ACTIVE'
-       AND UPPER(p.stage::text) = 'ACTIVE'
-       AND COALESCE(w.spec::text, '') LIKE '%"workflowType"%'
-       AND COALESCE(w.spec::text, '') LIKE '%warm-outreach%'`
+       AND UPPER(p.stage::text) = 'ACTIVE'`
   );
 
-  return rows.map((r) => ({
-    workflowId: r.workflow_id,
-    packageId: r.packageId,
-    packageNumber:
-      r.packageNumber != null && r.packageNumber !== ""
-        ? typeof r.packageNumber === "number"
-          ? r.packageNumber
-          : parseInt(String(r.packageNumber), 10)
-        : null,
-    packageName: r.packageName || "",
-    wfSpec: parseJsonObject(r.wf_spec),
-    pkgSpec: parseJsonObject(r.pkg_spec),
-  }));
+  return rows
+    .filter(
+      (r) =>
+        resolveWorkflowRegistryForQueue(r.wf_spec, {
+          packageSpec: r.pkg_spec,
+          ownerAgent: r.ownerAgent,
+          boardStages: r.board_stages,
+        }) === "warm-outreach"
+    )
+    .map((r) => ({
+      workflowId: r.workflow_id,
+      packageId: r.packageId,
+      packageNumber:
+        r.packageNumber != null && r.packageNumber !== ""
+          ? typeof r.packageNumber === "number"
+            ? r.packageNumber
+            : parseInt(String(r.packageNumber), 10)
+          : null,
+      packageName: r.packageName || "",
+      wfSpec: parseJsonObject(r.wf_spec),
+      pkgSpec: parseJsonObject(r.pkg_spec),
+    }));
 }
 
 /**

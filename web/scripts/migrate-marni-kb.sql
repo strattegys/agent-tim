@@ -1,4 +1,6 @@
--- Migration: Marni Knowledge Studio (_kb_topic, _kb_research_run, _agent_knowledge, pgvector 768)
+-- Migration: Marni Knowledge Studio (_kb_topic, _kb_research_run, _agent_knowledge, pgvector 768, topic_kind)
+-- Idempotent. GitHub Actions deploy pipes only this file into crm-db — topic_kind must live here
+-- (not only in migrate-kb-topic-kind.sql) or production INSERTs fail: column topic_kind does not exist.
 -- Run (from COMMAND-CENTRAL): cat web/scripts/migrate-marni-kb.sql | docker compose --env-file web/.env.local -f docker-compose.yml exec -T crm-db psql -U postgres -d default
 
 CREATE EXTENSION IF NOT EXISTS vector;
@@ -46,3 +48,9 @@ CREATE TABLE IF NOT EXISTS "_agent_knowledge" (
 CREATE INDEX IF NOT EXISTS idx_agent_knowledge_embedding_hnsw ON "_agent_knowledge" USING hnsw (embedding vector_cosine_ops) WHERE "deletedAt" IS NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_knowledge_agent ON "_agent_knowledge" ("agentId") WHERE "deletedAt" IS NULL;
 CREATE INDEX IF NOT EXISTS idx_agent_knowledge_topic ON "_agent_knowledge" ("topicId") WHERE "deletedAt" IS NULL AND "topicId" IS NOT NULL;
+
+-- Brave research vs Tim CRM mirror corpus (app INSERT/UPDATE require this column).
+ALTER TABLE "_kb_topic"
+  ADD COLUMN IF NOT EXISTS topic_kind TEXT NOT NULL DEFAULT 'research'
+    CHECK (topic_kind IN ('research', 'crm_mirror'));
+CREATE INDEX IF NOT EXISTS idx_kb_topic_agent_kind ON "_kb_topic" ("agentId", topic_kind);

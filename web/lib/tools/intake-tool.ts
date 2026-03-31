@@ -53,7 +53,7 @@ const tool: ToolModule = {
   declaration: {
     name: "intake",
     description:
-      "The **only** tool for Suzi's **Intake** tab — capture inbox (URLs, snippets, triage). Cards **#1, #2…** FIFO (**#1** = oldest). **update**/**delete**/**archive**: **id** (from focused context) or **itemNumber** + optional **filterQuery** if search is active. **delete**/**archive** remove from active queue (soft-archived). **Promote to punch list:** when context has **Focused Intake** and user says add to punch list / make this a task — call **punch_list add** first (short summarized **title**, put original intake **title**+**body**+**url** in **description**, **rank** now, infer **category**), then **intake archive** with this item’s **id**. Commands: list, add, update, delete, archive, search.",
+      "The **only** tool for Suzi's **Intake** tab — capture inbox (URLs, snippets, triage). Cards **#1, #2…** FIFO (**#1** = oldest); the queue is usually short. **Numbers like #500 or #1049** are **punch list** card ids — use **punch_list** (**done**, **update**), **not** intake. **update**/**delete**/**archive**: **id** (from focused context) or **itemNumber** + optional **filterQuery** if search is active. **delete**/**archive** remove from active queue (soft-archived). **Promote to punch list:** when context has **Focused Intake** and user says add to punch list / make this a task — call **punch_list add** first (short summarized **title**, put original intake **title**+**body**+**url** in **description**, **rank** now, infer **category**), then **intake archive** with this item’s **id**. Commands: list, add, update, delete, archive, search.",
     parameters: {
       type: "object" as const,
       properties: {

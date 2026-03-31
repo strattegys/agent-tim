@@ -23,8 +23,9 @@ Each agent uses the same structural stack in the **right column**:
 
 - Shortcuts that **open the work panel** on a default or specific work surface (e.g. Tim’s **list** icon, Friday/Penny **grid**, Suzi **calendar**, **kanban** for agents with a pipeline board).
 - **Agent info (ⓘ)** — opens the **information panel** instead of the work panel.
+- **Knowledge base** — same **book** glyph as **System monitor → Agents** (far-right icon per row): `KnowledgeRagIcon`. Sits **immediately to the right of ⓘ**. Opens `agent-knowledge` / `AgentKnowledgePanel` (Knowledge Studio for Marni and Tim; empty state for others). **Health** for Marni/Tim (green / amber / red from Data Platform) is shown on that System monitor book icon, not duplicated on the header.
 
-**Principle:** The header is **navigation chrome**. The **work panel** is the **whole region directly under the header** while a work shortcut is selected. Prefer adding **work tabs inside that region** instead of multiplying unrelated header icons.
+**Principle:** The header is **navigation chrome**. The **work panel** is the **whole region directly under the header** while a work shortcut is selected. Prefer **work tabs inside the work panel** for operational views. **Knowledge** is intentionally **not** a work sub-tab—it uses the **book** header control (e.g. Marni’s research KB moved out of the Marni work panel tab bar).
 
 ### 2. Information panel
 
@@ -37,10 +38,10 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 **Work tabs (inside the work panel):**
 
 - When an agent needs **more than one** operational view, add a **tab bar inside the work panel** (immediately below the agent header, above the tab’s content).
-- Each tab can have a **different purpose** (e.g. Tim: **Active Work Queue** vs **Pending Work Queue**; Friday: Packages vs Human tasks vs Tools). They are **all part of the same work panel**—only the active tab’s content is shown.
+- Each tab can have a **different purpose** (e.g. Tim: **Active Work Queue** vs **Pending Work Queue**; Friday: Observation Post vs Human tasks vs Tools). They are **all part of the same work panel**—only the active tab’s content is shown.
 - Examples:
-  - **Penny** — `PennyDashboardPanel`: Package Planner | Package Templates | Workflow Templates
-  - **Friday** — `FridayDashboardPanel`: Packages | Human tasks | Tools
+  - **Penny** — `PennyDashboardPanel`: Package queue (Active / Paused / Completed) | Package Planner | Package Templates | Workflow Templates
+  - **Friday** — `FridayDashboardPanel`: Observation Post | Human tasks | Tools
   - **Tim** — `TimAgentPanel`: Active Work Queue | Pending Work Queue
   - **Suzi** — `SuziRemindersPanel`: Punch List | Reminders | Notes | Intake — sub-tab row uses a shared header (`SuziWorkSubTabHeader`): green **command hints** per tab (agent-first copy), optional small orange **human fallback** action only when that tab already has an equivalent (e.g. Intake add modal), and **tap-to-focus** cards (green border) on Intake, Punch List, Reminders, and Notes so the selection is injected into Suzi chat context (`web/lib/suzi-work-panel.ts`).
 
@@ -50,15 +51,22 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 2. If it is a **new top-level surface** (replacing the whole work panel), add a `RightPanel` value in `CommandCentralClient.tsx` and wire routing in the `rightPanel` / `activeAgent` switch.
 3. Add a **new header icon** only when it is a **distinct top-level entry** (e.g. first open to the work panel from Agent info), not for every sub-screen.
 
+## Knowledge panel (book icon)
+
+- **Component:** `web/components/agents/AgentKnowledgePanel.tsx` — switches on `activeAgent` (Marni → `MarniKnowledgePanel`, Tim → placeholder / future Govind+corpus UI, others → empty state).
+- **Routing:** `RightPanel` value `agent-knowledge` in `CommandCentralClient.tsx`.
+- **Chat context:** `formatAgentUiContext` in `web/lib/agent-ui-context.ts` (e.g. Marni topic focus when the book panel is open).
+
 ## Reference table (current patterns)
 
-| Agent  | Work entry (header shortcut)     | Work panel component        | Work tabs (examples)                                      |
-|--------|----------------------------------|-----------------------------|-----------------------------------------------------------|
-| Friday | Packages dashboard (grid icon) | `FridayDashboardPanel`      | Packages, Human tasks, Tools                              |
-| Penny  | Packages dashboard (grid icon) | `PennyDashboardPanel`       | Package Planner, Package Templates, Workflow Templates    |
-| Tim    | Work panel (list icon)           | `TimAgentPanel`             | Active Work Queue, Pending Work Queue                     |
-| Suzi   | Reminders (calendar icon)      | `SuziRemindersPanel`        | Punch List, Reminders, Notes, Intake                       |
-| Others | Kanban where `agentHasKanban`  | `KanbanInlinePanel` or info | As needed                                                 |
+| Agent  | Work entry (header shortcut)     | Work panel component        | Work tabs (examples)                                      | Knowledge (book)        |
+|--------|----------------------------------|-----------------------------|-----------------------------------------------------------|-------------------------|
+| Friday | Dashboard (grid icon)            | `FridayDashboardPanel`      | Observation Post, Human tasks, Tools                     | Placeholder             |
+| Penny  | Dashboard (grid icon)            | `PennyDashboardPanel`       | Package queue, Package Planner, Package Templates, Workflow Templates | Placeholder             |
+| Tim    | Work panel (list icon)           | `TimAgentPanel`             | Active Work Queue, Pending Work Queue                     | Tim KB placeholder      |
+| Marni  | Work panel (list icon)         | `MarniWorkPanel` → Kanban   | _(none — single queue)_                                   | Full Marni KB           |
+| Suzi   | Reminders (calendar icon)      | `SuziRemindersPanel`        | Punch List, Reminders, Notes, Intake                       | Placeholder             |
+| Others | Kanban where `agentHasKanban`  | `KanbanInlinePanel` or info | As needed                                                 | Placeholder             |
 
 ## Key files
 
@@ -75,6 +83,8 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 Query params such as `?agent=friday&panel=…` map to `RightPanel` where supported. For example, `panel=tasks` for Friday is interpreted as **dashboard + Human tasks tab** so bookmarks and links keep working without a separate top-level `tasks` panel.
 
 For **Suzi**, `?agent=suzi&panel=reminders&suziSub=intake` opens the work panel and selects the **Intake** sub-tab (e.g. after PWA share redirect).
+
+`?panel=knowledge` (with any agent) opens the **book** knowledge panel for that agent (replaces the old Marni-only deep link that opened the work panel on a Knowledge tab).
 
 ---
 

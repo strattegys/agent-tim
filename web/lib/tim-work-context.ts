@@ -18,6 +18,11 @@ export type TimWorkQueueSelection = {
   focusedArtifactStage: string | null;
   /** Tab label shown in the UI (e.g. "Message draft"). */
   focusedArtifactLabel: string | null;
+  /**
+   * Warm / LinkedIn outreach: structured transcript from CRM artifacts (MESSAGED, REPLY_SENT, REPLIED, drafts).
+   * Same builder as server-side REPLY_DRAFT autogen — so Tim chat sees the thread, not only the open tab.
+   */
+  linkedInThreadTranscript?: string | null;
 };
 
 export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
@@ -33,6 +38,24 @@ export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
     `The user has this item selected in Tim’s work queue (right panel). Treat their questions as about this item unless they clearly mean something else.`,
     ``,
   ];
+
+  const threadRaw = (s.linkedInThreadTranscript ?? "").trim();
+  if (threadRaw.length > 0) {
+    const cap = 6500;
+    const thread =
+      threadRaw.length > cap ? `${threadRaw.slice(0, cap)}\n\n[LinkedIn thread truncated for length]` : threadRaw;
+    lines.push(
+      `## LinkedIn thread on this workflow item (CRM artifacts; chronological, oldest first)`,
+      ``,
+      `Read this before changing **Message draft** or **Reply draft**. **Respond to their latest message** in the natural conversation stage. Do **not** open like a cold DM, and do **not** re-send links or talking points they already thanked you for or acknowledged.`,
+    );
+    if (focusStage?.toUpperCase() === "REPLY_DRAFT") {
+      lines.push(
+        `**Reply draft mode:** The section **### REPLY TARGET (mandatory)** at the **end** of the thread block is what they last said — write for that. Lines labeled **DRAFT artifact** are obsolete proposals; do not polish or repeat them.`,
+      );
+    }
+    lines.push(``, thread, ``);
+  }
 
   if (s.waitingFollowUp) {
     lines.push(
@@ -65,5 +88,6 @@ export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
     `Human-task stage: ${s.stageLabel} (${s.stage})`,
   );
   if (s.humanAction?.trim()) lines.push(`Human task: ${s.humanAction.trim()}`);
+
   return lines.join("\n");
 }

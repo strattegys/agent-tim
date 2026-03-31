@@ -6,7 +6,11 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
-import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import {
+  appendEphemeralContext,
+  applySessionHistoryLimit,
+  type ChatStreamExtraOptions,
+} from "./chat-stream-options";
 import { logCommandCentralLlmUsage } from "./llm-usage-log";
 
 const MAX_TOOL_ITERATIONS = 20;
@@ -86,7 +90,8 @@ export async function chatStreamAnthropic(
     await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
     extra?.workQueueContext
   );
-  const history = getHistory(config.sessionFile);
+  let history = getHistory(config.sessionFile);
+  history = applySessionHistoryLimit(history, extra?.sessionHistoryMaxMessages);
   const tools = buildAnthropicTools(config.tools);
   const delegatedAgents = new Set<string>();
 
@@ -345,6 +350,7 @@ export async function autonomousChatAnthropic(
         role: "model",
         text: replyText,
         timestamp: Date.now(),
+        ambient: true,
       });
       return replyText;
     }
@@ -358,6 +364,7 @@ export async function autonomousChatAnthropic(
       role: "model",
       text: fallbackMsg,
       timestamp: Date.now(),
+      ambient: true,
     });
     return fallbackMsg;
   }

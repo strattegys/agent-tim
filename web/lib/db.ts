@@ -1,4 +1,13 @@
+import fs from "fs";
 import { devQuery, devTransaction } from "./dev-store";
+
+function isInsideLinuxDocker(): boolean {
+  try {
+    return fs.existsSync("/.dockerenv");
+  } catch {
+    return false;
+  }
+}
 
 const USE_DEV_STORE = !process.env.CRM_DB_PASSWORD;
 
@@ -34,9 +43,44 @@ function crmPoolOptions(): {
     process.env.CRM_DB_KEEPALIVE_DELAY_MS || "10000",
     10
   );
+  let host = (process.env.CRM_DB_HOST || "127.0.0.1").trim();
+  const h = host.toLowerCase();
+
+  if (h === "crm-db" && !isInsideLinuxDocker()) {
+    host = "127.0.0.1";
+    const lp = parseInt(process.env.CRM_DB_LOCAL_PORT || "25432", 10);
+    return {
+      host,
+      port: Number.isFinite(lp) && lp > 0 ? lp : 25432,
+      database: process.env.CRM_DB_NAME || "default",
+      user: process.env.CRM_DB_USER || "postgres",
+      password: process.env.CRM_DB_PASSWORD,
+      max: Number.isFinite(max) && max > 0 ? max : 5,
+      connectionTimeoutMillis:
+        Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
+          ? connectionTimeoutMillis
+          : 30000,
+      keepAlive: process.env.CRM_DB_KEEPALIVE === "0" ? false : true,
+      keepAliveInitialDelayMillis:
+        Number.isFinite(keepAliveInitialDelayMillis) && keepAliveInitialDelayMillis >= 0
+          ? keepAliveInitialDelayMillis
+          : 10000,
+      idleTimeoutMillis: parseInt(process.env.CRM_DB_IDLE_TIMEOUT_MS || "30000", 10) || 30000,
+    };
+  }
+
+  const defaultPort =
+    h === "crm-db"
+      ? 5432
+      : h === "127.0.0.1" ||
+          h === "localhost" ||
+          h === "::1" ||
+          h === "host.docker.internal"
+        ? 5433
+        : 5432;
   return {
-    host: process.env.CRM_DB_HOST || "127.0.0.1",
-    port: parseInt(process.env.CRM_DB_PORT || "5432", 10),
+    host,
+    port: parseInt(process.env.CRM_DB_PORT || String(defaultPort), 10),
     database: process.env.CRM_DB_NAME || "default",
     user: process.env.CRM_DB_USER || "postgres",
     password: process.env.CRM_DB_PASSWORD,

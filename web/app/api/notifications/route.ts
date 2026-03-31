@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readFileSync, existsSync } from "fs";
-import { isLinkedInConnectionBellNoise } from "@/lib/notification-filters";
+import { isLinkedInInboundHiddenFromAlerts } from "@/lib/notification-filters";
 
 const NOTIFICATIONS_FILE =
   process.env.WEB_NOTIFICATIONS_FILE || "/root/.nanobot/web_notifications.jsonl";
@@ -33,7 +33,7 @@ export async function GET() {
         }
       })
       .filter((n): n is Notification => n !== null)
-      .filter((n) => !isLinkedInConnectionBellNoise(n))
+      .filter((n) => !isLinkedInInboundHiddenFromAlerts(n))
       .reverse()
       .slice(0, MAX_NOTIFICATIONS);
 

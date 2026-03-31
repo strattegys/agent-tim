@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { readMarniKbApiJson } from "@/lib/marni-kb-api-read";
+import type { KbStudioAgentId } from "@/lib/kb-studio";
 
 const fetchOpts: RequestInit = { credentials: "same-origin" };
 
@@ -10,6 +11,8 @@ interface MarniTopicAddModalProps {
   onClose: () => void;
   onCreated: (topicId: string) => void;
   onError: (message: string) => void;
+  /** Which agent owns new topics (vector corpus namespace). */
+  kbAgentId?: KbStudioAgentId;
 }
 
 export default function MarniTopicAddModal({
@@ -17,6 +20,7 @@ export default function MarniTopicAddModal({
   onClose,
   onCreated,
   onError,
+  kbAgentId = "marni",
 }: MarniTopicAddModalProps) {
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
@@ -78,6 +82,7 @@ export default function MarniTopicAddModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          agentId: kbAgentId,
           name,
           description: newDesc.trim() || null,
           queries,

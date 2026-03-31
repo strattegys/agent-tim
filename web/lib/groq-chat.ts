@@ -10,14 +10,27 @@ import { getHistory, addMessage, type ChatMessage } from "./session-store";
 import { getAgentConfig, isChatEphemeralAgent } from "./agent-config";
 import { consolidateSession } from "./memory";
 import type { ChatStreamResult } from "./gemini";
-import { appendEphemeralContext, type ChatStreamExtraOptions } from "./chat-stream-options";
+import {
+  appendEphemeralContext,
+  applySessionHistoryLimit,
+  type ChatStreamExtraOptions,
+} from "./chat-stream-options";
 import { logCommandCentralLlmUsage } from "./llm-usage-log";
+import { inferWorkflowItemsCommandFromArgs } from "./tools/workflow-items";
+import type { GroqDebugContext } from "./groq-debug-log";
+import {
+  logGroqChatHttpError,
+  logGroqChatMergedResponse,
+  logGroqChatOutbound,
+  logGroqChatRawChoice,
+  logGroqToolExecution,
+} from "./groq-debug-log";
 
 const MAX_TOOL_ITERATIONS = 20;
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 /** Fallback when agent has no modelName; align with GROQ_CHAT_MODEL in dev. */
 const DEFAULT_MODEL =
-  process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile";
+  process.env.GROQ_CHAT_MODEL?.trim() || "openai/gpt-oss-120b";
 
 /** Strip grounding suffix before matching punch_list tool text. */
 function stripToolGroundingSuffix(s: string): string {
@@ -357,8 +370,19 @@ function workflowItemsArgsFromMalformed(
   let command = "";
   if (qn.startsWith("workflow_items.")) {
     command = qn.slice("workflow_items.".length);
-  } else if (qn === "workflow_items" && typeof obj.command === "string") {
-    command = obj.command;
+  } else if (qn === "workflow_items") {
+    command = inferWorkflowItemsCommandFromArgs({
+      command: typeof obj.command === "string" ? obj.command : undefined,
+      arg1: obj.arg1 != null ? String(obj.arg1) : undefined,
+      arg2: obj.arg2 != null ? String(obj.arg2) : undefined,
+      arg3:
+        obj.arg3 != null
+          ? typeof obj.arg3 === "string"
+            ? obj.arg3
+            : JSON.stringify(obj.arg3)
+          : undefined,
+    });
+    if (!command) return null;
   } else {
     return null;
   }
@@ -556,22 +580,74 @@ function mergeRecoveredToolCalls(
 
 // ── Helpers ──
 
+/**
+ * Llama often emits `workflow_items.update-workflow-artifact` as the function name; Groq only accepts
+ * tools that appear in `request.tools`. We register dotted aliases alongside `workflow_items` and map
+ * them back before executeTool.
+ */
+const WORKFLOW_ITEMS_GROQ_QUALIFIED_ALIASES = [
+  "add-person-to-workflow",
+  "add-content-to-workflow",
+  "list-items",
+  "move-item",
+  "get-workflow-artifact",
+  "update-workflow-artifact",
+] as const;
+
+function normalizeWorkflowItemsQualifiedToolCall(
+  toolName: string,
+  args: Record<string, string>
+): { toolName: string; args: Record<string, string> } {
+  if (!toolName.startsWith("workflow_items.")) {
+    return { toolName, args };
+  }
+  const sub = toolName.slice("workflow_items.".length).trim();
+  if (!sub) return { toolName, args };
+  const next = { ...args };
+  if (!next.command?.trim()) {
+    next.command = sub;
+  }
+  return { toolName: "workflow_items", args: next };
+}
+
 function buildGroqTools(allowedTools: string[]): GroqTool[] {
   const filtered = toolDeclarations.filter((t) =>
     allowedTools.includes(t.name)
   );
-  return filtered.map((t) => ({
-    type: "function" as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: {
-        type: "object" as const,
-        properties: t.parameters.properties,
-        required: t.parameters.required,
+  const out: GroqTool[] = [];
+  for (const t of filtered) {
+    const base: GroqTool = {
+      type: "function" as const,
+      function: {
+        name: t.name,
+        description: t.description,
+        parameters: {
+          type: "object" as const,
+          properties: t.parameters.properties,
+          required: t.parameters.required,
+        },
       },
-    },
-  }));
+    };
+    out.push(base);
+
+    if (t.name === "workflow_items") {
+      for (const sub of WORKFLOW_ITEMS_GROQ_QUALIFIED_ALIASES) {
+        out.push({
+          type: "function" as const,
+          function: {
+            name: `workflow_items.${sub}`,
+            description: `Same as tool workflow_items with "command":"${sub}" (omit command in arguments).`,
+            parameters: {
+              type: "object" as const,
+              properties: t.parameters.properties,
+              required: [],
+            },
+          },
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -595,7 +671,7 @@ function buildMessages(
       "\n\nIMPORTANT: Use the provided tool-calling API to invoke tools. " +
       "NEVER write tool calls as XML/text like <function=name{...}> or <function=tool.subcommand({...})>. " +
       "NEVER reply with only a JSON array/object as plain text — that does not execute tools; the API must emit real tool_calls. " +
-      "The tool name is a single identifier (e.g. punch_list, workflow_items); pass command and args as one JSON object inside each tool call. " +
+      "Tool names must match the API list exactly: use `workflow_items` with a `command` field, or a listed alias like `workflow_items.update-workflow-artifact` with arg1–arg3 only. " +
       "Always use the structured tool_calls API. " +
       "After tools run, your reply must match the tool results exactly (same item #s and actions)—do not invent a different outcome."
     : systemPrompt;
@@ -622,7 +698,8 @@ async function groqChat(
   model: string,
   messages: GroqMessage[],
   tools?: GroqTool[],
-  temperature?: number
+  temperature?: number,
+  debug?: GroqDebugContext
 ): Promise<{ content: string; tool_calls?: GroqToolCall[]; usage?: GroqUsage }> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("GROQ_API_KEY not set");
@@ -638,6 +715,14 @@ async function groqChat(
     body.tool_choice = "auto";
   }
 
+  if (debug) {
+    logGroqChatOutbound(
+      { agentId: debug.agentId, iteration: debug.iteration, model },
+      messages,
+      tools?.map((t) => t.function.name)
+    );
+  }
+
   const res = await fetch(GROQ_API_URL, {
     method: "POST",
     headers: {
@@ -649,6 +734,13 @@ async function groqChat(
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "Unknown error");
+    if (debug) {
+      logGroqChatHttpError(
+        { agentId: debug.agentId, iteration: debug.iteration, model },
+        res.status,
+        errText
+      );
+    }
 
     // Recover malformed tool calls (Llama generates <function=...> text)
     if (res.status === 400 && errText.includes("tool_use_failed")) {
@@ -717,7 +809,24 @@ async function groqChat(
     usage?: GroqUsage;
   };
   const choice = data.choices?.[0]?.message;
+  if (debug) {
+    logGroqChatRawChoice(
+      { agentId: debug.agentId, iteration: debug.iteration, model },
+      choice?.content || "",
+      choice?.tool_calls
+    );
+  }
   const merged = mergeRecoveredToolCalls(choice?.content || "", choice?.tool_calls);
+  if (debug) {
+    logGroqChatMergedResponse(
+      { agentId: debug.agentId, iteration: debug.iteration, model },
+      {
+        content: merged.content,
+        tool_calls: merged.tool_calls,
+        usage: data.usage,
+      }
+    );
+  }
   return { ...merged, usage: data.usage };
 }
 
@@ -743,7 +852,8 @@ export async function chatStreamGroq(
     await getSystemPrompt(config.systemPromptFile, agentId, userMessage),
     streamOptions?.workQueueContext
   );
-  const history = getHistory(sessionFile);
+  let history = getHistory(sessionFile);
+  history = applySessionHistoryLimit(history, streamOptions?.sessionHistoryMaxMessages);
   const tools = buildGroqTools(config.tools);
   const model = config.modelName || DEFAULT_MODEL;
   const delegatedAgents = new Set<string>();
@@ -756,7 +866,10 @@ export async function chatStreamGroq(
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
 
-    const response = await groqChat(model, messages, tools, config.temperature);
+    const response = await groqChat(model, messages, tools, config.temperature, {
+      agentId,
+      iteration: iterations,
+    });
     logGroqUsage(agentId, model, response.usage);
 
     if (!response.tool_calls || response.tool_calls.length === 0) {
@@ -803,20 +916,24 @@ export async function chatStreamGroq(
     const toolNames: string[] = [];
     const batchToolBodies: string[] = [];
     for (const tc of response.tool_calls) {
-      const toolName = tc.function.name;
+      const rawName = tc.function.name;
       const stringArgs = parseGroqToolArgumentsJson(
-        toolName,
+        rawName,
         tc.function.arguments || "{}"
       );
+      const { toolName, args: execArgs } = normalizeWorkflowItemsQualifiedToolCall(
+        rawName,
+        stringArgs
+      );
 
-      if (toolName === "delegate_task" && stringArgs.agent) {
-        delegatedAgents.add(stringArgs.agent);
+      if (toolName === "delegate_task" && execArgs.agent) {
+        delegatedAgents.add(execArgs.agent);
       }
 
       // Dedup: skip if same tool+args already executed this turn
-      const callKey = `${toolName}:${JSON.stringify(stringArgs)}`;
+      const callKey = `${toolName}:${JSON.stringify(execArgs)}`;
       if (executedCalls.has(callKey)) {
-        console.log(`[groq] SKIPPED duplicate tool_call: ${toolName}`);
+        console.log(`[groq] SKIPPED duplicate tool_call: ${rawName}`);
         messages.push({
           role: "tool",
           content: "Already executed — skipping duplicate call.",
@@ -827,10 +944,11 @@ export async function chatStreamGroq(
       executedCalls.add(callKey);
 
       console.log(
-        `[groq] tool_call: ${toolName}`,
-        JSON.stringify(stringArgs).slice(0, 200)
+        `[groq] tool_call: ${rawName} → ${toolName}`,
+        JSON.stringify(execArgs).slice(0, 200)
       );
-      const result = await executeTool(toolName, stringArgs, userMessage, agentId);
+      const result = await executeTool(toolName, execArgs, userMessage, agentId);
+      logGroqToolExecution({ agentId, iteration: iterations }, toolName, execArgs, result);
       console.log(
         `[groq] tool_result: ${toolName} =>`,
         result.slice(0, 200)
@@ -886,7 +1004,10 @@ export async function chatStreamGroq(
   }
 
   // Fallback: final call without tools
-  const finalResponse = await groqChat(model, messages, undefined, config.temperature);
+  const finalResponse = await groqChat(model, messages, undefined, config.temperature, {
+    agentId,
+    iteration: "final_no_tools",
+  });
   logGroqUsage(agentId, model, finalResponse.usage);
   const fullText = finalResponse.content;
 
@@ -975,7 +1096,10 @@ export async function autonomousChatGroq(
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
 
-    const response = await groqChat(model, messages, tools, config.temperature);
+    const response = await groqChat(model, messages, tools, config.temperature, {
+      agentId,
+      iteration: iterations,
+    });
     logGroqUsage(agentId, model, response.usage);
 
     if (response.tool_calls && response.tool_calls.length > 0) {
@@ -990,12 +1114,17 @@ export async function autonomousChatGroq(
           tc.function.name,
           tc.function.arguments || "{}"
         );
-        const result = await executeTool(
+        const { toolName, args } = normalizeWorkflowItemsQualifiedToolCall(
           tc.function.name,
-          stringArgs,
+          stringArgs
+        );
+        const result = await executeTool(
+          toolName,
+          args,
           "[autonomous-heartbeat]",
           agentId
         );
+        logGroqToolExecution({ agentId, iteration: iterations }, toolName, args, result);
         messages.push({
           role: "tool",
           content: result,
@@ -1011,6 +1140,7 @@ export async function autonomousChatGroq(
         role: "model",
         text: replyText,
         timestamp: Date.now(),
+        ambient: true,
       });
       return replyText;
     }
@@ -1024,6 +1154,7 @@ export async function autonomousChatGroq(
       role: "model",
       text: fallbackMsg,
       timestamp: Date.now(),
+      ambient: true,
     });
     return fallbackMsg;
   }

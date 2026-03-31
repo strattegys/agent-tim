@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import ReminderCard, { type Reminder } from "./ReminderCard";
 import SuziPunchListPanel from "./SuziPunchListPanel";
@@ -44,36 +44,42 @@ const FILTER_TO_CATEGORY: Record<string, string | undefined> = {
   "One-Time": "one-time",
 };
 
-/** Get "today" in Pacific time as a local Date at midnight */
-function pacificToday(): Date {
-  const parts = new Intl.DateTimeFormat("en-US", {
+/** Pacific calendar date YYYY-MM-DD for an instant (avoids browser-local midnight bugs). */
+function formatPacificYmd(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Los_Angeles",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
-  const y = parseInt(parts.find((p) => p.type === "year")!.value);
-  const m = parseInt(parts.find((p) => p.type === "month")!.value) - 1;
-  const d = parseInt(parts.find((p) => p.type === "day")!.value);
-  return new Date(y, m, d);
+  }).format(d);
 }
 
-function getTimeFilterRange(tf: TimeFilter): { start: Date; end: Date } | null {
-  if (tf === "Any Time") return null;
-  const start = pacificToday();
+function ymdToDayNumber(ymd: string): number {
+  const [y, m, d] = ymd.split("-").map((x) => parseInt(x, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return NaN;
+  return Math.floor(Date.UTC(y, m - 1, d) / 86400000);
+}
+
+function reminderMatchesTimeFilter(tf: TimeFilter, nextDueAtIso: string): boolean {
+  const inst = new Date(nextDueAtIso);
+  if (Number.isNaN(inst.getTime())) return false;
+  const rYmd = formatPacificYmd(inst);
+  const rNum = ymdToDayNumber(rYmd);
+  if (!Number.isFinite(rNum)) return false;
+
   if (tf === "Today") {
-    const end = new Date(start);
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
+    const todayYmd = formatPacificYmd(new Date());
+    return rYmd === todayYmd;
   }
   if (tf === "Next 7 Days") {
-    const end = new Date(start);
-    end.setDate(end.getDate() + 7);
-    return { start, end };
+    const todayYmd = formatPacificYmd(new Date());
+    const todayNum = ymdToDayNumber(todayYmd);
+    if (!Number.isFinite(todayNum)) return false;
+    return rNum >= todayNum && rNum <= todayNum + 7;
   }
-  // This Month
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59);
-  return { start, end };
+  // This Month (Pacific)
+  const todayYmd = formatPacificYmd(new Date());
+  return rYmd.slice(0, 7) === todayYmd.slice(0, 7);
 }
 
 interface SuziRemindersPanelProps {
@@ -105,7 +111,11 @@ export default function SuziRemindersPanel({
 }: SuziRemindersPanelProps) {
   const searchParams = useSearchParams();
 
-  const [subTab, setSubTab] = useState<SubTab>("intake");
+  const [subTab, setSubTab] = useState<SubTab>("punchlist");
+  const [intakeAddOpen, setIntakeAddOpen] = useState(false);
+  const [punchInspectItem, setPunchInspectItem] = useState<PunchListItem | null>(null);
+  /** Bumped on every `punch_list` bus event so the punch list refetches after Suzi tools (panel may be unmounted on other tabs). */
+  const [punchListSync, setPunchListSync] = useState(0);
 
   const suziSubParam = searchParams.get("suziSub");
   useEffect(() => {
@@ -141,15 +151,23 @@ export default function SuziRemindersPanel({
     if (subTab !== "punchlist") setPunchInspectItem(null);
   }, [subTab]);
 
-  const [intakeAddOpen, setIntakeAddOpen] = useState(false);
-  const [punchInspectItem, setPunchInspectItem] = useState<PunchListItem | null>(null);
+  useEffect(() => {
+    return panelBus.on("punch_list", () => {
+      setPunchListSync((n) => n + 1);
+    });
+  }, []);
 
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("All");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("Any Time");
   const [search, setSearch] = useState("");
+  /** Debounced value for API — avoids refetch + loading flicker on every keystroke (same in dev and local prod). */
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const remindersLoadedOnceRef = useRef(false);
 
   useEffect(() => {
     const sf = localStorage.getItem("suzi_reminder_filter");
@@ -157,37 +175,63 @@ export default function SuziRemindersPanel({
     const tf = localStorage.getItem("suzi_reminder_time_filter");
     if (tf && TIME_FILTERS.includes(tf as TimeFilter)) setTimeFilter(tf as TimeFilter);
     const s = localStorage.getItem("suzi_reminder_search");
-    if (s) setSearch(s);
+    if (s) {
+      setSearch(s);
+      setDebouncedSearch(s.trim());
+    }
+    if (localStorage.getItem("suzi_reminder_show_inactive") === "1") {
+      setShowInactive(true);
+    }
   }, []);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(id);
+  }, [search]);
 
   // Persist filter state to localStorage
   useEffect(() => { localStorage.setItem("suzi_reminder_filter", filter); }, [filter]);
   useEffect(() => { localStorage.setItem("suzi_reminder_time_filter", timeFilter); }, [timeFilter]);
   useEffect(() => { localStorage.setItem("suzi_reminder_search", search); }, [search]);
-
-  const fetchReminders = useCallback(async () => {
-    const params = new URLSearchParams({ includeInactive: "true" });
-    const cat = FILTER_TO_CATEGORY[filter];
-    if (cat) params.set("category", cat);
-    if (search.trim()) params.set("search", search.trim());
-
-    try {
-      const res = await fetch(`/api/reminders?${params}`);
-      const data = await res.json();
-      setReminders(data.reminders || []);
-    } catch {
-      setReminders([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, search]);
-
   useEffect(() => {
-    setLoading(true);
-    fetchReminders();
-    const unsub = panelBus.on("reminders", fetchReminders);
+    localStorage.setItem("suzi_reminder_show_inactive", showInactive ? "1" : "0");
+  }, [showInactive]);
+
+  const fetchReminders = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      if (!silent && !remindersLoadedOnceRef.current) {
+        setLoading(true);
+      }
+      const params = new URLSearchParams();
+      if (showInactive) params.set("includeInactive", "true");
+      const cat = FILTER_TO_CATEGORY[filter];
+      if (cat) params.set("category", cat);
+      if (debouncedSearch) params.set("search", debouncedSearch);
+
+      try {
+        const res = await fetch(`/api/reminders?${params}`);
+        const data = await res.json();
+        setReminders(data.reminders || []);
+      } catch {
+        setReminders([]);
+      } finally {
+        setLoading(false);
+        remindersLoadedOnceRef.current = true;
+      }
+    },
+    [filter, debouncedSearch, showInactive]
+  );
+
+  /** Only poll while Reminders sub-tab is visible — avoids useless API churn (and UI noise) on Punch List / Intake / Notes. */
+  useEffect(() => {
+    if (subTab !== "reminders") return undefined;
+    void fetchReminders();
+    const unsub = panelBus.on("reminders", () => {
+      void fetchReminders({ silent: true });
+    });
     return unsub;
-  }, [fetchReminders]);
+  }, [fetchReminders, subTab]);
 
   const handleToggle = async (id: string, isActive: boolean) => {
     // Optimistic update
@@ -210,6 +254,33 @@ export default function SuziRemindersPanel({
     [focusedReminder?.id, onFocusedReminderChange]
   );
 
+  const handleBulkRemoveInactive = async () => {
+    if (
+      !confirm(
+        "Remove every inactive reminder from the database? This cannot be undone (rows are archived, not permanently deleted)."
+      )
+    ) {
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "softDeleteInactive", agentId: "suzi" }),
+      });
+      const data = (await res.json()) as { removed?: number; error?: string };
+      if (!res.ok) {
+        console.warn("[SuziReminders] bulk inactive:", data.error);
+        return;
+      }
+      panelBus.emit("reminders");
+      await fetchReminders({ silent: true });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (confirmDelete !== id) {
       setConfirmDelete(id);
@@ -228,15 +299,13 @@ export default function SuziRemindersPanel({
     });
   };
 
-  // Apply time filter
-  const timeRange = getTimeFilterRange(timeFilter);
-  const timeFiltered = timeRange
-    ? reminders.filter((r) => {
-        if (!r.nextDueAt) return false;
-        const d = new Date(r.nextDueAt);
-        return d >= timeRange.start && d <= timeRange.end;
-      })
-    : reminders;
+  // Apply time filter (Pacific calendar — matches CRM / Govind expectations)
+  const timeFiltered =
+    timeFilter === "Any Time"
+      ? reminders
+      : reminders.filter(
+          (r) => r.nextDueAt && reminderMatchesTimeFilter(timeFilter, r.nextDueAt)
+        );
 
   // Sort: active before inactive, then by nextDueAt
   const sorted = [...timeFiltered].sort((a, b) => {
@@ -257,17 +326,16 @@ export default function SuziRemindersPanel({
   // Time filter counts (from category-filtered set, i.e. reminders)
   const timeFilterCounts: Record<string, number> = {};
   for (const tf of TIME_FILTERS) {
-    const range = getTimeFilterRange(tf);
-    if (!range) {
+    if (tf === "Any Time") {
       timeFilterCounts[tf] = reminders.length;
     } else {
-      timeFilterCounts[tf] = reminders.filter((r) => {
-        if (!r.nextDueAt) return false;
-        const d = new Date(r.nextDueAt);
-        return d >= range.start && d <= range.end;
-      }).length;
+      timeFilterCounts[tf] = reminders.filter(
+        (r) => r.nextDueAt && reminderMatchesTimeFilter(tf, r.nextDueAt)
+      ).length;
     }
   }
+
+  const inactiveCountInDb = reminders.filter((r) => !r.isActive).length;
 
   const subTabHeaderFallback =
     subTab === "intake" ? (
@@ -331,6 +399,7 @@ export default function SuziRemindersPanel({
             onFocusedPunchListChange={onFocusedPunchListChange}
             inspectItem={punchInspectItem}
             onInspectItemChange={setPunchInspectItem}
+            punchListSync={punchListSync}
           />
           {punchInspectItem && (
             <PunchListInspectSheet
@@ -350,8 +419,8 @@ export default function SuziRemindersPanel({
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       {renderSubTabHeader()}
 
-      {/* Search */}
-      <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)]">
+      {/* Search + inactive toggle */}
+      <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] space-y-2">
         <input
           type="text"
           value={search}
@@ -359,6 +428,27 @@ export default function SuziRemindersPanel({
           placeholder="Search reminders..."
           className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)] outline-none focus:border-[var(--accent-green)]"
         />
+        <div className="flex flex-wrap items-center gap-3 text-[10px] text-[var(--text-secondary)]">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+              className="rounded border-[var(--border-color)]"
+            />
+            Show inactive
+          </label>
+          {showInactive && inactiveCountInDb > 0 ? (
+            <button
+              type="button"
+              disabled={bulkBusy}
+              onClick={() => void handleBulkRemoveInactive()}
+              className="text-[10px] px-2 py-0.5 rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+            >
+              {bulkBusy ? "…" : `Remove all ${inactiveCountInDb} inactive`}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {/* Time filter pills */}

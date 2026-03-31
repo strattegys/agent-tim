@@ -1,4 +1,4 @@
-# Register a Windows Scheduled Task: at logon, wait for Docker, run dev-docker-up.ps1 (CRM bridge + compose).
+# Register a Windows Scheduled Task: at logon, wait for Docker, run dev-docker-up.ps1 (bundled crm-db by default).
 # Run once in PowerShell (no admin required for "run only when user is logged on"):
 #   cd COMMAND-CENTRAL
 #   powershell -ExecutionPolicy Bypass -File .\scripts\install-cc-dev-autostart-task.ps1

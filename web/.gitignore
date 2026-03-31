@@ -46,6 +46,7 @@ next-env.d.ts
 /uploads
 
 # local dev
+/tmp
 /.dev-store
 /.dev-ephemeral-chat
 /agent-data

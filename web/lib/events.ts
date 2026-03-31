@@ -11,7 +11,7 @@
  * migration, new package, etc., when header/rail counts may change outside chat.
  */
 
-type Listener = () => void;
+type Listener = (detail?: unknown) => void;
 
 class PanelEventBus {
   private listeners = new Map<string, Set<Listener>>();
@@ -22,8 +22,9 @@ class PanelEventBus {
     return () => this.listeners.get(event)?.delete(fn);
   }
 
-  emit(event: string) {
-    this.listeners.get(event)?.forEach((fn) => fn());
+  /** Optional `detail` for listeners that need hints (e.g. Intake jump to newest page after add). */
+  emit(event: string, detail?: unknown) {
+    this.listeners.get(event)?.forEach((fn) => fn(detail));
   }
 }
 

@@ -5,18 +5,21 @@ export type WorkBadgeCounts = {
   testingTaskCount: number;
   timMessagingTaskCount: number;
   ghostContentTaskCount: number;
+  suziDueReminderCount: number;
 };
 
 export function agentHasUserWorkItem(agentId: string, b: WorkBadgeCounts): boolean {
   switch (agentId) {
+    // Friday / Penny: CRM counts are background context only until we define user-facing alerts.
     case "friday":
-      return b.pendingTaskCount > 0;
     case "penny":
-      return b.testingTaskCount > 0;
+      return false;
     case "tim":
       return b.timMessagingTaskCount > 0;
     case "ghost":
       return b.ghostContentTaskCount > 0;
+    case "suzi":
+      return b.suziDueReminderCount > 0;
     default:
       return false;
   }

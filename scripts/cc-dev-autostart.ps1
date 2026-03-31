@@ -1,4 +1,4 @@
-# Start Command Central Docker dev + CRM forwarder after login (bridge or SSH via dev-docker-up.ps1).
+# Start Command Central Docker dev after login (default: bundled crm-db; use dev-docker-up.ps1 -UseRemoteCrm for tunnel).
 # Intended for a Scheduled Task at logon. Waits for Docker Desktop, then runs dev-docker-up.ps1.
 #
 # Install once (current user):  powershell -ExecutionPolicy Bypass -File scripts\install-cc-dev-autostart-task.ps1

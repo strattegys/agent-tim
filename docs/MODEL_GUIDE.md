@@ -40,19 +40,17 @@ Tim has access to multiple AI models through the same Gemini API key. Each model
 - More thorough responses
 - Latest Gemini 3.1 Pro model
 
-### 4. Groq Llama 3.1 70B (Ultra Fast)
-**Model**: `groq/llama-3.1-70b-versatile`
+### 4. Groq OpenAI GPT-OSS 120B (default for Groq agents)
+**Model**: `openai/gpt-oss-120b` (via Groq API)
 
 **Best for**:
-- Extremely fast responses needed
-- Simple queries
-- High-volume tasks
-- When speed is critical
+- Default MarkOps / Command Central agent chat (Tim, Scout, Suzi, etc.)
+- Tool-heavy workflows
+- When you want strong reasoning at low token cost on Groq
 
 **Characteristics**:
-- 500+ tokens/sec
-- Very fast
-- Good for simple tasks
+- ~500 tokens/sec on Groq (typical)
+- Tool use, JSON mode, long context (see Groq model card)
 - Different API (Groq)
 
 ## Current Configuration

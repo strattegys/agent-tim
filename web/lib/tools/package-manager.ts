@@ -1,3 +1,4 @@
+import type { PackageDeliverable } from "../package-types";
 import { hasUserApproval } from "./shared";
 import type { ToolModule } from "./types";
 
@@ -177,7 +178,7 @@ const tool: ToolModule = {
       if (pkg.stage !== "PENDING_APPROVAL")
         return `Error: package is in ${pkg.stage} stage — must be PENDING_APPROVAL to approve`;
 
-      const spec = pkg.spec as { deliverables?: Array<{ workflowType: string; ownerAgent: string; targetCount: number; label: string }> };
+      const spec = pkg.spec as { deliverables?: PackageDeliverable[] };
       if (!spec.deliverables || spec.deliverables.length === 0)
         return "Error: package has no deliverables";
 
@@ -213,7 +214,11 @@ const tool: ToolModule = {
              VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE', NOW(), NOW()) RETURNING id`,
             [
               `${pkg.name} — ${d.label}`,
-              JSON.stringify({ targetCount: d.targetCount }),
+              JSON.stringify({
+                targetCount: d.targetCount,
+                workflowType: d.workflowType,
+                pacing: d.pacing ?? null,
+              }),
               wfType.itemType,
               boardId,
               d.ownerAgent,

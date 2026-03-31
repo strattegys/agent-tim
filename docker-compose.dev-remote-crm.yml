@@ -1,0 +1,12 @@
+# Optional overlay: point LOCALDEV **web** at Postgres on the Windows host (SSH tunnel or
+# Tailscale bridge on 0.0.0.0:5433). Start the forwarder first, e.g.:
+#   .\scripts\dev-docker-up.ps1 -UseRemoteCrm
+#
+# A **local** `crm-db` container still runs (Compose service); you may stop it after up to save RAM:
+#   docker stop cc-localdev-crm-db
+
+services:
+  web:
+    environment:
+      - CRM_DB_HOST=host.docker.internal
+      - CRM_DB_PORT=${CRM_TUNNEL_LOCAL_PORT:-5433}

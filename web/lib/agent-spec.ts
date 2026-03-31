@@ -75,7 +75,7 @@ export interface RoutineSpec {
 export interface HeartbeatCheck {
   name: string;
   description: string;
-  priority: "high" | "medium" | "low";
+  priority: "critical" | "high" | "medium" | "low";
 }
 
 export interface HeartbeatSpec {

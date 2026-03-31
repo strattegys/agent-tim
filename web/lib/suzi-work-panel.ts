@@ -113,10 +113,10 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
   const lines = [
     "",
     "### ACTIVE PUNCH LIST TARGET — the green-highlighted card on the board",
-    "**If this section appears in context, Govind has that row selected: green border / green ring on the Kanban card.** That is his **current focus** for punch-list work. **Inspect (modal) may be closed** — selection is from the green highlight alone. Phrases like **this card**, **the highlighted one**, **the green one**, **the one I have selected**, **this on screen**, **this item** mean **the row below** (`item_number`), not some other # from chat history.",
-    "**This block is authoritative:** Do not infer focus from older messages or tool output. If you see **item_number (focused)** below, that is the card with the green UI state unless Govind explicitly names a different number.",
-    `**Default target for punch_list tools:** If the user says **this item**, **this card**, **this task**, **close this out**, **close it out**, **close this item**, **mark this done**, **mark it complete**, **finish this**, **it's a duplicate** (meaning dismiss this card), **the one I selected**, **the one I have open**, **correct that**, **update this title**, or similar **without** naming a different card number, use **item_number="${p.itemNumber}"** (below). Do not substitute a # from chat history, a misread digit, or a **list** result — and **do not** ask “which number?” when this block is present unless they clearly mean a **different** card.`,
-    "**If they override the card:** When they clearly name a different item (e.g. “item 125”, “#125”, “work on one-two-five” meaning digits 1-2-5), use **that** \`item_number\` for that turn and after — not the focused number.",
+    "**If this section appears in context, Govind has that row selected: green border / green ring on the Kanban card.** That is his **current focus** for punch-list work. **Inspect (modal) may be closed** — selection is from the green highlight alone. Phrases like **this card**, **the highlighted one**, **the green one**, **the one I have selected**, **this on screen**, **this item** mean **the row below** (use its **`id`** for **punch_list**), not some other card from chat history.",
+    "**This block is authoritative:** Do not infer focus from older messages or tool output. The **id** and **item_number** below describe the green-highlighted card unless Govind explicitly names a different card.",
+    `**Default target for punch_list tools:** If the user says **this item**, **this card**, **this task**, **close this out**, **close it out**, **close this item**, **mark this done**, **mark it complete**, **finish this**, **it's a duplicate** (meaning dismiss this card), **the one I selected**, **the one I have open**, **correct that**, **update this title**, or similar **without** naming a different card number, pass **id**=\`${p.id}\` (preferred) or **item_number**="${p.itemNumber}". Do not substitute a # from chat history, a misread digit, or a **list** result — and **do not** ask “which number?” when this block is present unless they clearly mean a **different** card.`,
+    "**If they override the card:** When they clearly name a different item (e.g. “item 125”, “#125”, “work on one-two-five” meaning digits 1-2-5), use **that** \`item_number\` (or **list** then **id**) for that turn — not the focused **id**.",
     "**Spoken digits (voice / casual):** “one two five” / “item one two five” means card **#125** (concatenate: 1, 2, 5). It does **not** mean #1025. “One oh two five” / “one zero two five” / “ten twenty-five” may mean **#1025**. If still ambiguous, ask once which # is on their card.",
     "Treat questions like “what is this task?”, “what should I do here?”, “expand on this”, or “what do the notes say?” as referring to **this** row unless the user clearly means another item.",
     `- **id:** \`${p.id}\``,
@@ -138,7 +138,7 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
               `  - [${a.done ? "done" : "open"}] \`${a.content.replace(/`/g, "'")}\` — action_id=\`${a.id}\``
           )
           .join("\n")}`
-      : "- **actions:** (none — use **action_add** with this item's **item_number** to add subtasks)",
+      : "- **actions:** (none — use **action_add** with this item's **id** or **item_number** to add subtasks)",
     "",
     "**How to help:** Answer from title, description, notes, and actions above. Use **punch_list** to move, complete (**done** / close out), **archive**, add **journal notes** (**note** — Inspect **Notes**), or add/toggle **checkbox subtasks** (**action_add** / **action_toggle** — Inspect **Actions**). If Govind asks to **add an action**, **action item**, **subtask**, **checkbox step**, or **to-do on this card**, use **action_add** with **content**, **not** **note**. **note** is for narrative/log text only. The snapshot may be stale after tool calls. For **“close out” / duplicate**, **done** is usual unless they said **archive**. When editing **titles**, Govind usually wants **Title Case** unless he says otherwise.",
   ];
@@ -313,6 +313,21 @@ export type SuziWorkPanelContextInput = {
   focusedNote?: SuziFocusedNote | null;
 };
 
+/** True when any green-highlighted work entity is set — chat may use a short session window (see chat-stream-options). */
+export function suziHasFocusedWorkEntity(input: {
+  focusedIntake?: SuziFocusedIntake | null;
+  focusedPunchList?: SuziFocusedPunchList | null;
+  focusedReminder?: SuziFocusedReminder | null;
+  focusedNote?: SuziFocusedNote | null;
+}): boolean {
+  return Boolean(
+    input.focusedIntake?.id ||
+    input.focusedPunchList?.id ||
+    input.focusedReminder?.id ||
+    input.focusedNote?.id
+  );
+}
+
 type TabSpec = {
   uiLabel: string;
   primaryTool: "punch_list" | "reminders" | "notes" | "intake";
@@ -328,7 +343,7 @@ const TABS: Record<SuziWorkSubTab, TabSpec> = {
     purpose:
       "Engineering / ops tasks in Kanban columns (Now, Later, Next, Sometime, Backlog, Idea). Not calendar reminders, not reference notes, not Intake captures.",
     commands:
-      "punch_list: list | add (NEW item only) | update | done / close_out / finish / close this out / duplicate — use **focused item_number** when **ACTIVE PUNCH LIST TARGET** (green card on board) is in context and user did not name another # | reopen | archive | archive_done | **note** (Inspect **Notes** — journal only) | **action_add** / **action_toggle** (Inspect **Actions** — user “action item” / subtask / checkbox). After done, reply briefly; do not list-hunt or ask which # when green-target context is present.",
+      "punch_list: list | add (NEW item only) | update | done / close_out / finish / close this out / duplicate — use **focused id** (preferred) or **item_number** when **ACTIVE PUNCH LIST TARGET** (green card) is in context and user did not name another # | reopen | archive | archive_done | **note** | **action_add** / **action_toggle**. After done, reply briefly; do not list-hunt when green-target context is present.",
     ids: "Item numbers on cards (e.g. 1001). Comma-separate for batch done.",
   },
   reminders: {
@@ -402,8 +417,8 @@ export function formatSuziWorkPanelContext(input: SuziWorkPanelContextInput): st
       PANEL_CLOSED_HINT,
       "",
       "### Tab ↔ tool (reference)",
-      `- **${TABS.intake.uiLabel}** → \`intake\` — ${TABS.intake.purpose}`,
       `- **${TABS.punchlist.uiLabel}** → \`punch_list\` — ${TABS.punchlist.purpose}`,
+      `- **${TABS.intake.uiLabel}** → \`intake\` — ${TABS.intake.purpose}`,
       `- **${TABS.reminders.uiLabel}** → \`reminders\` — ${TABS.reminders.purpose}`,
       `- **${TABS.notes.uiLabel}** → \`notes\` — ${TABS.notes.purpose}`,
       "",

@@ -40,7 +40,8 @@ import {
  * - limit / offset — with ownerAgent=tim on full GET (not summary): paginate (default limit 80, max 150). Response includes hasMore and nextOffset when applicable.
  * - messagingOnly=1 + ownerAgent=tim: rows ordered by **updatedAt DESC** (newest activity first) so LinkedIn inbox / latest replies are not buried behind older due-dated items.
  */
-const MESSAGING_ITEM_STAGES = new Set([
+/** Keep in sync: SQL `IN` below and messaging-tab filtering in this route. */
+const MESSAGING_ITEM_STAGES_LIST = [
   "INITIATED",
   "AWAITING_CONTACT",
   "MESSAGE_DRAFT",
@@ -49,7 +50,11 @@ const MESSAGING_ITEM_STAGES = new Set([
   "REPLY_SENT",
   "LINKEDIN_INBOUND",
   "CONNECTION_ACCEPTED",
-]);
+] as const;
+
+const MESSAGING_ITEM_STAGES = new Set<string>(MESSAGING_ITEM_STAGES_LIST);
+
+const MESSAGING_ITEM_STAGES_SQL_IN = MESSAGING_ITEM_STAGES_LIST.map((s) => `'${s}'`).join(", ");
 
 function isMissingPackageNumberColumn(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -601,6 +606,12 @@ async function fetchHumanTaskRows(
     ownerAgentLower === "tim" && messagingOnly
       ? `ORDER BY COALESCE(wi."updatedAt", wi."createdAt") DESC, wi."createdAt" DESC`
       : `ORDER BY wi."dueDate" ASC NULLS FIRST, wi."createdAt" ASC`;
+  /* Without this, LIMIT applies before JS drops non-messaging stages (humanTaskOpen on any stage),
+   * so Tim’s sidebar can miss LINKEDIN_INBOUND entirely while 80 slots are RESEARCHING / etc. */
+  const messagingStagesWhere =
+    ownerAgentLower === "tim" && messagingOnly
+      ? ` AND UPPER(TRIM(wi.stage::text)) IN (${MESSAGING_ITEM_STAGES_SQL_IN})`
+      : "";
   return query<QueueRow>(
     `SELECT wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi."dueDate", wi."createdAt",
             wi."updatedAt",
@@ -610,7 +621,7 @@ async function fetchHumanTaskRows(
      INNER JOIN "_workflow" w ON w.id = wi."workflowId"
      LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
      ${joinPackage}
-     WHERE ${humanOpenSql}${whereBody}
+     WHERE ${humanOpenSql}${whereBody}${messagingStagesWhere}
      ${orderSql}${limitSql}`,
     queryParams
   );

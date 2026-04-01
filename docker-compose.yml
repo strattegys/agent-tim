@@ -77,6 +77,8 @@ services:
       - NEXT_PUBLIC_CC_RUNTIME_LABEL=
       - CC_DISABLE_SERVER_CRON=
       # Always reach Postgres on the compose network (overrides CRM_DB_HOST in .env.local for production).
+      # web/lib/db.ts also forces crm-db:5432 inside hosted Docker if BWS still has laptop 127.0.0.1:5433.
+      # Nonstandard external CRM only: set CRM_DB_USE_COMPOSE_SERVICE=0 in web/.env.local.
       - CRM_DB_HOST=crm-db
       - CRM_DB_PORT=5432
     volumes:

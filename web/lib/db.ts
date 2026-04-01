@@ -17,6 +17,17 @@ type CrmRouteMode = "primary" | "tailscale-direct";
 let crmRouteMode: CrmRouteMode = "primary";
 
 let warnedDockerLoopbackCrm = false;
+let warnedHostedComposeCrmOverride = false;
+
+/** DigitalOcean stack: `web` and `crm-db` share a compose network. BWS/.env.local often keeps laptop tunnel vars (127.0.0.1:5433), which break inside the container (ECONNREFUSED). */
+function useHostedDropletComposeCrm(): boolean {
+  if (process.env.NODE_ENV !== "production") return false;
+  if (getLocalRuntimeLabel() !== null) return false;
+  if (!isInsideLinuxDocker()) return false;
+  if (!process.env.CRM_DB_PASSWORD?.trim()) return false;
+  if (process.env.CRM_DB_USE_COMPOSE_SERVICE?.trim() === "0") return false;
+  return true;
+}
 
 function shouldOfferCrmTailscaleFallback(): boolean {
   if (process.env.CRM_DB_NO_TAILSCALE_FALLBACK === "1") return false;
@@ -83,6 +94,40 @@ function crmPoolOptions(): {
     const ts = (process.env.CRM_DB_TAILSCALE_HOST || "100.74.54.12").trim();
     return {
       host: ts,
+      port: 5432,
+      database: process.env.CRM_DB_NAME || "default",
+      user: process.env.CRM_DB_USER || "postgres",
+      password: process.env.CRM_DB_PASSWORD,
+      max: Number.isFinite(max) && max > 0 ? max : 5,
+      connectionTimeoutMillis:
+        Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
+          ? connectionTimeoutMillis
+          : 30000,
+      keepAlive: process.env.CRM_DB_KEEPALIVE === "0" ? false : true,
+      keepAliveInitialDelayMillis:
+        Number.isFinite(keepAliveInitialDelayMillis) && keepAliveInitialDelayMillis >= 0
+          ? keepAliveInitialDelayMillis
+          : 10000,
+      idleTimeoutMillis: parseInt(process.env.CRM_DB_IDLE_TIMEOUT_MS || "30000", 10) || 30000,
+    };
+  }
+
+  if (useHostedDropletComposeCrm()) {
+    const rawHost = (process.env.CRM_DB_HOST || "").trim().toLowerCase();
+    const rawPort = (process.env.CRM_DB_PORT || "").trim();
+    const portNum = rawPort ? parseInt(rawPort, 10) : NaN;
+    const envWouldMismatch =
+      rawHost !== "crm-db" ||
+      (rawPort !== "" && Number.isFinite(portNum) && portNum !== 5432);
+    if (!warnedHostedComposeCrmOverride && envWouldMismatch) {
+      warnedHostedComposeCrmOverride = true;
+      console.warn(
+        `[db] Hosted production (Docker): using crm-db:5432; env had CRM_DB_HOST=${process.env.CRM_DB_HOST || "(unset)"} CRM_DB_PORT=${rawPort || "(unset)"}. ` +
+          "Laptop/BWS tunnel settings are ignored inside this container."
+      );
+    }
+    return {
+      host: "crm-db",
       port: 5432,
       database: process.env.CRM_DB_NAME || "default",
       user: process.env.CRM_DB_USER || "postgres",

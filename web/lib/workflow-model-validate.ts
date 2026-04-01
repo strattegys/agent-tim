@@ -2,14 +2,13 @@
  * Read-only compliance checks: CRM workflows vs WORKFLOW_TYPES ("new model").
  * Safe to run in the browser — does not mutate data or call the database.
  */
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import type { WorkflowTypeSpec } from "@/lib/workflow-types";
+import { boardStageKeysUpper, parseJsonObject, workflowTypeFromSpec } from "@/lib/workflow-spec";
 import {
-  boardStageKeysUpper,
-  inferWorkflowRegistryFromBoardStages,
-  parseJsonObject,
-  resolveWorkflowRegistryId,
-  workflowTypeFromSpec,
-} from "@/lib/workflow-spec";
+  inferWorkflowRegistryFromBoardStagesWithCustom,
+  resolveWorkflowRegistryIdWithCustom,
+  resolveWorkflowTypeFromMaps,
+} from "@/lib/workflow-registry";
 
 export type WorkflowComplianceSeverity = "error" | "warn" | "info";
 
@@ -70,18 +69,23 @@ function normTransitionMap(
 }
 
 /**
- * Validates a single workflow snapshot against the canonical WORKFLOW_TYPES model.
+ * Validates a single workflow snapshot against the merged workflow type registry.
+ * Pass optional `customById` from DB when validating server-side with custom types.
  */
 export function validateWorkflowAgainstModel(
-  input: WorkflowModelValidateInput
+  input: WorkflowModelValidateInput,
+  customById: Map<string, WorkflowTypeSpec> = new Map()
 ): WorkflowComplianceIssue[] {
   const issues: WorkflowComplianceIssue[] = [];
   const boardKeys = boardStageKeysUpper(input.boardStages);
   const boardKeySet = new Set(boardKeys);
   const transitions = parseTransitions(input.boardTransitions);
   const rawSpecType = workflowTypeFromSpec(input.spec);
-  const specResolved = resolveWorkflowRegistryId(rawSpecType);
-  const inferred = inferWorkflowRegistryFromBoardStages(input.boardStages);
+  const specResolved = resolveWorkflowRegistryIdWithCustom(rawSpecType, customById);
+  const inferred = inferWorkflowRegistryFromBoardStagesWithCustom(
+    input.boardStages,
+    customById.values()
+  );
 
   if (!input.boardId) {
     issues.push({
@@ -104,7 +108,7 @@ export function validateWorkflowAgainstModel(
     issues.push({
       code: "UNKNOWN_SPEC_WORKFLOW_TYPE",
       severity: "error",
-      message: `spec.workflowType "${rawSpecType}" does not match any WORKFLOW_TYPES registry id.`,
+      message: `spec.workflowType "${rawSpecType}" does not match any known workflow type id.`,
       field: "spec.workflowType",
     });
   }
@@ -136,8 +140,8 @@ export function validateWorkflowAgainstModel(
   }
 
   const registryId = specResolved || inferred;
-  const reg: (typeof WORKFLOW_TYPES)[string] | undefined = registryId
-    ? WORKFLOW_TYPES[registryId]
+  const reg: WorkflowTypeSpec | undefined = registryId
+    ? resolveWorkflowTypeFromMaps(registryId, customById)
     : undefined;
 
   if (reg) {

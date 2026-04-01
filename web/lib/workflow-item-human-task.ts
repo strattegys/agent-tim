@@ -4,12 +4,15 @@
  * humanTaskOpen = true + ownerAgent instead of re-deriving type from spec alone.
  *
  * When the DB board row is missing, empty, or omits requiresHuman for a stage, we also
- * consult WORKFLOW_TYPES so Reply Draft / LinkedIn inbox rows don’t stay humanTaskOpen=false.
+ * consult the merged workflow type registry so Reply Draft / LinkedIn inbox rows don’t stay humanTaskOpen=false.
  */
 
 import { query } from "@/lib/db";
-import { resolveWorkflowRegistryForQueue } from "@/lib/workflow-spec";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import {
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryForQueueWithCustomMap,
+  resolveWorkflowTypeFromMaps,
+} from "@/lib/workflow-registry";
 
 export function humanTaskOpenFromBoardStages(boardStages: unknown, itemStage: string): boolean {
   const sk = (itemStage || "").trim().toUpperCase();
@@ -98,16 +101,21 @@ export async function syncHumanTaskOpenForItem(itemId: string): Promise<void> {
     packageSpec = pr[0]?.spec;
   }
 
+  const customMap = await loadCustomWorkflowTypeMap();
   const typeId =
-    resolveWorkflowRegistryForQueue(wf[0]?.spec, {
-      packageSpec,
-      ownerAgent: wf[0]?.ownerAgent,
-      boardStages: stages,
-    }) ?? "";
+    resolveWorkflowRegistryForQueueWithCustomMap(
+      wf[0]?.spec,
+      {
+        packageSpec,
+        ownerAgent: wf[0]?.ownerAgent,
+        boardStages: stages,
+      },
+      customMap
+    ) ?? "";
 
   const fromDb = humanTaskOpenFromBoardStages(stages, wi[0].stage);
-  const tmplStages =
-    typeId && WORKFLOW_TYPES[typeId] ? WORKFLOW_TYPES[typeId].defaultBoard.stages : null;
+  const tmpl = typeId ? resolveWorkflowTypeFromMaps(typeId, customMap) : undefined;
+  const tmplStages = tmpl?.defaultBoard.stages ?? null;
   const fromTemplate = tmplStages
     ? humanTaskOpenFromBoardStages(tmplStages, wi[0].stage)
     : false;

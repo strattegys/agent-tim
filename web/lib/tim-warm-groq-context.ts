@@ -5,7 +5,10 @@
 
 import { query } from "@/lib/db";
 import { PACKAGE_BRIEF_STAGE } from "@/lib/package-brief-artifact";
-import { resolveWorkflowRegistryForQueue } from "@/lib/workflow-spec";
+import {
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryForQueueWithCustomMap,
+} from "@/lib/workflow-registry";
 import {
   buildStructuredWarmThreadTranscriptForLlm,
   extractLastWarmInboundFromArtifactRows,
@@ -119,11 +122,16 @@ function looksLikeWarmMessagingWorkflow(
 export async function resolveTimWarmWorkflowTypeId(itemId: string): Promise<string | null> {
   const row = await fetchWorkflowItemAugRow(itemId);
   if (!row) return null;
-  return resolveWorkflowRegistryForQueue(row.spec, {
-    packageSpec: row.package_spec,
-    ownerAgent: row.ownerAgent,
-    boardStages: row.board_stages,
-  });
+  const customMap = await loadCustomWorkflowTypeMap();
+  return resolveWorkflowRegistryForQueueWithCustomMap(
+    row.spec,
+    {
+      packageSpec: row.package_spec,
+      ownerAgent: row.ownerAgent,
+      boardStages: row.board_stages,
+    },
+    customMap
+  );
 }
 
 /**
@@ -211,11 +219,16 @@ export async function workflowItemExists(itemId: string): Promise<boolean> {
 export async function buildTimWarmGroqAugmentationText(itemId: string): Promise<string | null> {
   const augRow = await fetchWorkflowItemAugRow(itemId);
   if (!augRow) return null;
-  const typeId = resolveWorkflowRegistryForQueue(augRow.spec, {
-    packageSpec: augRow.package_spec,
-    ownerAgent: augRow.ownerAgent,
-    boardStages: augRow.board_stages,
-  });
+  const customMap = await loadCustomWorkflowTypeMap();
+  const typeId = resolveWorkflowRegistryForQueueWithCustomMap(
+    augRow.spec,
+    {
+      packageSpec: augRow.package_spec,
+      ownerAgent: augRow.ownerAgent,
+      boardStages: augRow.board_stages,
+    },
+    customMap
+  );
   if (!looksLikeWarmMessagingWorkflow(typeId, augRow.spec, augRow.workflowName)) return null;
 
   const [notes, packageBrief, contactFirst, crmPersonId, enrichmentQueryRows, threadRows] =

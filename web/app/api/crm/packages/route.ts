@@ -2,11 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { DEFAULT_WARM_OUTREACH_DISCOVERY } from "@/lib/warm-outreach-discovery";
 import { PACKAGE_TEMPLATES, type PackageDeliverable } from "@/lib/package-types";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import type { WorkflowTypeSpec } from "@/lib/workflow-types";
+import {
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryIdWithCustom,
+  resolveWorkflowTypeFromMaps,
+} from "@/lib/workflow-registry";
 import {
   parseJsonObject,
   workflowTypeFromSpec,
-  resolveWorkflowRegistryId,
 } from "@/lib/workflow-spec";
 import { stripUseFakeDataWhenPackageNotInTesting } from "@/lib/package-use-fake-data";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
@@ -26,7 +30,7 @@ interface WorkflowBreakdownStage {
   key: string;
   label: string;
   color: string;
-  /** Human step (planner-style icon) — from WORKFLOW_TYPES when known */
+  /** Human step (planner-style icon) — from workflow type registry when known */
   requiresHuman?: boolean;
 }
 
@@ -35,6 +39,9 @@ interface WorkflowBreakdownRow {
   name: string;
   ownerAgent: string;
   workflowType: string;
+  /** Registry label for workflow type (built-in or custom) */
+  workflowTypeLabel?: string;
+  itemType?: "person" | "content";
   targetCount: number;
   /** Package/template line e.g. "Five messages per day" — prefer over raw targetCount in UI */
   volumeLabel: string | null;
@@ -82,9 +89,10 @@ function deliverableMetaForWorkflow(
 
 function enrichStagesHuman(
   stages: WorkflowBreakdownStage[],
-  registryId: string
+  registryId: string,
+  getSpec: (id: string) => WorkflowTypeSpec | undefined
 ): WorkflowBreakdownStage[] {
-  const def = WORKFLOW_TYPES[registryId]?.defaultBoard?.stages;
+  const def = getSpec(registryId)?.defaultBoard?.stages;
   return stages.map((s) => {
     const match = def?.find((d) => d.key.toUpperCase() === s.key.toUpperCase());
     return {
@@ -117,10 +125,11 @@ function parseBoardStagesJson(raw: unknown): WorkflowBreakdownStage[] {
 
 function stagesForWorkflow(
   boardStages: WorkflowBreakdownStage[],
-  workflowType: string
+  workflowType: string,
+  getSpec: (id: string) => WorkflowTypeSpec | undefined
 ): WorkflowBreakdownStage[] {
   if (boardStages.length > 0) return boardStages;
-  const def = WORKFLOW_TYPES[workflowType]?.defaultBoard?.stages;
+  const def = getSpec(workflowType)?.defaultBoard?.stages;
   if (!def?.length) return [];
   return def.map((s) => ({ key: s.key, label: s.label, color: s.color }));
 }
@@ -145,6 +154,9 @@ async function attachWorkflowBreakdown(
   rows: Record<string, unknown>[]
 ): Promise<Record<string, unknown>[]> {
   if (rows.length === 0) return rows;
+
+  const customMap = await loadCustomWorkflowTypeMap();
+  const getSpec = (id: string) => resolveWorkflowTypeFromMaps(id, customMap);
 
   const pkgIds = rows.map((r) => String(r.id));
 
@@ -185,24 +197,28 @@ async function attachWorkflowBreakdown(
     const pkgRow = rows.find((r) => String(r.id) === pkgId);
     const templateId = String(pkgRow?.templateId || "");
     const spec = parseWorkflowSpec(wf.spec);
-    const registryId = resolveWorkflowRegistryId(spec.workflowType) || "";
+    const registryId =
+      resolveWorkflowRegistryIdWithCustom(spec.workflowType, customMap) || "";
     const boardStages = parseBoardStagesJson(wf.board_stages);
-    const baseStages = stagesForWorkflow(boardStages, registryId || spec.workflowType || "");
+    const baseStages = stagesForWorkflow(boardStages, registryId || spec.workflowType || "", getSpec);
     const stageCounts = countsByWf[String(wf.id)] || {};
     const totalItems = Object.values(stageCounts).reduce((a, b) => a + b, 0);
     const merged = mergeStageCountsIntoDisplayOrder(baseStages, stageCounts);
-    const stages = enrichStagesHuman(merged, registryId);
+    const stages = enrichStagesHuman(merged, registryId, getSpec);
     const delMeta = deliverableMetaForWorkflow(pkgRow?.spec, templateId, registryId);
     const targetFromWf = spec.targetCount ?? 0;
     const targetFromTemplate = delMeta.templateTarget ?? 0;
     const targetCount =
       targetFromWf > 0 ? targetFromWf : targetFromTemplate > 0 ? targetFromTemplate : 0;
 
+    const typeSpec = getSpec(registryId || spec.workflowType || "");
     const entry: WorkflowBreakdownRow = {
       id: String(wf.id),
       name: String(wf.name || ""),
       ownerAgent: String(wf.ownerAgent || ""),
       workflowType: registryId || spec.workflowType || "",
+      workflowTypeLabel: typeSpec?.label,
+      itemType: typeSpec?.itemType,
       targetCount,
       volumeLabel: delMeta.volumeLabel || null,
       totalItems,

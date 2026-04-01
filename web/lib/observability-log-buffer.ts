@@ -11,9 +11,17 @@ const MAX_ENTRIES = 120;
 /** Large enough for one `[groq-debug-session]` blob (full tool loop) per user message. */
 const MAX_CHARS_PER_ENTRY = 1_000_000;
 
-export type GroqObservabilityEntry = { ts: number; text: string };
+export type GroqObservabilityEntry = { ts: number; text: string; seq?: number };
 
 const GLOBAL_GROQ_BUFFER_KEY = "__ccGroqObservabilityLogBuffer" as const;
+const GLOBAL_GROQ_SEQ_KEY = "__ccGroqObservabilityLogSeq" as const;
+
+function nextGroqSeq(): number {
+  const g = globalThis as unknown as Record<string, number | undefined>;
+  const n = (g[GLOBAL_GROQ_SEQ_KEY] ?? 0) + 1;
+  g[GLOBAL_GROQ_SEQ_KEY] = n;
+  return n;
+}
 
 function getGroqBuffer(): GroqObservabilityEntry[] {
   const g = globalThis as unknown as Record<string, GroqObservabilityEntry[] | undefined>;
@@ -29,7 +37,7 @@ export function pushGroqObservabilityLog(text: string): void {
     text.length > MAX_CHARS_PER_ENTRY
       ? `${text.slice(0, MAX_CHARS_PER_ENTRY)}\n… [truncated for Observation buffer]`
       : text;
-  buf.push({ ts: Date.now(), text: clipped });
+  buf.push({ ts: Date.now(), text: clipped, seq: nextGroqSeq() });
   while (buf.length > MAX_ENTRIES) buf.shift();
 }
 
@@ -37,7 +45,12 @@ export function getGroqObservabilityLogs(limit: number): GroqObservabilityEntry[
   const buf = getGroqBuffer();
   const n = Math.min(Math.max(0, limit), MAX_ENTRIES);
   if (n === 0) return [];
-  return buf.slice(-n);
+  const slice = buf.slice(-n);
+  return [...slice].sort((a, b) => {
+    const dq = (b.seq ?? 0) - (a.seq ?? 0);
+    if (dq !== 0) return dq;
+    return b.ts - a.ts;
+  });
 }
 
 export function clearGroqObservabilityLogs(): void {

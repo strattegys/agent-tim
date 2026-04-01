@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type TimLabLogEntry = { ts: number; text: string };
+export type TimLabLogEntry = { ts: number; text: string; seq?: number };
 
 function formatLogCardTime(ts: number): string {
   try {
@@ -111,7 +111,11 @@ function prettifyInspectText(text: string): string {
       const body = rest.slice(sep + 2);
       try {
         const o = JSON.parse(headerStr);
-        return `[groq-debug-session]\n${JSON.stringify(o, null, 2)}\n\n--- full trace ---\n\n${body}`;
+        const blockSep = "\n\n────────────────────────────────────────\n\n";
+        const parts = body.split(blockSep);
+        const bodyNewestFirst =
+          parts.length > 1 ? parts.slice().reverse().join(blockSep) : body;
+        return `[groq-debug-session]\n${JSON.stringify(o, null, 2)}\n\n--- full trace (newest first) ---\n\n${bodyNewestFirst}`;
       } catch {
         return text;
       }
@@ -243,7 +247,14 @@ function LogCardColumn({
   onClear: () => void;
   onInspect: (entry: TimLabLogEntry) => void;
 }) {
-  const shown = [...entries].reverse();
+  const shown = [...entries].sort((a, b) => {
+    const sb = typeof b.seq === "number" && Number.isFinite(b.seq) ? b.seq : 0;
+    const sa = typeof a.seq === "number" && Number.isFinite(a.seq) ? a.seq : 0;
+    if (sb !== sa) return sb - sa;
+    const tb = Number(b.ts);
+    const ta = Number(a.ts);
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col">
@@ -271,7 +282,7 @@ function LogCardColumn({
         ) : (
           shown.map((entry, i) => (
             <LogEntryCard
-              key={`${entry.ts}-${i}`}
+              key={entry.seq != null ? `seq-${entry.seq}` : `ts-${entry.ts}-${i}`}
               entry={entry}
               onInspect={() => onInspect(entry)}
             />

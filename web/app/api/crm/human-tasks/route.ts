@@ -1,11 +1,13 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import type { WorkflowTypeSpec } from "@/lib/workflow-types";
+import { inferWorkflowRegistryFromBoardStages } from "@/lib/workflow-spec";
 import {
-  inferWorkflowRegistryFromBoardStages,
-  resolveWorkflowRegistryForQueue,
-} from "@/lib/workflow-spec";
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryForQueueWithCustomMap,
+  resolveWorkflowTypeFromMaps,
+} from "@/lib/workflow-registry";
 import {
   boardHumanMetaForStage,
   humanTaskOpenFromBoardStages,
@@ -700,9 +702,10 @@ async function fetchHumanTaskRows(
 
 function registryHumanMeta(
   workflowTypeId: string,
-  stageKey: string
+  stageKey: string,
+  customById: Map<string, WorkflowTypeSpec>
 ): { humanAction: string; stageLabel: string } | null {
-  const spec = WORKFLOW_TYPES[workflowTypeId];
+  const spec = resolveWorkflowTypeFromMaps(workflowTypeId, customById);
   if (!spec) return null;
   const st = spec.defaultBoard.stages.find((s) => s.key.toUpperCase() === stageKey);
   if (!st?.requiresHuman || !st.humanAction) return null;
@@ -849,6 +852,8 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    const customWfMap = await loadCustomWorkflowTypeMap();
+
     if (summaryOnly && ownerAgentFilter === "tim") {
       let activeCount = 0;
       let pendingFollowUpCount = 0;
@@ -856,11 +861,15 @@ export async function GET(req: NextRequest) {
         const stageKey = item.stage?.trim().toUpperCase() || "";
         if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKey)) continue;
         const workflowTypeId =
-          resolveWorkflowRegistryForQueue(item.spec, {
-            packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
-            ownerAgent: item.ownerAgent,
-            boardStages: item.board_stages,
-          }) || "";
+          resolveWorkflowRegistryForQueueWithCustomMap(
+            item.spec,
+            {
+              packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
+              ownerAgent: item.ownerAgent,
+              boardStages: item.board_stages,
+            },
+            customWfMap
+          ) || "";
         const waitingFollowUp = workflowTypeId === "warm-outreach" && stageKey === "MESSAGED";
         if (waitingFollowUp) pendingFollowUpCount += 1;
         else activeCount += 1;
@@ -879,11 +888,15 @@ export async function GET(req: NextRequest) {
       const stageKeyR = row.stage?.trim().toUpperCase() || "";
       if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyR)) continue;
       const workflowTypeIdR =
-        resolveWorkflowRegistryForQueue(row.spec, {
-          packageSpec: row.packageId ? packageSpecs[row.packageId] : undefined,
-          ownerAgent: row.ownerAgent,
-          boardStages: row.board_stages,
-        }) || "";
+        resolveWorkflowRegistryForQueueWithCustomMap(
+          row.spec,
+          {
+            packageSpec: row.packageId ? packageSpecs[row.packageId] : undefined,
+            ownerAgent: row.ownerAgent,
+            boardStages: row.board_stages,
+          },
+          customWfMap
+        ) || "";
       const patched = await repairWarmAwaitingDiscoveryRow(row, workflowTypeIdR);
       if (patched) rows[i] = patched;
     }
@@ -919,11 +932,15 @@ export async function GET(req: NextRequest) {
       if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyPre)) continue;
       if (item.sourceType !== "person" || !item.sourceId) continue;
       const workflowTypeIdPre =
-        resolveWorkflowRegistryForQueue(item.spec, {
-          packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
-          ownerAgent: item.ownerAgent,
-          boardStages: item.board_stages,
-        }) || "";
+        resolveWorkflowRegistryForQueueWithCustomMap(
+          item.spec,
+          {
+            packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
+            ownerAgent: item.ownerAgent,
+            boardStages: item.board_stages,
+          },
+          customWfMap
+        ) || "";
       const pPre = personRowsMap.get(item.sourceId);
       if (!pPre) continue;
       const fnPre = (pPre.firstName || "").trim();
@@ -1016,16 +1033,22 @@ export async function GET(req: NextRequest) {
       const stageKey = item.stage?.trim().toUpperCase() || "";
       if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKey)) continue;
 
-      const matchedType = resolveWorkflowRegistryForQueue(item.spec, {
-        packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
-        ownerAgent: item.ownerAgent,
-        boardStages: item.board_stages,
-      });
+      const matchedType = resolveWorkflowRegistryForQueueWithCustomMap(
+        item.spec,
+        {
+          packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
+          ownerAgent: item.ownerAgent,
+          boardStages: item.board_stages,
+        },
+        customWfMap
+      );
       const workflowTypeId = matchedType || "";
 
       const fromBoard = boardHumanMetaForStage(item.board_stages, item.stage);
       const fromRegistry =
-        workflowTypeId && !fromBoard ? registryHumanMeta(workflowTypeId, stageKey) : null;
+        workflowTypeId && !fromBoard
+          ? registryHumanMeta(workflowTypeId, stageKey, customWfMap)
+          : null;
       let stageInfo = fromBoard
         ? { stageLabel: fromBoard.label, humanAction: fromBoard.humanAction }
         : fromRegistry || {

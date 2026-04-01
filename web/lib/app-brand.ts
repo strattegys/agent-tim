@@ -47,6 +47,11 @@ export function isDevAppBranding(): boolean {
   );
 }
 
+/** Agent header “Dev” toggle (compact layout + log dock). Laptop-local only — not hosted production. */
+export function showAgentDevLayoutToggle(): boolean {
+  return isDevAppBranding() || getLocalRuntimeLabel() === "LOCALPROD";
+}
+
 export function getAppleWebAppShortName(): string {
   const label = getLocalRuntimeLabel();
   if (label) return `CC · ${label}`;

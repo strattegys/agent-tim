@@ -1,6 +1,7 @@
 import "server-only";
 
 import { schedule, type ScheduledTask } from "node-cron";
+import { pushWorkflowObservabilityEvent } from "./workflow-observability-buffer";
 import { execFile } from "child_process";
 import { appendFileSync } from "fs";
 import { AGENT_REGISTRY } from "./agent-registry";
@@ -44,6 +45,9 @@ globalForCron.__cronJobRegistry = jobRegistry;
 
 const scheduledTasks = globalForCron.__cronScheduledTasks ?? new Map<string, ScheduledTask>();
 globalForCron.__cronScheduledTasks = scheduledTasks;
+
+/** Avoid flooding the Friday workflow trace buffer (runs every minute). */
+const CRON_TRACE_SKIP_IDS = new Set<string>(["unipile-webhook-inbox-drain"]);
 
 let initialized = globalForCron.__cronInitialized ?? false;
 
@@ -96,6 +100,14 @@ function registerJob(
         job.lastRun = startTime;
         job.lastResult = "success";
         logToFile(config.logFile, `[OK] ${config.name} completed`);
+        if (!CRON_TRACE_SKIP_IDS.has(config.id)) {
+          pushWorkflowObservabilityEvent("cron_job", {
+            jobId: config.id,
+            name: config.name,
+            agentId: config.agentId,
+            result: "success",
+          });
+        }
       } catch (error) {
         const errMsg =
           error instanceof Error ? error.message : String(error);
@@ -103,6 +115,15 @@ function registerJob(
         job.lastResult = `error: ${errMsg.slice(0, 200)}`;
         logToFile(config.logFile, `[ERROR] ${config.name}: ${errMsg}`);
         console.error(`[cron] ${config.name} failed:`, errMsg);
+        if (!CRON_TRACE_SKIP_IDS.has(config.id)) {
+          pushWorkflowObservabilityEvent("cron_job", {
+            jobId: config.id,
+            name: config.name,
+            agentId: config.agentId,
+            result: "error",
+            error: errMsg.slice(0, 500),
+          });
+        }
       }
     },
     cronOpts

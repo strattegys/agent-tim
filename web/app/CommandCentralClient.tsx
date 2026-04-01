@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import ChatWindow, { type Message } from "@/components/ChatWindow";
 import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
 import PanelSkeleton from "@/components/shared/PanelSkeleton";
 import type { MarniKnowledgeFocus } from "@/components/marni/MarniKnowledgePanel";
-import StatusRail from "@/components/StatusRail";
+import StatusRail, { type StatusRailLabMode } from "@/components/StatusRail";
 import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
 
 const AgentInfoPanel = dynamic(() => import("@/components/AgentInfoPanel"), { loading: () => <PanelSkeleton /> });
@@ -22,7 +22,7 @@ const AgentKnowledgePanel = dynamic(() => import("@/components/agents/AgentKnowl
 const KingCostPanel = dynamic(() => import("@/components/king/KingCostPanel"), { loading: () => <PanelSkeleton /> });
 
 import AgentAvatar from "@/components/AgentAvatar";
-import { getSidebarHeaderTitle } from "@/lib/app-brand";
+import { getSidebarHeaderTitle, showAgentDevLayoutToggle } from "@/lib/app-brand";
 import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
 import { sidebarAttentionCount } from "@/lib/chat-sidebar-attention";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
@@ -102,14 +102,15 @@ function timLabQueryTruthy(raw: string | null): boolean {
 
 /** Friday work-panel tab from URL (`panel=` and legacy Penny / workflow links). */
 function fridayTabFromSearchParams(agent: string | null, panel: string | null): FridayDashboardTab {
-  if (panel === "tasks") return "queue";
+  if (panel === "tasks") return "package-kanban";
   if (panel === "tools") return "tools";
   if (panel === "goals") return "goals";
   if (panel === "cron") return "cron";
   if (panel === "pkg-templates" || panel === "package-templates") return "pkg-templates";
   if (panel === "wf-templates" || panel === "workflow-templates") return "wf-templates";
-  if (panel === "planner") return "planner";
-  if (agent === "penny" && panel === "dashboard") return "planner";
+  if (panel === "package-kanban") return "package-kanban";
+  if (panel === "planner") return "package-kanban";
+  if (agent === "penny" && panel === "dashboard") return "package-kanban";
   if (panel === "dashboard") return "goals";
   if (
     panel === "workflow-manager" ||
@@ -118,8 +119,47 @@ function fridayTabFromSearchParams(agent: string | null, panel: string | null): 
     panel === "workflows" ||
     panel === "pipelines"
   )
-    return "queue";
+    return "package-kanban";
   return "goals";
+}
+
+/** Inverse of `fridayTabFromSearchParams` for writing shareable URLs while Dev layout is on. */
+function fridayDashboardTabToPanelParam(tab: FridayDashboardTab): string {
+  switch (tab) {
+    case "package-kanban":
+      return "tasks";
+    case "pkg-templates":
+      return "pkg-templates";
+    case "wf-templates":
+      return "wf-templates";
+    case "tools":
+      return "tools";
+    case "goals":
+      return "goals";
+    case "cron":
+      return "cron";
+    default:
+      return "goals";
+  }
+}
+
+function rightPanelToSearchParam(
+  agent: string,
+  rp: RightPanel,
+  fridayTab: FridayDashboardTab
+): string | null {
+  if (agent === "friday" && rp === "dashboard") {
+    return fridayDashboardTabToPanelParam(fridayTab);
+  }
+  if (rp === "messages") return "messages";
+  if (rp === "reminders") return "reminders";
+  if (rp === "notes") return "notes";
+  if (rp === "tasks") return "tasks";
+  if (rp === "costs") return "costs";
+  if (rp === "marni-work") return "kanban";
+  if (rp === "agent-knowledge") return "knowledge";
+  if (rp === "kanban") return "kanban";
+  return null;
 }
 
 const FRIDAY_WORK_DASHBOARD_PANELS = new Set<string>([
@@ -135,19 +175,38 @@ const FRIDAY_WORK_DASHBOARD_PANELS = new Set<string>([
   "workflow-manager",
   "packages",
   "planner",
+  "package-kanban",
   "observation",
   "workflows",
   "pipelines",
 ]);
 
 export default function CommandCentralClient() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const paramAgent = searchParams.get("agent");
   const paramPanel = searchParams.get("panel");
   const timLabLayout = timLabQueryTruthy(searchParams.get("timLab"));
   const fridayLabLayout = timLabQueryTruthy(searchParams.get("fridayLab"));
+  const devLabFromUrl = timLabQueryTruthy(searchParams.get("devLab"));
   /** Same chrome as Tim lab: no left agent rail, wider main + right column (workflow / messaging focus). */
   const compactLabLayout = timLabLayout || fridayLabLayout;
+
+  const [devCompactLayout, setDevCompactLayout] = useState(
+    () => devLabFromUrl && !timLabLayout && !fridayLabLayout
+  );
+  /** URL lab query or agent-header Dev toggle (local builds only). */
+  const effectiveCompactLab = compactLabLayout || devCompactLayout;
+
+  /** Keep local Dev flag aligned with `devLab=` (back/forward, manual URL edits). `timLab` / `fridayLab` own compact layout separately. */
+  useEffect(() => {
+    if (timLabLayout || fridayLabLayout) {
+      setDevCompactLayout(false);
+      return;
+    }
+    setDevCompactLayout(devLabFromUrl);
+  }, [devLabFromUrl, timLabLayout, fridayLabLayout]);
 
   // Each agent's default panel when selected
   function defaultPanelFor(agentId: string): RightPanel {
@@ -184,6 +243,13 @@ export default function CommandCentralClient() {
     return p || defaultPanelFor(agent);
   });
 
+  const statusRailLabMode = useMemo((): StatusRailLabMode => {
+    if (timLabLayout) return "tim";
+    if (fridayLabLayout) return "friday";
+    if (devCompactLayout) return activeAgent === "friday" ? "friday" : "tim";
+    return "off";
+  }, [timLabLayout, fridayLabLayout, devCompactLayout, activeAgent]);
+
   // Deep links (e.g. Friday → ?agent=tim&panel=messages): searchParams update but state
   // was only initialized on mount — sync when the URL changes.
   useEffect(() => {
@@ -195,13 +261,13 @@ export default function CommandCentralClient() {
     if (fridayLabLayout) {
       setActiveAgent("friday");
       setRightPanel("dashboard");
-      setFridayDashboardTab("queue");
+      setFridayDashboardTab("package-kanban");
       return;
     }
     if (paramAgent === "penny" && paramPanel === "dashboard") {
       setActiveAgent("friday");
       setRightPanel("dashboard");
-      setFridayDashboardTab("planner");
+      setFridayDashboardTab("package-kanban");
       return;
     }
     if (paramAgent && AGENTS.some((a) => a.id === paramAgent)) {
@@ -398,6 +464,50 @@ export default function CommandCentralClient() {
   const [fridayDashboardTab, setFridayDashboardTab] = useState<FridayDashboardTab>(() =>
     fridayTabFromSearchParams(searchParams.get("agent"), searchParams.get("panel"))
   );
+
+  const toggleDevLayout = useCallback(() => {
+    const basePath = pathname || "/";
+    const params = new URLSearchParams(searchParams.toString());
+
+    if (timLabLayout || fridayLabLayout) {
+      params.delete("timLab");
+      params.delete("fridayLab");
+      if (!params.get("agent") && activeAgent) {
+        params.set("agent", activeAgent);
+      }
+      const panelQ = rightPanelToSearchParam(activeAgent, rightPanel, fridayDashboardTab);
+      if (panelQ && !params.get("panel")) {
+        params.set("panel", panelQ);
+      }
+      const qs = params.toString();
+      router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
+      return;
+    }
+
+    const next = !devCompactLayout;
+    setDevCompactLayout(next);
+    if (next) {
+      params.set("devLab", "1");
+      params.set("agent", activeAgent);
+      const panelQ = rightPanelToSearchParam(activeAgent, rightPanel, fridayDashboardTab);
+      if (panelQ) params.set("panel", panelQ);
+    } else {
+      params.delete("devLab");
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${basePath}?${qs}` : basePath, { scroll: false });
+  }, [
+    pathname,
+    router,
+    searchParams,
+    timLabLayout,
+    fridayLabLayout,
+    devCompactLayout,
+    activeAgent,
+    rightPanel,
+    fridayDashboardTab,
+  ]);
+
   const [marniKnowledgeFocus, setMarniKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
   const [timKnowledgeFocus, setTimKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
 
@@ -1328,12 +1438,12 @@ export default function CommandCentralClient() {
       {/* Desktop: sidebar + chat + agent panel + status rail (grid reserves the right column) */}
       <div
         className={
-          compactLabLayout
+          effectiveCompactLab
             ? "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[384px_minmax(0,1fr)_minmax(280px,22%)] md:grid-rows-1"
             : "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[200px_384px_minmax(0,1fr)_minmax(160px,10%)] md:grid-rows-1"
         }
       >
-        {!compactLabLayout ? (
+        {!effectiveCompactLab ? (
         <AgentSidebar
           agents={agents}
           activeAgent={activeAgent}
@@ -1520,7 +1630,7 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Friday — goals, queue, planner, templates & tools"
+                title="Friday — goals, package kanban, templates & tools"
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -1637,6 +1747,20 @@ export default function CommandCentralClient() {
             >
               <KnowledgeRagIcon size={25} stroke="currentColor" />
             </button>
+            {showAgentDevLayoutToggle() ? (
+              <button
+                type="button"
+                onClick={() => toggleDevLayout()}
+                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] min-w-[34px] flex items-center justify-center ${
+                  effectiveCompactLab
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Dev layout: hide agent sidebar, widen chat — adds devLab=1 (and agent/panel) to the URL so refresh stays here; click again to remove devLab. With timLab/fridayLab in the URL, click to clear those instead."
+              >
+                <span className="text-[10px] font-bold leading-none tracking-tight font-mono">Dev</span>
+              </button>
+            ) : null}
             </div>
           </div>
           <div className="flex-1 min-w-2 min-h-[1px]" aria-hidden />
@@ -1726,7 +1850,7 @@ export default function CommandCentralClient() {
         <StatusRail
           agents={agents}
           sharedNotifications={dashboardNotifications}
-          labMode={timLabLayout ? "tim" : fridayLabLayout ? "friday" : "off"}
+          labMode={statusRailLabMode}
         />
       </div>
 

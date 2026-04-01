@@ -7,17 +7,18 @@
 # First-time DB volume is empty (only `vector` ext from docker/crm-db-init) until you pg_restore a backup
 # or run migrations; Kanban needs the workspace schema from a real Twenty/CRM dump or use LOCALPROD Docker for a full local copy.
 #
-# **Tim / LOCALDEV UI + production CRM data:** use remote droplet Postgres — from COMMAND-CENTRAL run:
-#   .\scripts\dev-docker-up.ps1 -UseRemoteCrm
-# That starts a host listener on 0.0.0.0:5433 (Tailscale bridge or SSH to the droplet) and merges
-# docker-compose.dev-remote-crm.yml so **web** uses CRM_DB_HOST=host.docker.internal (not crm-db).
-# Ensure web/.env.local CRM_DB_PASSWORD (and name/user) match the **droplet** CRM — not only the empty local volume.
+# **Tim / LOCALDEV UI + production CRM data (recommended):** put CC_DOCKER_CRM_DB_HOST / CC_DOCKER_CRM_DB_PORT
+# in COMMAND-CENTRAL/.env (see .env.docker-dev.example) so **web** reaches droplet Postgres over Tailscale
+# from inside the container — no host bridge; survives PC restart. Recreate **web** after changing .env.
 #
-# **Remote droplet CRM (optional):** same script/overlay. **Direct tailnet from container:** CC_DOCKER_CRM_DB_HOST / PORT (advanced).
+# **Fallback:** .\scripts\dev-docker-up.ps1 -UseRemoteCrm — host listener 0.0.0.0:5433 + docker-compose.dev-remote-crm.yml
+# (host.docker.internal). Bridge dies on reboot unless you run -UseRemoteCrm or npm run db:reconnect again.
+# Ensure web/.env.local CRM_DB_PASSWORD (and name/user) match the **droplet** CRM.
 #
 # Host access (pg_restore / db:exec / Cursor terminal): 127.0.0.1:25432 — same CRM_DB_PASSWORD as .env.local.
 # If .env.local still says CRM_DB_HOST=crm-db, host-side scripts remap crm-db → 127.0.0.1:25432 automatically (crm-db-pool.mjs).
-# Verify DB:  docker compose --env-file web/.env.local -f docker-compose.dev.yml exec web npm run check-crm-db
+# Verify DB:  docker compose --env-file .env --env-file web/.env.local -f docker-compose.dev.yml exec web npm run check-crm-db
+#   (omit --env-file .env if you have no COMMAND-CENTRAL/.env; or use .\scripts\dev-docker-up.ps1)
 ## Hot reload works via volume mount of web/ directory.
 # LOCALDEV: http://localhost:3010 — use this host in the browser (not 127.0.0.1). Compose sets AUTH_URL /
 # NEXTAUTH_URL and NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV. For LOCALPROD in Docker see docker-compose.local-prod-desktop.yml.

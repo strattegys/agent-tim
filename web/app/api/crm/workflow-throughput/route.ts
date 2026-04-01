@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import type { ThroughputGoalStatus, WorkflowThroughputRow } from "@/lib/workflow-throughput-types";
-import {
-  workflowTypesWithThroughputGoals,
-  type WorkflowThroughputGoalSpec,
-  type WorkflowThroughputMetric,
-} from "@/lib/workflow-types";
+import type { WorkflowThroughputGoalSpec, WorkflowThroughputMetric } from "@/lib/workflow-types";
+import { workflowTypesWithThroughputGoalsMerged } from "@/lib/workflow-registry";
 
 const DEFAULT_TZ = "America/New_York";
 
@@ -33,10 +30,13 @@ function classifyStatus(
   return { status: "on_track", minExpectedByNow };
 }
 
-/** Match workflow rows whether `spec` is jsonb or text JSON (Twenty / CRM). */
+/**
+ * Match workflow type without `spec::jsonb` — some CRM rows store invalid or non-JSON text in
+ * `spec`, which makes jsonb casts fail the whole query. Substring on spec::text is resilient.
+ */
 const WF_TYPE_SQL = `LOWER(TRIM(COALESCE(
-  (w.spec::jsonb->>'workflowType'),
-  (w.spec::jsonb->>'workflow_type'),
+  NULLIF(TRIM(SUBSTRING(w.spec::text FROM '"workflowType"\\s*:\\s*"([^"]*)"')), ''),
+  NULLIF(TRIM(SUBSTRING(w.spec::text FROM '"workflow_type"\\s*:\\s*"([^"]*)"')), ''),
   ''
 ))) = LOWER(TRIM($2::text))`;
 
@@ -159,7 +159,7 @@ async function rowForGoal(
 export async function GET(req: NextRequest) {
   try {
     const tz = req.nextUrl.searchParams.get("timezone")?.trim() || DEFAULT_TZ;
-    const defs = workflowTypesWithThroughputGoals();
+    const defs = await workflowTypesWithThroughputGoalsMerged();
     const items: WorkflowThroughputRow[] = [];
     for (const d of defs) {
       items.push(await rowForGoal(d.id, d.label, d.throughputGoal, tz));

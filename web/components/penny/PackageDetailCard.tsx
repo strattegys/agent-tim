@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { WORKFLOW_TYPES, type StageSpec } from "@/lib/workflow-types";
+import { WORKFLOW_TYPES, type StageSpec, type WorkflowTypeSpec } from "@/lib/workflow-types";
 import type { PackageSpec, PackageDeliverable } from "@/lib/package-types";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
 import { TIM_WARM_OUTREACH_PACKAGE_BRIEF } from "@/lib/package-spec-briefs/tim-warm-outreach-package-brief";
@@ -44,6 +44,23 @@ interface PackageDetailCardProps {
 }
 
 export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMutate }: PackageDetailCardProps) {
+  const [wfLookup, setWfLookup] = useState<Record<string, WorkflowTypeSpec>>(() => ({ ...WORKFLOW_TYPES }));
+  useEffect(() => {
+    let cancel = false;
+    fetch("/api/crm/workflow-type-definitions", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { types?: WorkflowTypeSpec[] } | null) => {
+        if (cancel || !data?.types?.length) return;
+        const m: Record<string, WorkflowTypeSpec> = {};
+        for (const t of data.types) m[t.id] = t;
+        setWfLookup(m);
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, []);
+
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (typeof initialCollapsed === "boolean") return initialCollapsed;
     const stage = String(pkg.stage ?? "")
@@ -251,7 +268,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
       } else {
         setSimLog((prev) => [
           `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
-          ...(data.activationLog || []),
+          ...[...(data.activationLog || [])].reverse(),
           ...(data.detail ? [`Detail: ${data.detail}`] : []),
           ...prev,
         ]);
@@ -285,7 +302,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
       } else {
         setSimLog((prev) => [
           `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
-          ...(data.activationLog || []),
+          ...[...(data.activationLog || [])].reverse(),
           ...(data.detail ? [`Detail: ${data.detail}`] : []),
           ...prev,
         ]);
@@ -319,7 +336,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
       } else {
         setSimLog((prev) => [
           `[${new Date().toLocaleTimeString()}] Error: ${data.error}`,
-          ...(data.activationLog || []),
+          ...[...(data.activationLog || [])].reverse(),
           ...(data.detail ? [`Detail: ${data.detail}`] : []),
           ...prev,
         ]);
@@ -564,7 +581,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
       {deliverables.length > 0 && (
         <div className="border-t border-[var(--border-color)] px-4 py-4 space-y-5">
           {deliverables.map((d, idx) => {
-            const wfType = WORKFLOW_TYPES[d.workflowType];
+            const wfType = wfLookup[d.workflowType];
             const stages = wfType?.defaultBoard?.stages || [];
             const itemTypeLabel = wfType
               ? ITEM_TYPE_LABELS[wfType.itemType] || wfType.itemType
@@ -593,6 +610,7 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
                 stageCounts={progress[d.workflowType] || {}}
                 volumeInfo={volumeInfo[d.workflowType]}
                 pacing={d.pacing}
+                workflowTypesById={wfLookup}
                 onInspect={async () => {
                   let wid = workflowIds[d.workflowType];
                   if (!wid) {
@@ -693,6 +711,7 @@ interface DeliverableRowProps {
   volumeInfo?: { targetCount: number; totalItems: number };
   pacing?: { batchSize: number; interval: string; bufferPercent?: number };
   onInspect: () => void | Promise<void>;
+  workflowTypesById: Record<string, WorkflowTypeSpec>;
 }
 
 function DeliverableRow({
@@ -714,6 +733,7 @@ function DeliverableRow({
   volumeInfo,
   pacing,
   onInspect,
+  workflowTypesById,
 }: DeliverableRowProps) {
   const agentColor = getAgentSpec(agent).color;
   const totalInPipeline = volumeInfo?.totalItems || 0;
@@ -785,10 +805,10 @@ function DeliverableRow({
           {blockedBy.map((dep, i) => {
             const depDeliverable = allDeliverables[dep.deliverableIndex];
             const depWf = depDeliverable
-              ? WORKFLOW_TYPES[depDeliverable.workflowType]
+              ? workflowTypesById[depDeliverable.workflowType]
               : null;
             const depStage = depWf?.defaultBoard?.stages.find(
-              (s) => s.key === dep.stage
+              (st: StageSpec) => st.key === dep.stage
             );
             return (
               <div
@@ -834,8 +854,10 @@ function DeliverableRow({
         <div className="mb-4">
           {(() => {
             const triggerDel = allDeliverables[stopWhen.deliverableIndex];
-            const triggerWf = triggerDel ? WORKFLOW_TYPES[triggerDel.workflowType] : null;
-            const triggerStage = triggerWf?.defaultBoard?.stages.find(s => s.key === stopWhen.stage);
+            const triggerWf = triggerDel ? workflowTypesById[triggerDel.workflowType] : null;
+            const triggerStage = triggerWf?.defaultBoard?.stages.find(
+              (st: StageSpec) => st.key === stopWhen.stage
+            );
             return (
               <div className="flex items-center gap-1.5 text-[10px] text-[var(--text-tertiary)]">
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="opacity-60 shrink-0">
@@ -868,7 +890,7 @@ function DeliverableRow({
       {/* Stage pipeline */}
       {(() => {
         // Detect cycles: find stages that transition back to an earlier stage
-        const wfType = WORKFLOW_TYPES[allDeliverables[deliverableIndex]?.workflowType];
+        const wfType = workflowTypesById[allDeliverables[deliverableIndex]?.workflowType];
         const transitions = wfType?.defaultBoard?.transitions || {};
         const cycles: Array<{ fromIdx: number; toIdx: number }> = [];
         stages.forEach((s, i) => {

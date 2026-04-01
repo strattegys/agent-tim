@@ -59,7 +59,7 @@ const tool: ToolModule = {
 
   async execute(args) {
     const { query: dbQuery } = await import("../db");
-    const { WORKFLOW_TYPES } = await import("../workflow-types");
+    const { getWorkflowTypeRegistry } = await import("../workflow-registry");
     const cmd = args.command;
 
     if (cmd === "list-workflows") {
@@ -181,7 +181,9 @@ const tool: ToolModule = {
     }
 
     if (cmd === "list-templates") {
-      return Object.values(WORKFLOW_TYPES)
+      const reg = await getWorkflowTypeRegistry();
+      return reg
+        .listAll()
         .map((t) => `- ${t.label} [${t.itemType}]: ${t.description} (id: ${t.id})`)
         .join("\n");
     }

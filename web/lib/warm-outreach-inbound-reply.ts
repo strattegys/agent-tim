@@ -4,7 +4,10 @@
  */
 import { query } from "@/lib/db";
 import { isLinkedInProviderMemberId } from "@/lib/linkedin-person-identity";
-import { resolveWorkflowRegistryForQueue } from "@/lib/workflow-spec";
+import {
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryForQueueWithCustomMap,
+} from "@/lib/workflow-registry";
 import {
   fetchUnipileLinkedInProfile,
   extractUnipilePublicIdentifierFromProfile,
@@ -52,13 +55,18 @@ export async function findPersonWorkflowItemsAtStage(
        AND wi."deletedAt" IS NULL`,
     [personId, stageNorm]
   );
+  const customMap = await loadCustomWorkflowTypeMap();
   const out: string[] = [];
   for (const r of rows) {
-    const typeId = resolveWorkflowRegistryForQueue(r.spec, {
-      packageSpec: r.package_spec,
-      ownerAgent: r.ownerAgent,
-      boardStages: r.board_stages,
-    });
+    const typeId = resolveWorkflowRegistryForQueueWithCustomMap(
+      r.spec,
+      {
+        packageSpec: r.package_spec,
+        ownerAgent: r.ownerAgent,
+        boardStages: r.board_stages,
+      },
+      customMap
+    );
     if (typeId === registryTypeId) out.push(r.id);
   }
   return out;

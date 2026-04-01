@@ -566,7 +566,3 @@ export function workflowTypesWithThroughputGoals(): Array<{
   );
 }
 
-/** Look up a workflow type by ID. Returns undefined if not found. */
-export function getWorkflowType(id: string): WorkflowTypeSpec | undefined {
-  return WORKFLOW_TYPES[id];
-}

@@ -4,6 +4,7 @@ import type { WorkflowItemType } from "@/lib/board-types";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+import { pushWorkflowObservabilityEvent } from "@/lib/workflow-observability-buffer";
 import { attachPersonToWorkflow } from "@/lib/attach-person-to-workflow";
 
 interface PersonRow {
@@ -187,6 +188,13 @@ export async function POST(request: NextRequest) {
       );
       const newWi = wiRows[0].id;
       await syncHumanTaskOpenForItem(newWi);
+      pushWorkflowObservabilityEvent("workflow_item_created", {
+        itemId: newWi,
+        workflowId,
+        stage,
+        sourceType: "content",
+        sourceId: contentId,
+      });
       return NextResponse.json({ id: newWi, sourceId: contentId });
     }
 
@@ -205,6 +213,14 @@ export async function POST(request: NextRequest) {
     if (!attached.ok) {
       return NextResponse.json({ error: attached.error }, { status: 400 });
     }
+    pushWorkflowObservabilityEvent("workflow_item_created", {
+      itemId: attached.id,
+      workflowId,
+      stage,
+      sourceType,
+      sourceId: String(sourceId),
+      closedIntakeItemId: attached.closedIntakeItemId ?? undefined,
+    });
     return NextResponse.json({
       id: attached.id,
       closedIntakeItemId: attached.closedIntakeItemId,
@@ -247,6 +263,11 @@ export async function PATCH(request: NextRequest) {
     if (stage !== undefined) {
       await syncHumanTaskOpenForItem(String(id));
     }
+    pushWorkflowObservabilityEvent("workflow_item_patch", {
+      itemId: String(id),
+      stage: stage !== undefined ? String(stage) : undefined,
+      position: position !== undefined ? position : undefined,
+    });
     notifyDashboardSyncChange();
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
@@ -265,6 +286,7 @@ export async function DELETE(request: NextRequest) {
       `UPDATE "_workflow_item" SET "deletedAt" = NOW(), "humanTaskOpen" = false WHERE id = $1 AND "deletedAt" IS NULL`,
       [id]
     );
+    pushWorkflowObservabilityEvent("workflow_item_deleted", { itemId: String(id) });
     notifyDashboardSyncChange();
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import OperationalPackageEditModal from "./OperationalPackageEditModal";
 import { getAgentSpec } from "@/lib/agent-registry";
 import AgentAvatar from "../AgentAvatar";
@@ -19,6 +18,10 @@ export interface FridayWorkflowBreakdown {
   name: string;
   ownerAgent: string;
   workflowType: string;
+  /** When set (operational packages API), human-readable workflow template name */
+  workflowTypeLabel?: string | null;
+  /** From workflow type registry when API includes it */
+  itemType?: "person" | "content";
   targetCount: number;
   /** Package planner line (e.g. five messages/day) */
   volumeLabel?: string | null;
@@ -56,11 +59,11 @@ function stageCount(map: Record<string, number>, key: string): number {
   return map[u] ?? map[key] ?? 0;
 }
 
-function HumanStepIcon({ className }: { className?: string }) {
+function HumanStepIcon({ className, size = 12 }: { className?: string; size?: number }) {
   return (
     <svg
-      width="7"
-      height="7"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="currentColor"
       stroke="none"
@@ -74,11 +77,9 @@ function HumanStepIcon({ className }: { className?: string }) {
 }
 
 function timHumanStagesCountForWorkflow(wf: FridayWorkflowBreakdown): number {
-  if (wf.ownerAgent?.toLowerCase() !== "tim" || !wf.workflowType) return 0;
-  const spec = WORKFLOW_TYPES[wf.workflowType];
-  if (!spec) return 0;
+  if (wf.ownerAgent?.toLowerCase() !== "tim") return 0;
   let n = 0;
-  for (const st of spec.defaultBoard.stages) {
+  for (const st of wf.stages) {
     if (st.requiresHuman) n += stageCount(wf.stageCounts, st.key);
   }
   return n;
@@ -93,11 +94,12 @@ export function FridayWorkflowPipelineBlock({
   onOpenBoard?: () => void;
 }) {
   const typeLabel =
-    (wf.workflowType && WORKFLOW_TYPES[wf.workflowType]?.label) || wf.name || "Workflow";
+    (typeof wf.workflowTypeLabel === "string" && wf.workflowTypeLabel.trim()) ||
+    wf.name ||
+    "Workflow";
   const ownerId = (wf.ownerAgent || "tim").toLowerCase();
   const agentSpec = getAgentSpec(ownerId);
-  const wfRegistry = wf.workflowType ? WORKFLOW_TYPES[wf.workflowType] : undefined;
-  const itemType = wfRegistry?.itemType ?? "person";
+  const itemType = wf.itemType ?? "person";
   const vol = typeof wf.volumeLabel === "string" ? wf.volumeLabel.trim() : "";
   const cap = wf.targetCount > 0 ? wf.targetCount : null;
   const flightNoun =
@@ -130,8 +132,8 @@ export function FridayWorkflowPipelineBlock({
             agentId={ownerId}
             name={agentSpec.name}
             color={agentSpec.color}
-            circleClassName="w-7 h-7 min-w-[28px] min-h-[28px]"
-            initialClassName="text-xs font-semibold text-white"
+            circleClassName="w-8 h-8 min-w-[32px] min-h-[32px]"
+            initialClassName="text-sm font-semibold text-white"
           />
         </span>
         <div className="flex flex-col min-w-0 flex-1">
@@ -158,34 +160,42 @@ export function FridayWorkflowPipelineBlock({
         ) : null}
       </div>
 
-      <div className="flex flex-wrap gap-1 items-center">
+      <div className="flex flex-wrap gap-x-1.5 gap-y-2 items-center">
         {wf.stages.map((s, i) => {
           const n = stageCount(wf.stageCounts, s.key);
           const expanded = s.requiresHuman === true;
           return (
-            <div key={s.key} className="flex items-center gap-0.5">
+            <div key={s.key} className="flex items-center gap-1">
               <span
                 title={`${s.label}: ${n} item(s)${expanded ? " · human step" : ""}`}
-                className="text-[9px] px-1.5 py-0.5 rounded-md font-medium border border-[var(--border-color)] inline-flex items-center gap-0.5 max-w-[9.5rem] bg-[var(--bg-primary)]"
+                className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-2 inline-flex flex-col items-stretch gap-1.5 min-w-[5.25rem] max-w-[11rem] shadow-sm"
                 style={{
                   color: n > 0 ? "var(--text-secondary)" : "var(--text-tertiary)",
                 }}
               >
-                {expanded && <HumanStepIcon className="text-[var(--text-tertiary)]" />}
-                <span className="truncate">{s.label}</span>
-                <span className="tabular-nums font-medium text-[10px] shrink-0">{n}</span>
+                <span className="flex items-start gap-1.5 min-h-[2.25rem]">
+                  {expanded ? (
+                    <HumanStepIcon size={12} className="text-[var(--text-tertiary)] mt-0.5" />
+                  ) : null}
+                  <span className="text-[11px] font-medium leading-snug line-clamp-2 break-words text-[var(--text-primary)]">
+                    {s.label}
+                  </span>
+                </span>
+                <span className="tabular-nums font-semibold text-sm text-center border-t border-[var(--border-color)]/60 pt-1.5 -mx-0.5 px-0.5">
+                  {n}
+                </span>
               </span>
               {i < wf.stages.length - 1 && (
                 <svg
-                  width="10"
-                  height="10"
+                  width="14"
+                  height="14"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="var(--text-tertiary)"
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  className="shrink-0 opacity-80"
+                  className="shrink-0 opacity-80 self-center"
                   aria-hidden
                 >
                   <polyline points="9 18 15 12 9 6" />

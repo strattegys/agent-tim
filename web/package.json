@@ -32,6 +32,7 @@
     "check:linkedin-inbound-orphans": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/check-linkedin-inbound-orphans.ts",
     "cron:linkedin-inbound-catchup": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/run-linkedin-inbound-catchup-once.ts",
     "db:punch-list-actions": "node scripts/db-exec.mjs scripts/migrate-punch-list-actions-jsonb.sql",
+    "db:workflow-type-custom": "node scripts/db-exec.mjs scripts/migrate-workflow-type-custom.sql",
     "migrate:orphan-workflows": "node scripts/migrate-orphan-workflows-to-packages.mjs",
     "prune:linkedin-connection-alerts": "node scripts/prune-linkedin-connection-notifications.mjs",
     "dev:unipile-recent": "node scripts/unipile-recent-chats.mjs",

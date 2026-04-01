@@ -9,7 +9,10 @@ import { getAgentConfig } from "@/lib/agent-config";
 import { addMessage } from "@/lib/session-store";
 import { query } from "@/lib/db";
 import { extractPlainDmFromDraftMarkdown } from "@/lib/warm-outreach-draft";
-import { resolveWorkflowRegistryForQueue } from "@/lib/workflow-spec";
+import {
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryForQueueWithCustomMap,
+} from "@/lib/workflow-registry";
 
 function gateDisabledEnv(): boolean {
   return process.env.LINKEDIN_SEND_CHAT_GATE?.trim() === "0";
@@ -246,12 +249,17 @@ export async function maybeNotifyTimAfterLinkedInDraftEdit(args: {
   const r = rows[0];
   if (!r) return;
 
+  const customMap = await loadCustomWorkflowTypeMap();
   const wfTypeId =
-    resolveWorkflowRegistryForQueue(r.spec, {
-      packageSpec: r.package_spec,
-      ownerAgent: r.ownerAgent,
-      boardStages: r.board_stages,
-    }) ?? "";
+    resolveWorkflowRegistryForQueueWithCustomMap(
+      r.spec,
+      {
+        packageSpec: r.package_spec,
+        ownerAgent: r.ownerAgent,
+        boardStages: r.board_stages,
+      },
+      customMap
+    ) ?? "";
   if (wfTypeId !== "warm-outreach") return;
 
   await notifyTimLinkedInDraftPendingSend({

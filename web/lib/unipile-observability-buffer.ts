@@ -11,10 +11,18 @@ import { observabilityApiAllowed } from "@/lib/observability-gate";
 const MAX_ENTRIES = 80;
 const MAX_CHARS_PER_ENTRY = 32_000;
 
-export type UnipileObservabilityEntry = { ts: number; text: string };
+export type UnipileObservabilityEntry = { ts: number; text: string; seq?: number };
 
 /** Same globalThis pattern as Groq buffer — survives dev HMR so Tim lab polling stays consistent. */
 const GLOBAL_UNIPILE_BUFFER_KEY = "__ccUnipileObservabilityLogBuffer" as const;
+const GLOBAL_UNIPILE_SEQ_KEY = "__ccUnipileObservabilityLogSeq" as const;
+
+function nextUnipileSeq(): number {
+  const g = globalThis as unknown as Record<string, number | undefined>;
+  const n = (g[GLOBAL_UNIPILE_SEQ_KEY] ?? 0) + 1;
+  g[GLOBAL_UNIPILE_SEQ_KEY] = n;
+  return n;
+}
 
 function getUnipileBuffer(): UnipileObservabilityEntry[] {
   const g = globalThis as unknown as Record<string, UnipileObservabilityEntry[] | undefined>;
@@ -37,7 +45,7 @@ export function pushUnipileObservabilityLog(text: string): void {
       ? `${text.slice(0, MAX_CHARS_PER_ENTRY)}\n… [truncated for Unipile lab buffer]`
       : text;
   const buf = getUnipileBuffer();
-  buf.push({ ts: Date.now(), text: clipped });
+  buf.push({ ts: Date.now(), text: clipped, seq: nextUnipileSeq() });
   while (buf.length > MAX_ENTRIES) buf.shift();
 }
 
@@ -45,7 +53,12 @@ export function getUnipileObservabilityLogs(limit: number): UnipileObservability
   const buf = getUnipileBuffer();
   const n = Math.min(Math.max(0, limit), MAX_ENTRIES);
   if (n === 0) return [];
-  return buf.slice(-n);
+  const slice = buf.slice(-n);
+  return [...slice].sort((a, b) => {
+    const dq = (b.seq ?? 0) - (a.seq ?? 0);
+    if (dq !== 0) return dq;
+    return b.ts - a.ts;
+  });
 }
 
 export function clearUnipileObservabilityLogs(): void {

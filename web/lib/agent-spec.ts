@@ -20,6 +20,7 @@ export type ToolId =
   | "workflow_items"
   | "reminders"
   | "workflow_manager"
+  | "workflow_type_definitions"
   | "package_manager"
   | "punch_list"
   | "notes"

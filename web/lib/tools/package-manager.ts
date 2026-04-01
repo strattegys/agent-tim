@@ -133,6 +133,19 @@ const tool: ToolModule = {
       if ((existing[0] as Record<string, unknown>).stage !== "DRAFT")
         return "Error: can only customize packages in DRAFT stage";
 
+      const parsed = JSON.parse(args.arg2) as { deliverables?: PackageDeliverable[] };
+      const dels = parsed?.deliverables;
+      if (!Array.isArray(dels) || dels.length === 0) {
+        return "Error: spec must include a non-empty deliverables array";
+      }
+      const { getWorkflowTypeRegistry } = await import("../workflow-registry");
+      const reg = await getWorkflowTypeRegistry();
+      for (const d of dels) {
+        if (!d?.workflowType || !reg.get(d.workflowType)) {
+          return `Error: unknown workflow type "${d?.workflowType ?? ""}" in deliverable "${d?.label ?? ""}". Use workflow_type_definitions list or Friday → Workflow templates.`;
+        }
+      }
+
       await dbQuery(
         `UPDATE "_package" SET spec = $1::jsonb, "updatedAt" = NOW() WHERE id = $2`,
         [args.arg2, args.arg1]
@@ -171,7 +184,7 @@ const tool: ToolModule = {
       }
 
       const { transaction } = await import("../db");
-      const { WORKFLOW_TYPES } = await import("../workflow-types");
+      const { getWorkflowTypeRegistry } = await import("../workflow-registry");
 
       const pkgRows = await dbQuery(
         `SELECT id, name, spec, stage FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
@@ -187,9 +200,9 @@ const tool: ToolModule = {
       if (!spec.deliverables || spec.deliverables.length === 0)
         return "Error: package has no deliverables";
 
-      // Validate all workflow types exist
+      const reg = await getWorkflowTypeRegistry();
       for (const d of spec.deliverables) {
-        if (!WORKFLOW_TYPES[d.workflowType]) {
+        if (!reg.get(d.workflowType)) {
           return `Error: unknown workflow type "${d.workflowType}" in deliverable "${d.label}"`;
         }
       }
@@ -198,7 +211,10 @@ const tool: ToolModule = {
         const workflows: Array<{ workflowId: string; boardId: string; label: string; agent: string }> = [];
 
         for (const d of spec.deliverables!) {
-          const wfType = WORKFLOW_TYPES[d.workflowType];
+          const wfType = reg.get(d.workflowType);
+          if (!wfType) {
+            throw new Error(`Missing workflow type ${d.workflowType}`);
+          }
 
           // Create board from template
           const boardResult = await run(

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import type { WorkflowTypeSpec } from "@/lib/workflow-types";
+import { getWorkflowTypeRegistry } from "@/lib/workflow-registry";
+
+type SimulateWfReg = { get: (id: string) => WorkflowTypeSpec | undefined };
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 
 /**
@@ -26,6 +29,7 @@ export async function POST(req: NextRequest) {
     const log: string[] = [];
     const MAX_ITERATIONS = 200; // safety valve
     let iteration = 0;
+    const wfReg = await getWorkflowTypeRegistry();
 
     // Run iterations until nothing advances
     while (iteration < MAX_ITERATIONS) {
@@ -50,7 +54,7 @@ export async function POST(req: NextRequest) {
       for (const wf of workflows) {
         const wfSpec = typeof wf.spec === "string" ? JSON.parse(wf.spec) : wf.spec;
         const wfTypeId = wfSpec?.workflowType;
-        const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
+        const wfType = wfTypeId ? wfReg.get(wfTypeId) : null;
         if (!wfType) continue;
 
         // Get all live items
@@ -147,7 +151,8 @@ export async function POST(req: NextRequest) {
             { id: item.id, workflowId: wf.id, sourceType: item.sourceType, sourceId: item.sourceId },
             wf,
             nextStage,
-            workflows
+            workflows,
+            wfReg
           );
           for (const h of handoffs) {
             log.push(`  ↳ Handoff: ${h.targetWorkflow} → ${h.stage}`);
@@ -210,7 +215,8 @@ async function checkHandoffs(
   item: { id: string; workflowId: string; sourceType: string; sourceId: string },
   wf: WorkflowRow,
   newStage: string,
-  allWorkflows: WorkflowRow[]
+  allWorkflows: WorkflowRow[],
+  wfReg: SimulateWfReg
 ): Promise<Array<{ targetWorkflow: string; stage: string }>> {
   if (!wf.packageId) return [];
   const handoffs: Array<{ targetWorkflow: string; stage: string }> = [];
@@ -224,7 +230,7 @@ async function checkHandoffs(
 
     // ── Content PUBLISHED → Content Distribution ──
     if (newStage === "PUBLISHED" && sibType === "content-distribution") {
-      const distType = WORKFLOW_TYPES["content-distribution"];
+      const distType = wfReg.get("content-distribution");
       const targetCount = sibSpec?.targetCount || 3;
 
       // 1. Connection request message
@@ -265,7 +271,13 @@ async function checkHandoffs(
           [sibling.id, "POST_DRAFTED", "content", contentId]
         );
         if (ins[0]?.id) {
-          await generateStageArtifact(ins[0].id, sibling.id, "POST_DRAFTED", WORKFLOW_TYPES["content-distribution"], sibling.name);
+          await generateStageArtifact(
+            ins[0].id,
+            sibling.id,
+            "POST_DRAFTED",
+            wfReg.get("content-distribution")!,
+            sibling.name
+          );
         }
       }
       handoffs.push({ targetWorkflow: sibling.name, stage: `CONN_MSG + ${targetCount} posts` });
@@ -273,7 +285,7 @@ async function checkHandoffs(
 
     // ── Content PUBLISHED → Target Research: first batch ──
     if (newStage === "PUBLISHED" && sibType === "research-pipeline") {
-      const resType = WORKFLOW_TYPES["research-pipeline"];
+      const resType = wfReg.get("research-pipeline")!;
       const targetCount = sibSpec?.targetCount || 20;
       const batchSize = sibSpec?.pacing?.batchSize || 5;
       const bufferPercent = sibSpec?.pacing?.bufferPercent || 25;
@@ -302,7 +314,7 @@ async function checkHandoffs(
 
     // ── Research HANDED_OFF → LinkedIn Outreach (20% acceptance) ──
     if (newStage === "HANDED_OFF" && sibType === "linkedin-outreach") {
-      const outreachType = WORKFLOW_TYPES["linkedin-outreach"];
+      const outreachType = wfReg.get("linkedin-outreach")!;
 
       // Count existing items to determine acceptance rate
       const existingItems = await query<{ id: string }>(
@@ -361,7 +373,7 @@ async function checkHandoffs(
 
       if (timEndedCount < 20) {
         // Create next batch of 5
-        const resType = WORKFLOW_TYPES["research-pipeline"];
+        const resType = wfReg.get("research-pipeline")!;
         const existingItems = await query<{ id: string }>(
           `SELECT id FROM "_workflow_item" WHERE "workflowId" = $1 AND "deletedAt" IS NULL`,
           [wf.id]

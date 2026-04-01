@@ -19,10 +19,17 @@ export default function FridayDashboardPanel({
 }: FridayDashboardPanelProps) {
   const TABS: { key: FridayDashboardTab; label: string; title?: string }[] = [
     { key: "goals", label: "Goals", title: "Throughput vs daily/weekly targets (from workflow type registry)" },
-    { key: "queue", label: "Queue", title: "Active, paused, completed — workflow steps; Kanban per workflow" },
-    { key: "planner", label: "Planner", title: "Draft and testing — build packages before activation" },
+    {
+      key: "package-kanban",
+      label: "Package Kanban",
+      title: "Draft through completed — compact cards; open for planner, workflow steps, or live Kanban",
+    },
     { key: "pkg-templates", label: "Package templates", title: "Static package type definitions" },
-    { key: "wf-templates", label: "Workflow templates", title: "Static workflow type definitions" },
+    {
+      key: "wf-templates",
+      label: "Workflow templates",
+      title: "All workflow type definitions — library plus new types from the CRM",
+    },
     { key: "tools", label: "Tools", title: "Internal tools registry" },
     { key: "cron", label: "Cron", title: "All scheduled jobs — schedule, last run, status" },
   ];

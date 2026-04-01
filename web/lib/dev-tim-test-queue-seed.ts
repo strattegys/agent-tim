@@ -5,7 +5,7 @@
 
 import { query, transaction } from "@/lib/db";
 import { ensureGeneralLinkedInInboxWorkflowId } from "@/lib/linkedin-general-inbox";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import { getWorkflowTypeRegistry } from "@/lib/workflow-registry";
 
 const IDS = {
   personGi1: "feedbeef-1000-4000-8000-000000000001",
@@ -117,7 +117,9 @@ export async function runDevTimTestQueueSeed(opts: { force?: boolean }): Promise
     };
   }
 
-  const warmTmpl = WORKFLOW_TYPES["warm-outreach"];
+  const reg = await getWorkflowTypeRegistry();
+  const warmTmpl = reg.get("warm-outreach");
+  if (!warmTmpl) throw new Error("Missing warm-outreach workflow type");
   const giWorkflowId = await ensureGeneralLinkedInInboxWorkflowId();
 
   try {

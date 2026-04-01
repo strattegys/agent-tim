@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { WorkflowTypeSpec } from "@/lib/workflow-types";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
@@ -15,16 +15,19 @@ const ITEM_TYPE_COLORS: Record<string, string> = {
 
 interface WorkflowTemplateCardProps {
   template: WorkflowTypeSpec;
+  /** e.g. "New type" for CRM-defined types */
+  badge?: string;
+  footer?: ReactNode;
 }
 
-export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardProps) {
+export default function WorkflowTemplateCard({ template, badge, footer }: WorkflowTemplateCardProps) {
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
   const stages = template.defaultBoard.stages;
 
   const typeColor = ITEM_TYPE_COLORS[template.itemType] || "#6b7280";
 
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-3 space-y-2">
+    <div className="h-full min-h-[11rem] flex flex-col bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-xl p-3 shadow-sm hover:border-[var(--text-tertiary)]/25 transition-colors space-y-2">
       {/* Header row: label + badges */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs font-semibold text-[var(--text-primary)]">
@@ -37,6 +40,11 @@ export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardP
           />
           {ITEM_TYPE_LABELS[template.itemType] || template.itemType}
         </span>
+        {badge ? (
+          <span className="text-[9px] px-1.5 py-0.5 rounded border border-[var(--border-color)] text-[var(--text-tertiary)] font-medium uppercase tracking-wide">
+            {badge}
+          </span>
+        ) : null}
         <span className="text-[10px] text-[var(--text-tertiary)] font-mono ml-auto">
           {template.id}
         </span>
@@ -46,6 +54,8 @@ export default function WorkflowTemplateCard({ template }: WorkflowTemplateCardP
       <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed line-clamp-2">
         {template.description}
       </p>
+
+      {footer ? <div className="flex flex-wrap gap-2 items-center">{footer}</div> : null}
 
       {/* Stage pipeline — clickable */}
       <div className="flex flex-wrap gap-1.5 items-center">

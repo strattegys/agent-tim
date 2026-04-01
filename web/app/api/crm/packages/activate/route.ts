@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import { getWorkflowTypeRegistry } from "@/lib/workflow-registry";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
 import { insertPackageBriefArtifactIfPresent } from "@/lib/package-brief-artifact";
 import { createTask } from "@/lib/tasks";
@@ -13,6 +13,7 @@ import {
   stripUseFakeDataFromPackageSpec,
 } from "@/lib/package-use-fake-data";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+import { pushWorkflowObservabilityEvent } from "@/lib/workflow-observability-buffer";
 
 /**
  * POST /api/crm/packages/activate
@@ -71,6 +72,10 @@ export async function POST(req: NextRequest) {
       const activationLog = [
         `[${new Date().toISOString()}] Testing mode: stage → ${targetStage}, no workflows created (skipTasks)`,
       ];
+      pushWorkflowObservabilityEvent("package_activate_skip_tasks", {
+        packageId,
+        targetStage,
+      });
       notifyDashboardSyncChange();
       return NextResponse.json({ ok: true, packageId, workflows: [], activationLog });
     }
@@ -104,6 +109,11 @@ export async function POST(req: NextRequest) {
             `[${new Date().toISOString()}]   → ${w.name} (${w.ownerAgent}) id ${w.id.slice(0, 8)}…`
         ),
       ];
+      pushWorkflowObservabilityEvent("package_reactivate", {
+        packageId,
+        targetStage,
+        existingWorkflowCount: existingWfs.length,
+      });
       notifyDashboardSyncChange();
       return NextResponse.json({
         ok: true,
@@ -130,9 +140,11 @@ export async function POST(req: NextRequest) {
       `Activate: package "${pkg.name}" (${packageId.slice(0, 8)}…) → ${targetStage}, useFakeData=${spec.useFakeData === true}`
     );
 
+    const wfReg = await getWorkflowTypeRegistry();
+
     // 2-4. For each deliverable, create board + workflow + initial item
     for (const deliverable of deliverables) {
-      const wfType = WORKFLOW_TYPES[deliverable.workflowType];
+      const wfType = wfReg.get(deliverable.workflowType);
       if (!wfType) {
         console.warn(`[activate] Unknown workflow type: ${deliverable.workflowType}`);
         logAct(`SKIP deliverable "${deliverable.label}": unknown workflowType ${deliverable.workflowType}`);
@@ -260,7 +272,7 @@ export async function POST(req: NextRequest) {
       for (const wf of createdWorkflows) {
         const deliverable = deliverables.find((d: { label: string }) => d.label === wf.label);
         if (!deliverable) continue;
-        const wfType = WORKFLOW_TYPES[deliverable.workflowType];
+        const wfType = wfReg.get(deliverable.workflowType);
         if (!wfType) continue;
         const firstStage = wfType.defaultBoard.stages[0];
 
@@ -286,6 +298,13 @@ export async function POST(req: NextRequest) {
 
     logAct(`Done: package stage=${targetStage}, ${createdWorkflows.length} workflow(s)`);
 
+    pushWorkflowObservabilityEvent("package_activated", {
+      packageId,
+      packageName: pkg.name,
+      targetStage,
+      templateId: pkg.templateId,
+      newWorkflowCount: createdWorkflows.length,
+    });
     notifyDashboardSyncChange();
     return NextResponse.json({
       ok: true,

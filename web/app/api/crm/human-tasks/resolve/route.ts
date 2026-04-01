@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import Anthropic from "@anthropic-ai/sdk";
 import { groqCompletion } from "@/lib/groq-completion";
 import {
@@ -35,7 +34,12 @@ import {
   createOrLinkPersonForWarmDiscoveryItem,
 } from "@/lib/warm-contact-intake-apply";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
-import { resolveWorkflowRegistryForQueue } from "@/lib/workflow-spec";
+import type { WorkflowTypeSpec } from "@/lib/workflow-types";
+import {
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryForQueueWithCustomMap,
+  resolveWorkflowTypeFromMaps,
+} from "@/lib/workflow-registry";
 import { PACKAGE_STAGES_ALLOWING_FAKE_DATA } from "@/lib/package-use-fake-data";
 import { resolveUnipilePersonIdentifier } from "@/lib/linkedin-person-identity";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
@@ -69,6 +73,7 @@ const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY;
  */
 export async function POST(req: NextRequest) {
   try {
+    const customWfMap = await loadCustomWorkflowTypeMap();
     const { itemId, action, notes, data, nextStage, confirmUndo, confirmDismiss } = await req.json();
 
     if (!itemId || !action) {
@@ -131,12 +136,16 @@ export async function POST(req: NextRequest) {
 
     const wf = workflows[0];
     const wfTypeId =
-      resolveWorkflowRegistryForQueue(wf.spec, {
-        packageSpec: wf.package_spec,
-        ownerAgent: wf.ownerAgent,
-        boardStages: wf.board_stages,
-      }) ?? "";
-    const wfType = wfTypeId ? WORKFLOW_TYPES[wfTypeId] : null;
+      resolveWorkflowRegistryForQueueWithCustomMap(
+        wf.spec,
+        {
+          packageSpec: wf.package_spec,
+          ownerAgent: wf.ownerAgent,
+          boardStages: wf.board_stages,
+        },
+        customWfMap
+      ) ?? "";
+    const wfType = wfTypeId ? resolveWorkflowTypeFromMaps(wfTypeId, customWfMap) : null;
 
     /** Remove row from Tim’s queue: soft-delete item + artifacts (general inbox, or mistaken warm reply stages). */
     if (action === "dismiss") {
@@ -375,7 +384,7 @@ export async function POST(req: NextRequest) {
       );
 
       // Still check for handoffs based on current stage
-      const handoffs = await checkHandoffs(item, wf, item.stage);
+      const handoffs = await checkHandoffs(item, wf, item.stage, customWfMap);
 
       notifyDashboardSyncChange();
       return NextResponse.json({
@@ -686,7 +695,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 8. Check for cross-workflow handoffs (use final stage after auto-advances)
-    const handoffs = await checkHandoffs(item, wf, finalStage);
+    const handoffs = await checkHandoffs(item, wf, finalStage, customWfMap);
 
     // 8b. Warm outreach: when one contact ends, open next AWAITING_CONTACT slot (up to targetCount)
     if (finalStage === "ENDED" && wfTypeId === "warm-outreach") {
@@ -740,7 +749,8 @@ export async function POST(req: NextRequest) {
 async function checkHandoffs(
   item: { id: string; workflowId: string; sourceType: string; sourceId: string },
   wf: { id: string; name: string; packageId: string | null; ownerAgent: string; spec?: unknown },
-  newStage: string
+  newStage: string,
+  customWfMap: Map<string, WorkflowTypeSpec>
 ): Promise<Array<{ targetWorkflow: string; stage: string }>> {
   if (!wf.packageId) return [];
 
@@ -766,7 +776,7 @@ async function checkHandoffs(
 
     // Content PUBLISHED → Content Distribution: create connection message + LinkedIn posts
     if (newStage === "PUBLISHED" && sibType === "content-distribution") {
-      const distType = WORKFLOW_TYPES["content-distribution"];
+      const distType = resolveWorkflowTypeFromMaps("content-distribution", customWfMap);
 
       const sibWfSpec = typeof sibling.spec === "string" ? JSON.parse(sibling.spec) : sibling.spec;
       const targetCount = sibWfSpec?.targetCount || 3;
@@ -832,8 +842,7 @@ async function checkHandoffs(
 
     // Content PUBLISHED → Target Research: create first batch of targets
     if (newStage === "PUBLISHED" && sibType === "research-pipeline") {
-      const { WORKFLOW_TYPES } = await import("@/lib/workflow-types");
-      const resType = WORKFLOW_TYPES["research-pipeline"];
+      const resType = resolveWorkflowTypeFromMaps("research-pipeline", customWfMap);
 
       const sibWfSpec = typeof sibling.spec === "string" ? JSON.parse(sibling.spec) : sibling.spec;
       const targetCount = sibWfSpec?.targetCount || 20;
@@ -879,7 +888,7 @@ async function checkHandoffs(
     // Research HANDED_OFF → LinkedIn Outreach (1:1, each target creates an outreach item)
     // Simulates 20% connection acceptance rate
     if (newStage === "HANDED_OFF" && sibType === "linkedin-outreach") {
-      const outreachType = WORKFLOW_TYPES["linkedin-outreach"];
+      const outreachType = resolveWorkflowTypeFromMaps("linkedin-outreach", customWfMap);
 
       // Count existing items to determine acceptance (every 5th = 20%)
       const existingItems = await query<{ id: string }>(
@@ -953,7 +962,7 @@ async function checkHandoffs(
 
       if (timEndedCount < 20) {
         // Create next batch of 5 targets
-        const resType = WORKFLOW_TYPES["research-pipeline"];
+        const resType = resolveWorkflowTypeFromMaps("research-pipeline", customWfMap);
         const EXTENDED_TARGETS = [
           { first: "David", last: "Kim", title: "VP Growth", company: "ScaleUp.io" },
           { first: "Lisa", last: "Wang", title: "Head of Content", company: "MarketPulse" },

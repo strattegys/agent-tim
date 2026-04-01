@@ -11,6 +11,7 @@ import { MemoryBrainIcon } from "@/components/icons/MemoryBrainIcon";
 import { getAgentSpec } from "@/lib/agent-registry";
 import { isKbStudioAgentId } from "@/lib/kb-studio";
 import TimLabLogDock from "@/components/TimLabLogDock";
+import FridayLabLogDock from "@/components/FridayLabLogDock";
 
 const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "workflow", "schedule"];
 
@@ -576,19 +577,22 @@ export default function StatusRail({
             <TimLabLogDock fillRail />
           </>
         ) : labMode === "friday" ? (
-          <>
+          <div className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
             <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
               {statusFetchBanner}
               {systemStatusSection}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
-              <p className="font-mono text-[9px] leading-snug text-[var(--text-tertiary)]">
-                Workflow cards and Kanban use the work panel. Data Platform above must be OK for live CRM
-                workflow stats — use Refresh Data Platform or start local CRM (see PROJECT-MEMORY dev setup).
-              </p>
-              <StatusRailNoticesAndAlerts systemNotices={systemNotices} alerts={alerts} />
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+              <div className="max-h-36 shrink-0 overflow-y-auto border-b border-[var(--border-color)] p-2">
+                <p className="mb-2 font-mono text-[9px] leading-snug text-[var(--text-tertiary)]">
+                  Workflow traces below (Kanban moves, package activate, workflow stage, cron). Data Platform
+                  above must be OK for live CRM — Refresh Data Platform if needed.
+                </p>
+                <StatusRailNoticesAndAlerts systemNotices={systemNotices} alerts={alerts} />
+              </div>
+              <FridayLabLogDock fillRail />
             </div>
-          </>
+          </div>
         ) : (
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
         {statusFetchBanner}

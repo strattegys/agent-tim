@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { query } from "@/lib/db";
 import type { Board, WorkflowItemType } from "@/lib/board-types";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+import { pushWorkflowObservabilityEvent } from "@/lib/workflow-observability-buffer";
 
 interface WorkflowRow {
   [key: string]: unknown;
@@ -98,6 +99,13 @@ export async function POST(request: NextRequest) {
        RETURNING id`,
       [name, spec || "", type, boardId, ownerAgent || null]
     );
+    pushWorkflowObservabilityEvent("workflow_created", {
+      workflowId: rows[0].id,
+      name,
+      itemType: type,
+      boardId,
+      ownerAgent: ownerAgent || null,
+    });
     notifyDashboardSyncChange();
     return NextResponse.json({ id: rows[0].id });
   } catch (error: unknown) {
@@ -158,6 +166,12 @@ export async function PATCH(request: NextRequest) {
       `UPDATE "_workflow" SET ${sets.join(", ")} WHERE id = $${idx} AND "deletedAt" IS NULL`,
       params
     );
+    pushWorkflowObservabilityEvent("workflow_patch", {
+      workflowId: String(id),
+      stage: stage !== undefined ? String(stage) : undefined,
+      boardId: boardId !== undefined ? boardId : undefined,
+      ownerAgent: ownerAgent !== undefined ? ownerAgent : undefined,
+    });
     notifyDashboardSyncChange();
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

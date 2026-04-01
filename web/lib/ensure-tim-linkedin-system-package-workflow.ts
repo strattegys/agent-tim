@@ -5,7 +5,7 @@
 import { query } from "@/lib/db";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 import { PACKAGE_TEMPLATES } from "@/lib/package-types";
-import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import { getWorkflowTypeRegistry } from "@/lib/workflow-registry";
 
 export const LINKEDIN_SYSTEM_PACKAGE_TEMPLATE_IDS = new Set([
   "linkedin-general-inbox-package",
@@ -107,7 +107,9 @@ async function createBoardAndWorkflow(
   packageId: string,
   cfg: (typeof KIND)[TimLinkedInSystemKind]
 ): Promise<string> {
-  const tmpl = WORKFLOW_TYPES[cfg.workflowType];
+  const reg = await getWorkflowTypeRegistry();
+  const tmpl = reg.get(cfg.workflowType);
+  if (!tmpl) throw new Error(`Missing workflow type ${cfg.workflowType}`);
   const boardRows = await query<{ id: string }>(
     `INSERT INTO "_board" (name, description, stages, transitions, "createdAt", "updatedAt")
      VALUES ($1, $2, $3::jsonb, $4::jsonb, NOW(), NOW()) RETURNING id`,

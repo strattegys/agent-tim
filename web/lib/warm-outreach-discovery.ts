@@ -7,7 +7,10 @@
 import { randomUUID } from "crypto";
 import { query } from "./db";
 import { insertPackageBriefArtifactIfPresent } from "./package-brief-artifact";
-import { resolveWorkflowRegistryForQueue } from "./workflow-spec";
+import {
+  loadCustomWorkflowTypeMap,
+  resolveWorkflowRegistryForQueueWithCustomMap,
+} from "./workflow-registry";
 import { syncHumanTaskOpenForItem } from "./workflow-item-human-task";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "./warm-discovery-item";
 
@@ -283,14 +286,19 @@ export async function queryWarmOutreachActiveRows(): Promise<WarmOutreachActiveR
        AND UPPER(p.stage::text) = 'ACTIVE'`
   );
 
+  const customMap = await loadCustomWorkflowTypeMap();
   return rows
     .filter(
       (r) =>
-        resolveWorkflowRegistryForQueue(r.wf_spec, {
-          packageSpec: r.pkg_spec,
-          ownerAgent: r.ownerAgent,
-          boardStages: r.board_stages,
-        }) === "warm-outreach"
+        resolveWorkflowRegistryForQueueWithCustomMap(
+          r.wf_spec,
+          {
+            packageSpec: r.pkg_spec,
+            ownerAgent: r.ownerAgent,
+            boardStages: r.board_stages,
+          },
+          customMap
+        ) === "warm-outreach"
     )
     .map((r) => ({
       workflowId: r.workflow_id,

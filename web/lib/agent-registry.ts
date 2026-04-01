@@ -18,7 +18,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   scout: {
     id: "scout",
     name: "Scout",
-    role: "Intelligence & Research",
+    role: "Watering Hole Finder",
     description:
       "Finds and qualifies LinkedIn prospects for outreach campaigns. " +
       "Researches targets via LinkedIn profiles and web search, then loads qualified " +
@@ -63,7 +63,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   tim: {
     id: "tim",
     name: "Tim",
-    role: "Marketing & Sales Assistant",
+    role: "Adept Comms Artist",
     description:
       "Helps Govind work outreach tasks in the Command Central work queue — draft copy, " +
       "CRM context, workflow artifacts. Outbound LinkedIn sends only when Govind clicks " +
@@ -113,7 +113,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   suzi: {
     id: "suzi",
     name: "Suzi",
-    role: "Personal Assistant",
+    role: "The Real Boss",
     description:
       "Personal assistant handling web searches, summaries, message relays, " +
       "and reminders. Checks reminders every 5 minutes via heartbeat.",
@@ -176,7 +176,13 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     sessionFile: R("/root/.fridaybot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.fridaybot/system-prompt.md"),
     memoryDir: R("/root/.fridaybot/memory"),
-    tools: ["workflow_manager", "web_search", "memory"],
+    tools: [
+      "workflow_manager",
+      "package_manager",
+      "workflow_type_definitions",
+      "web_search",
+      "memory",
+    ],
     capabilities: [
       "Monitor packages",
       "Web search",
@@ -184,7 +190,9 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "Cron hub",
     ],
     connections: [
-      { label: "Packages", connected: true, toolId: "workflow_manager" },
+      { label: "Workflows", connected: true, toolId: "workflow_manager" },
+      { label: "Packages", connected: true, toolId: "package_manager" },
+      { label: "Workflow templates", connected: true, toolId: "workflow_type_definitions" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
     routines: [
@@ -264,7 +272,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   ghost: {
     id: "ghost",
     name: "Ghost",
-    role: "Content Research & Strategy",
+    role: "Content Curation Expert",
     description:
       "Content researcher and strategist — finds killer ideas, does deep research, " +
       "manages the content pipeline. Feeds published content to Marni for distribution " +
@@ -312,7 +320,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   marni: {
     id: "marni",
     name: "Marni",
-    role: "Content Distribution",
+    role: "Our Social Butterfly",
     description:
       "Takes Ghost's published content and creates derivative pieces — LinkedIn posts, " +
       "outreach messaging (fed to Tim), and email content. Manages the distribution pipeline.",
@@ -413,7 +421,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   king: {
     id: "king",
     name: "King",
-    role: "Financial Controller",
+    role: "Seasoned Money Guy",
     description:
       "Handles pricing, invoicing, and financial tracking. " +
       "Currently a placeholder — tools and capabilities coming soon.",

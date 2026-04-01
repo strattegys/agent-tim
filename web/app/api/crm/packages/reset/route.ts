@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
        INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
        WHERE w."packageId" = $1
          AND wi."sourceType" = 'person'
-         AND wi."sourceId"::text = p.id::text
+         AND wi."sourceId" = p.id
          AND p."jobTitle" = $2
          AND p."deletedAt" IS NULL`,
       [packageId, PACKAGE_SIMULATION_JOB_TITLE]

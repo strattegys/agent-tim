@@ -23,6 +23,14 @@ const ITEM_TYPE_LABELS: Record<string, string> = {
   content: "content",
 };
 
+type PackageSimulateCohort = {
+  intake: number;
+  openerReplied: number;
+  openerCompletedNoReply: number;
+  rtcConverted: number;
+  rtcNurtureClosed: number;
+};
+
 interface PackageRow {
   id: string;
   name: string;
@@ -210,7 +218,7 @@ export default function PackageDetailCard({
 
   const canSimulateDay =
     pkgStage === "PENDING_APPROVAL" &&
-    displayWorkflowCount > 0 &&
+    pkg.workflowCount > 0 &&
     deliverables.some((d) => d.workflowType === "linkedin-opener-sequence");
 
   const runSimulateDay = useCallback(async () => {
@@ -398,7 +406,7 @@ export default function PackageDetailCard({
       const res = await fetch("/api/crm/packages/activate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packageId: pkg.id, targetStage: "PENDING_APPROVAL", useFakeData }),
+        body: JSON.stringify({ packageId: pkg.id, targetStage: "PENDING_APPROVAL" }),
       });
       const data = await res.json();
       if (data.ok) {
@@ -424,7 +432,7 @@ export default function PackageDetailCard({
     } catch (e) {
       setSimLog((prev) => [`${new Date().toLocaleTimeString()}] Start failed: ${e}`, ...prev]);
     }
-  }, [pkg.id, useFakeData, appendActivationLog]);
+  }, [pkg.id, appendActivationLog]);
 
   const handleActivate = useCallback(async () => {
     try {
@@ -434,7 +442,6 @@ export default function PackageDetailCard({
         body: JSON.stringify({
           packageId: pkg.id,
           targetStage: "ACTIVE",
-          useFakeData,
         }),
       });
       const data = await res.json();
@@ -470,10 +477,13 @@ export default function PackageDetailCard({
       });
       const data = await res.json();
       if (data.ok) {
-        setSimLog((prev) => [
-          `Reset: cleared ${data.cleared.workflows} workflows, ${data.cleared.boards} boards. Ready to Start Test again.`,
-          ...prev,
-        ]);
+        setSimLog(() => []);
+        try {
+          sessionStorage.removeItem(`simLog-${pkg.id}`);
+          panelBus.emit("sim_log");
+        } catch {
+          /* ignore */
+        }
         setProgress({});
         setVolumeInfo({});
         setArtifactStages({});
@@ -609,18 +619,6 @@ export default function PackageDetailCard({
                   {editableSpecDeliverables.length === 0 ? "Add workflows" : "Edit workflows"}
                 </button>
               )}
-              <label
-                className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] cursor-pointer select-none"
-                title="Only for Draft / Testing. Unchecked = real Ghost spec + article (Anthropic). Checked = template placeholders. Active packages always use real APIs."
-              >
-                <input
-                  type="checkbox"
-                  checked={useFakeData}
-                  onChange={(e) => setUseFakeData(e.target.checked)}
-                  className="w-3 h-3 rounded border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--accent-green)]"
-                />
-                Fake Data
-              </label>
               <button onClick={handleTest} className={btnWarm}>
                 Test
               </button>
@@ -639,21 +637,19 @@ export default function PackageDetailCard({
           )}
           {pkgStage === "PENDING_APPROVAL" && (
             <>
-              <label
-                className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] cursor-pointer select-none"
-                title="Only while testing. Unchecked = real APIs. Checked = placeholders. Goes away once the package is Active."
-              >
-                <input
-                  type="checkbox"
-                  checked={useFakeData}
-                  onChange={(e) => setUseFakeData(e.target.checked)}
-                  className="w-3 h-3 rounded border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--accent-green)]"
-                />
-                Fake Data
-              </label>
               <button onClick={handleStartTest} className={btnWarm}>
                 Start Test
               </button>
+              {canSimulateDay ? (
+                <button
+                  type="button"
+                  onClick={() => setSimulateModalOpen(true)}
+                  className={btnBase}
+                  title="Run one compressed day: synthetic people tagged for reset; opener + reply-to-close probabilities"
+                >
+                  Simulate
+                </button>
+              ) : null}
               <button onClick={handleReset} className={btnBase}>
                 Reset
               </button>
@@ -825,6 +821,88 @@ export default function PackageDetailCard({
           allWorkflowArtifacts={artifactView.allWorkflowArtifacts}
           onClose={() => setArtifactView(null)}
         />,
+        document.body
+      )}
+
+      {simulateModalOpen && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/55 p-4"
+          role="presentation"
+          onClick={() => {
+            if (!simBusy) setSimulateModalOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-labelledby="simulate-day-title"
+            className="w-full max-w-md rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] shadow-xl p-4 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="simulate-day-title" className="text-sm font-semibold text-[var(--text-primary)]">
+              Simulate one compressed day
+            </h3>
+            <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+              Creates synthetic CRM people (tagged for Reset), runs opener sends with your reply probability, then Reply-to-close
+              with your conversion probability. Tim is not notified.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="text-[10px] text-[var(--text-secondary)] flex flex-col gap-0.5">
+                Reply rate (%)
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={simReplyPct}
+                  onChange={(e) => setSimReplyPct(Number(e.target.value) || 0)}
+                  disabled={simBusy}
+                  className="text-xs rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-[var(--text-primary)]"
+                />
+              </label>
+              <label className="text-[10px] text-[var(--text-secondary)] flex flex-col gap-0.5">
+                Reply → close (%)
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={simRtcPct}
+                  onChange={(e) => setSimRtcPct(Number(e.target.value) || 0)}
+                  disabled={simBusy}
+                  className="text-xs rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-[var(--text-primary)]"
+                />
+              </label>
+            </div>
+            <label className="text-[10px] text-[var(--text-secondary)] flex flex-col gap-0.5">
+              Seed (optional, integer — same seed = same random outcomes)
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="Random if empty"
+                value={simSeed}
+                onChange={(e) => setSimSeed(e.target.value)}
+                disabled={simBusy}
+                className="text-xs rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-[var(--text-primary)] font-mono"
+              />
+            </label>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                disabled={simBusy}
+                onClick={() => setSimulateModalOpen(false)}
+                className={btnBase}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={simBusy}
+                onClick={() => void runSimulateDay()}
+                className={btnAccent}
+              >
+                {simBusy ? "Running…" : "Run simulation"}
+              </button>
+            </div>
+          </div>
+        </div>,
         document.body
       )}
 

@@ -8,7 +8,10 @@ import { createTask } from "@/lib/tasks";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { WARM_OUTREACH_PLACEHOLDER_JOB_TITLE } from "@/lib/warm-outreach-researching-guard";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
-import { stripUseFakeDataFromPackageSpec } from "@/lib/package-use-fake-data";
+import {
+  packageStageDisallowsFakeData,
+  stripUseFakeDataFromPackageSpec,
+} from "@/lib/package-use-fake-data";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 import { pushWorkflowObservabilityEvent } from "@/lib/workflow-observability-buffer";
 

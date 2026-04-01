@@ -3,9 +3,12 @@ import "server-only";
 import { schedule, type ScheduledTask } from "node-cron";
 import { execFile } from "child_process";
 import { appendFileSync } from "fs";
-import { join } from "path";
 import { AGENT_REGISTRY } from "./agent-registry";
 import type { RoutineSpec, HeartbeatSpec } from "./agent-spec";
+import {
+  drainUnipileWebhookInbox,
+  isUnipileWebhookInboxEnabled,
+} from "./unipile-webhook-inbox";
 
 /**
  * In-App Cron Scheduler
@@ -13,9 +16,6 @@ import type { RoutineSpec, HeartbeatSpec } from "./agent-spec";
  * Data-driven from the Agent Registry. Jobs are registered on server startup
  * via GET /api/health (client CronWarmup), /api/chat/stream, and optionally other API routes. Live status: /api/cron-status.
  */
-
-const TOOL_SCRIPTS_PATH =
-  process.env.TOOL_SCRIPTS_PATH || join(process.cwd(), "..", ".nanobot", "tools");
 
 export interface CronJobConfig {
   id: string;
@@ -117,19 +117,6 @@ function registerJob(
 type HandlerFactory = (routine: RoutineSpec, agentId: string) => () => Promise<void>;
 
 const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
-  "linkedin-extractor": () => async () => {
-    await execScript("python3", [
-      join(TOOL_SCRIPTS_PATH, "linkedin_extractor.py"),
-    ]);
-  },
-
-  "scheduled-messages-process": () => async () => {
-    await execScript("python3", [
-      join(TOOL_SCRIPTS_PATH, "scheduled_messages.py"),
-      "process",
-    ]);
-  },
-
   "crm-backup": () => async () => {
     try {
       await execScript("bash", ["/root/scripts/backup-twenty.sh"]);
@@ -230,6 +217,11 @@ function createHeartbeatHandler(
   agentId: string
 ): () => Promise<void> {
   switch (heartbeat.type) {
+    case "friday":
+      return async () => {
+        const { runFridayHeartbeat } = await import("./heartbeat");
+        await runFridayHeartbeat();
+      };
     case "full":
       return async () => {
         const { runTimHeartbeat } = await import("./heartbeat");
@@ -311,7 +303,7 @@ export function initCronJobs(): void {
       name: "Holiday Sync",
       schedule: "17 3 1 * *",
       description: "Sync US holidays from Nager.Date API into reminders",
-      agentId: "suzi",
+      agentId: "friday",
       enabled: true,
     },
     async () => {
@@ -327,7 +319,7 @@ export function initCronJobs(): void {
       schedule: "* * * * *",
       description:
         "Process persisted Unipile POST payloads (fault-tolerant queue when app restarts or CRM was down)",
-      agentId: "tim",
+      agentId: "friday",
       enabled: true,
     },
     async () => {
@@ -337,9 +329,7 @@ export function initCronJobs(): void {
       ) {
         return;
       }
-      const { isUnipileWebhookInboxEnabled, drainUnipileWebhookInbox } = await import(
-        "./unipile-webhook-inbox"
-      );
+      // Static import — dynamic import() here caused webpack chunk "reading 'call'" failures on the server.
       if (!isUnipileWebhookInboxEnabled()) return;
       const r = await drainUnipileWebhookInbox(50);
       if (r.processed > 0 || r.failed > 0) {
@@ -357,7 +347,7 @@ export function initCronJobs(): void {
       schedule: "*/10 * * * *",
       description:
         "Drain webhook inbox batch; release stuck dedupe receipts; replay Unipile DMs (lookback hours from LINKEDIN_INBOUND_CATCHUP_HOURS, default 72)",
-      agentId: "tim",
+      agentId: "friday",
       enabled: true,
     },
     async () => {
@@ -374,7 +364,7 @@ export function initCronJobs(): void {
       schedule: "0 6 * * 0",
       description:
         "Pull Anthropic organization cost_report into _usage_event (weekly, UTC)",
-      agentId: "king",
+      agentId: "friday",
       enabled: hasAnthropicAdmin,
     },
     async () => {

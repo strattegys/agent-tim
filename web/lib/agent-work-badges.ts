@@ -1,8 +1,6 @@
 /** Human / queue work waiting for the user, mapped to the agent that owns that queue. */
 
 export type WorkBadgeCounts = {
-  pendingTaskCount: number;
-  testingTaskCount: number;
   timMessagingTaskCount: number;
   ghostContentTaskCount: number;
   suziDueReminderCount: number;

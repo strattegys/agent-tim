@@ -19,6 +19,7 @@ import {
 import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 import { ensureIntakeNameFromRawLines, parseWarmContactIntake } from "@/lib/warm-contact-intake-parse";
 import { getWarmOutreachDailyProgressForTim } from "@/lib/warm-outreach-daily-progress";
+import { healPersonLinkedInFromWorkflowArtifactsIfNeeded } from "@/lib/linkedin-general-inbox";
 import {
   parsePersonLinkedInFields,
   sqlPersonLinkedinUrlCoalesce,
@@ -39,7 +40,7 @@ import {
  * - ownerAgent=tim (default): packaged workflows only if `_package` exists and `stage` is ACTIVE; `packageId` IS NULL still shows (general inbox, connection intake, etc.). Pass includeInactivePackages=1 to include non-ACTIVE packages (planner / ops).
  * - ownerAgent=tim + humanTaskOpen column: queue is **human steps only** (`humanTaskOpen = true`), plus warm-outreach **MESSAGED** (waiting on LinkedIn; flag intentionally false — see syncHumanTaskOpenForItem).
  * - limit / offset — with ownerAgent=tim on full GET (not summary): paginate (default limit 80, max 150). Response includes hasMore and nextOffset when applicable.
- * - messagingOnly=1 + ownerAgent=tim: rows ordered by **updatedAt DESC** (newest activity first) so LinkedIn inbox / latest replies are not buried behind older due-dated items.
+ * - messagingOnly=1 + ownerAgent=tim: rows ordered by **last LinkedIn send/receive time** when known (receipt `messageSentAt` / artifact stages MESSAGED·REPLY_SENT·LINKEDIN_INBOUND·CONNECTION_ACCEPTED), else **updatedAt**, else **createdAt**.
  */
 /** Keep in sync: SQL `IN` below and messaging-tab filtering in this route. */
 const MESSAGING_ITEM_STAGES_LIST = [
@@ -71,6 +72,11 @@ function errCode(error: unknown): string | undefined {
     return String((error as { code: string }).code);
   }
   return undefined;
+}
+
+function isUndefinedRelation(error: unknown, tableFragment: string): boolean {
+  if (errCode(error) !== "42P01") return false;
+  return errMsg(error).toLowerCase().includes(tableFragment.toLowerCase());
 }
 
 /** LinkedIn URL, Unipile member id, primary email — tolerates missing optional columns. */
@@ -413,6 +419,8 @@ type QueueRow = {
   spec: unknown;
   itemType: string;
   board_stages: unknown;
+  /** Tim messaging queue: max timestamp from inbound receipts + LinkedIn CRM notes (not workflow row touches). */
+  lastLinkedInMessageAt?: string | null;
 };
 
 /** Warm-outreach row even when spec uses a display label instead of `warm-outreach`. */
@@ -539,7 +547,8 @@ function warmMessagedWaitingHumanCopy(dueDate: string | null): string {
   return `Waiting — next **message draft** is scheduled for **${dateStr}** (${inWords}). Nothing to submit now. If they reply first, click **Replied**. You can start the follow-up early with **Start follow-up early**.`;
 }
 
-const DEFAULT_TIM_TASK_LIMIT = 80;
+/** Tim messaging queue default page size (newest first). Raise if ops often have >N active human tasks. */
+const DEFAULT_TIM_TASK_LIMIT = 120;
 const MAX_TIM_TASK_LIMIT = 150;
 
 function parseTimPagination(
@@ -597,7 +606,7 @@ async function fetchHumanTaskRows(
   }
   const orderSql =
     ownerAgentLower === "tim" && messagingOnly
-      ? `ORDER BY COALESCE(wi."updatedAt", wi."createdAt") DESC, wi."createdAt" DESC`
+      ? ""
       : `ORDER BY wi."dueDate" ASC NULLS FIRST, wi."createdAt" ASC`;
   /* Without this, LIMIT applies before JS drops non-messaging stages (humanTaskOpen on any stage),
    * so Tim’s sidebar can miss LINKEDIN_INBOUND entirely while 80 slots are RESEARCHING / etc. */
@@ -605,16 +614,85 @@ async function fetchHumanTaskRows(
     ownerAgentLower === "tim" && messagingOnly
       ? ` AND UPPER(TRIM(wi.stage::text)) IN (${MESSAGING_ITEM_STAGES_SQL_IN})`
       : "";
-  return query<QueueRow>(
-    `SELECT wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi."dueDate", wi."createdAt",
+
+  const baseSelectCols = `wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi."dueDate", wi."createdAt",
             wi."updatedAt",
             w.name AS "workflowName", w."ownerAgent", w."packageId", w.spec, ${itemTypeSql},
-            b.stages AS board_stages
-     FROM "_workflow_item" wi
+            b.stages AS board_stages`;
+
+  const fromWhere = `FROM "_workflow_item" wi
      INNER JOIN "_workflow" w ON w.id = wi."workflowId"
      LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
      ${joinPackage}
-     WHERE ${humanOpenSql}${whereBody}${messagingStagesWhere}
+     WHERE ${humanOpenSql}${whereBody}${messagingStagesWhere}`;
+
+  if (ownerAgentLower === "tim" && messagingOnly) {
+    const lastMsgInnerCoalesced = `
+             SELECT MAX(mts) FROM (
+               SELECT COALESCE(r."messageSentAt", r."createdAt") AS mts
+               FROM "_linkedin_inbound_receipt" r
+               WHERE LOWER(TRIM(wi."sourceType"::text)) = 'person'
+                 AND r."personId" = wi."sourceId"
+               UNION ALL
+               SELECT a."createdAt" AS mts
+               FROM "_artifact" a
+               WHERE a."workflowItemId" = wi.id
+                 AND a."deletedAt" IS NULL
+                 AND UPPER(TRIM(a.stage::text)) IN ('MESSAGED', 'REPLY_SENT', 'LINKEDIN_INBOUND', 'CONNECTION_ACCEPTED')
+             ) t`;
+    const lastMsgInnerLegacyReceipt = `
+             SELECT MAX(mts) FROM (
+               SELECT r."createdAt" AS mts
+               FROM "_linkedin_inbound_receipt" r
+               WHERE LOWER(TRIM(wi."sourceType"::text)) = 'person'
+                 AND r."personId" = wi."sourceId"
+               UNION ALL
+               SELECT a."createdAt" AS mts
+               FROM "_artifact" a
+               WHERE a."workflowItemId" = wi.id
+                 AND a."deletedAt" IS NULL
+                 AND UPPER(TRIM(a.stage::text)) IN ('MESSAGED', 'REPLY_SENT', 'LINKEDIN_INBOUND', 'CONNECTION_ACCEPTED')
+             ) t`;
+
+    const buildWithLastMsg = (inner: string) => `SELECT * FROM (
+         SELECT ${baseSelectCols},
+           (${inner}) AS "lastLinkedInMessageAt"
+         ${fromWhere}
+       ) sq
+       ORDER BY COALESCE(sq."lastLinkedInMessageAt", sq."updatedAt", sq."createdAt") DESC NULLS LAST,
+                sq."createdAt" DESC${limitSql}`;
+
+    try {
+      try {
+        return await query<QueueRow>(buildWithLastMsg(lastMsgInnerCoalesced), queryParams);
+      } catch (e) {
+        if (isMissingColumn(e, "messageSentAt")) {
+          console.warn(
+            "[human-tasks] Tim queue: messageSentAt column missing — run scripts/migrate-linkedin-inbound-receipt-message-sent-at.sql (using receipt createdAt for inbound)"
+          );
+          return await query<QueueRow>(buildWithLastMsg(lastMsgInnerLegacyReceipt), queryParams);
+        }
+        throw e;
+      }
+    } catch (e) {
+      if (isUndefinedRelation(e, "_linkedin_inbound_receipt") || isUndefinedRelation(e, "_artifact")) {
+        console.warn(
+          "[human-tasks] Tim messaging queue: last-activity subquery skipped (missing receipt or artifact table) — using workflow timestamps only"
+        );
+        return query<QueueRow>(
+          `SELECT ${baseSelectCols}
+           ${fromWhere}
+           ORDER BY COALESCE(wi."updatedAt", wi."createdAt") DESC, wi."createdAt" DESC${limitSql}`,
+          queryParams
+        );
+      }
+      throw e;
+    }
+  }
+
+  return query<QueueRow>(
+    `SELECT ${baseSelectCols}
+     ${fromWhere}
      ${orderSql}${limitSql}`,
     queryParams
   );
@@ -861,6 +939,30 @@ export async function GET(req: NextRequest) {
         if (healLogs.length) console.info("[human-tasks] warm heal:", healLogs.join(" "));
       }
     }
+
+    if (ownerAgentFilter === "tim" && messagingOnly) {
+      const linkedInHealStages = new Set(["CONNECTION_ACCEPTED", "LINKEDIN_INBOUND"]);
+      const firstItemIdByPerson = new Map<string, string>();
+      for (const item of rows) {
+        const sk = item.stage?.trim().toUpperCase() || "";
+        if (!linkedInHealStages.has(sk)) continue;
+        if (item.sourceType !== "person" || !item.sourceId) continue;
+        const idf = identityMap.get(item.sourceId);
+        const hasUrl = Boolean((idf?.linkedinLinkPrimaryLinkUrl || "").trim());
+        const hasProv = Boolean((idf?.linkedinProviderId || "").trim());
+        if (hasUrl || hasProv) continue;
+        if (!firstItemIdByPerson.has(item.sourceId)) firstItemIdByPerson.set(item.sourceId, item.id);
+      }
+      for (const [personId, workflowItemId] of firstItemIdByPerson) {
+        try {
+          const healed = await healPersonLinkedInFromWorkflowArtifactsIfNeeded(personId, workflowItemId);
+          if (healed) personIdsToRefetch.add(personId);
+        } catch (e) {
+          console.warn("[human-tasks] LinkedIn identity heal from artifacts:", e);
+        }
+      }
+    }
+
     if (personIdsToRefetch.size > 0) {
       const refPers = await batchFetchPersonsWithCompany([...personIdsToRefetch]);
       for (const [k, v] of refPers) personRowsMap.set(k, v);
@@ -888,8 +990,10 @@ export async function GET(req: NextRequest) {
       dueDate: string | null;
       itemType: string;
       createdAt: string;
-      /** Last workflow-item touch (new messages bump this); used for messaging queue sort */
+      /** Last workflow-item touch (stage changes, etc.) */
       updatedAt: string;
+      /** Latest LinkedIn message time from receipts + CRM notes when known (person rows). */
+      lastMessageAt?: string | null;
       /** Warm-outreach MESSAGED: in Tim’s list for context, not an actionable submit step */
       waitingFollowUp: boolean;
       /** Person row: display in Tim warm-outreach contact strip (null = empty slot) */
@@ -1176,6 +1280,10 @@ export async function GET(req: NextRequest) {
         itemType: item.sourceType,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt || item.createdAt,
+        lastMessageAt:
+          item.lastLinkedInMessageAt != null && String(item.lastLinkedInMessageAt).trim() !== ""
+            ? String(item.lastLinkedInMessageAt)
+            : null,
         waitingFollowUp,
         ...(item.sourceType === "person" || item.sourceType === WARM_DISCOVERY_SOURCE_TYPE
           ? {

@@ -4,6 +4,7 @@
  */
 import { query } from "@/lib/db";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+import { assertPersonMayAttachToPackagedWorkflow } from "@/lib/person-packaged-workflow-exclusivity";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 
 export async function validateCloseIntakeRow(
@@ -68,6 +69,15 @@ export async function attachPersonToWorkflow(params: {
   if (wf.length === 0) return { ok: false, error: "Workflow not found" };
   if (wf[0].itemType !== "person") {
     return { ok: false, error: "Target workflow must have itemType person" };
+  }
+
+  const exclusivity = await assertPersonMayAttachToPackagedWorkflow({
+    personId: sourceId.trim(),
+    targetWorkflowId: workflowId.trim(),
+    closeIntakeItemId,
+  });
+  if (!exclusivity.ok) {
+    return { ok: false, error: exclusivity.error };
   }
 
   try {

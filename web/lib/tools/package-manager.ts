@@ -69,14 +69,14 @@ const tool: ToolModule = {
 
   async execute(args, context) {
     const { query: dbQuery } = await import("../db");
-    const { PACKAGE_TEMPLATES, packageTemplatesVisibleInPlanner } = await import(
+    const { PACKAGE_TEMPLATES, PLANNER_PACKAGE_TEMPLATES } = await import(
       "../package-types"
     );
     const cmd = args.command;
 
     // ─── list-templates ──────────────────────────────────────────
     if (cmd === "list-templates") {
-      const templates = packageTemplatesVisibleInPlanner();
+      const templates = PLANNER_PACKAGE_TEMPLATES;
       if (templates.length === 0) return "No package templates defined.";
       return templates
         .map((t) => {

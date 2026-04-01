@@ -9,13 +9,16 @@ import { checkWarmOutreachBacklogFindings } from "./warm-outreach-discovery";
 import { checkWarmOutreachDailyPaceFindings } from "./warm-outreach-daily-progress";
 
 /**
- * Tim heartbeat — lightweight ops nudges (no legacy file/shell CRM scans).
+ * Heartbeat runners — centralized under Friday's cron hub.
  *
- * Uses Postgres-backed warm-outreach checks only. Inbound LinkedIn is primarily Unipile
- * webhooks plus the `linkedin-inbound-catchup` cron (replay + stuck-receipt release).
- * We do not re-scan notifications.jsonl or run autonomous LLM + CRM tools here.
+ * Friday supervisor heartbeat combines:
+ *   - Warm-outreach monitoring (backlog + daily pace → bell notifications)
+ *   - Scout delegation bell flush
+ *   - Scout task processing (pick up delegated tasks from other agents)
  *
- * Output: notification bell entries only (optional detect-only for /api/heartbeat).
+ * Suzi's simple heartbeat (reminder delivery) remains separate.
+ * Legacy runTimHeartbeat / runScoutHeartbeat are kept for backward compat
+ * but production now uses runFridayHeartbeat via the "friday" heartbeat type.
  */
 
 export interface HeartbeatFinding {
@@ -380,9 +383,120 @@ function checkAgentReminders(agentId: string): string[] {
 }
 
 /**
- * Scout agent heartbeat.
- * Picks up pending tasks delegated from other agents,
- * processes them via autonomousChat, and writes results back.
+ * Friday supervisor heartbeat.
+ * Combines Tim-era warm-outreach monitoring with Scout task processing
+ * into a single heartbeat owned by Friday's cron hub.
+ */
+export async function runFridayHeartbeat(
+  detectOnly = false
+): Promise<HeartbeatFinding[]> {
+  console.log("[heartbeat] Friday supervisor heartbeat starting...");
+
+  if (!detectOnly) {
+    flushCompletedDelegationsToBell();
+  }
+
+  const warmBacklog = await checkWarmOutreachBacklogSafe();
+  const warmDailyPace = await checkWarmOutreachDailyPaceSafe();
+
+  const allFindings: HeartbeatFinding[] = [...warmBacklog, ...warmDailyPace];
+
+  const priorityOrder: Record<HeartbeatFinding["priority"], number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+  allFindings.sort(
+    (a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]
+  );
+
+  const newFindings = allFindings.filter((f) => shouldNotify(f.category));
+
+  if (newFindings.length === 0) {
+    if (allFindings.length === 0) {
+      console.log("[heartbeat] Friday supervisor OK — no warm-outreach nudges");
+    } else {
+      console.log(
+        `[heartbeat] Friday: ${allFindings.length} warm-outreach finding(s) — all recently notified`
+      );
+    }
+  } else {
+    console.log(
+      `[heartbeat] Friday: ${allFindings.length} finding(s), ${newFindings.length} new bell notification(s)`
+    );
+
+    if (!detectOnly) {
+      for (const f of newFindings) {
+        markNotified(f.category);
+        const body =
+          f.detail.length > BELL_DETAIL_MAX
+            ? `${f.detail.slice(0, BELL_DETAIL_MAX)}…`
+            : f.detail;
+        writeNotification(f.title, body);
+      }
+    }
+  }
+
+  if (!detectOnly) {
+    await runScoutTaskProcessing();
+  }
+
+  return allFindings;
+}
+
+/** Scout task processing — extracted so Friday's heartbeat can call it. */
+async function runScoutTaskProcessing(): Promise<void> {
+  const pending = getPendingTasks("scout");
+
+  if (pending.length === 0) {
+    console.log("[heartbeat] Scout OK — no pending tasks");
+    return;
+  }
+
+  console.log(
+    `[heartbeat] Scout processing ${pending.length} task(s)`
+  );
+
+  const { agentAutonomousChat } = await import("./agent-llm");
+
+  for (const task of pending) {
+    try {
+      updateTask(task.id, { status: "in_progress" });
+      console.log(`[heartbeat] Scout working on: ${task.task.slice(0, 80)}`);
+
+      const result = await agentAutonomousChat("scout", task.task, {
+        fromAgent: task.from,
+      });
+
+      updateTask(task.id, {
+        status: "completed",
+        result: result || "Scout completed but returned no findings.",
+        completedAt: new Date().toISOString(),
+      });
+
+      console.log(`[heartbeat] Scout completed task ${task.id}`);
+
+      writeNotification(
+        `Scout Complete for ${task.from}`,
+        `Task: ${task.task.slice(0, 100)}...`
+      );
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      console.error(`[heartbeat] Scout task ${task.id} failed:`, errMsg);
+
+      updateTask(task.id, {
+        status: "failed",
+        result: `Error: ${errMsg}`,
+        completedAt: new Date().toISOString(),
+      });
+    }
+  }
+}
+
+/**
+ * Scout agent heartbeat (legacy — kept for backward compat).
+ * Production now routes through runFridayHeartbeat → runScoutTaskProcessing.
  */
 export async function runScoutHeartbeat(): Promise<void> {
   const pending = getPendingTasks("scout");

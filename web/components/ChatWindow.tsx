@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { TimContextDebugSnapshot } from "@/lib/tim-chat-debug";
 import MessageBubble from "./MessageBubble";
 
@@ -26,6 +26,20 @@ interface ChatWindowProps {
   onReply?: (msg: Message) => void;
 }
 
+function ChatThinkingPlaceholder() {
+  return (
+    <div className="flex justify-start mb-1">
+      <div className="rounded-lg border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-tertiary)_85%,var(--bg-primary))] px-4 py-3">
+        <div className="flex space-x-1">
+          <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:0ms]" />
+          <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:150ms]" />
+          <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:300ms]" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ChatWindow({
   messages,
   isLoading,
@@ -33,66 +47,64 @@ export default function ChatWindow({
   agentColor,
   onReply,
 }: ChatWindowProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(0);
 
+  /** Newest first in the UI; internal state and API stay chronological. */
+  const ordered = useMemo(() => [...messages].reverse(), [messages]);
+
   useEffect(() => {
-    // On initial load or agent switch (message count jumps), scroll instantly
-    // On new individual messages, scroll smoothly
     const isInitialLoad = prevCountRef.current === 0 && messages.length > 0;
     const isBigJump = Math.abs(messages.length - prevCountRef.current) > 2;
-    const behavior = isInitialLoad || isBigJump ? "instant" : "smooth";
+    const behavior = isInitialLoad || isBigJump ? "auto" : "smooth";
 
-    bottomRef.current?.scrollIntoView({ behavior: behavior as ScrollBehavior });
+    const el = scrollRef.current;
+    if (el) {
+      el.scrollTo({ top: 0, behavior: behavior as ScrollBehavior });
+    }
     prevCountRef.current = messages.length;
   }, [messages, isLoading]);
 
+  const showStandaloneThinking =
+    isLoading &&
+    (messages.length === 0 || messages[messages.length - 1]?.role !== "model");
+
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden pl-2.5 pr-1.5 py-3 space-y-2.5">
+    <div
+      ref={scrollRef}
+      className="flex-1 overflow-y-auto overflow-x-hidden pl-2.5 pr-1.5 py-3 space-y-2.5"
+    >
       {messages.length === 0 && !isLoading && (
         <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-tertiary)]">
           Send a message to {agentName}
         </div>
       )}
-      {messages.map((msg, idx) => {
-        const isLast = idx === messages.length - 1;
+      {showStandaloneThinking && ordered.length === 0 ? (
+        <ChatThinkingPlaceholder />
+      ) : null}
+      {ordered.map((msg, idx) => {
+        const isNewest = idx === 0;
         const thinkingInside =
-          isLoading &&
-          isLast &&
-          msg.role === "model" &&
-          !msg.text.trim();
+          isLoading && isNewest && msg.role === "model" && !msg.text.trim();
         return (
-          <MessageBubble
-            key={msg.id}
-            role={msg.role}
-            text={msg.text}
-            timestamp={msg.timestamp}
-            agentName={agentName}
-            agentColor={agentColor}
-            replyTo={msg.replyTo}
-            onReply={onReply ? () => onReply(msg) : undefined}
-            delegatedFrom={msg.delegatedFrom}
-            fromAgent={msg.fromAgent}
-            isThinking={thinkingInside}
-            timContextDebug={msg.timContextDebug}
-          />
+          <div key={msg.id} className="contents">
+            <MessageBubble
+              role={msg.role}
+              text={msg.text}
+              timestamp={msg.timestamp}
+              agentName={agentName}
+              agentColor={agentColor}
+              replyTo={msg.replyTo}
+              onReply={onReply ? () => onReply(msg) : undefined}
+              delegatedFrom={msg.delegatedFrom}
+              fromAgent={msg.fromAgent}
+              isThinking={thinkingInside}
+              timContextDebug={msg.timContextDebug}
+            />
+            {isNewest && showStandaloneThinking ? <ChatThinkingPlaceholder /> : null}
+          </div>
         );
       })}
-      {/* Only before the empty model placeholder mounts (rare); in-flight replies use the agent bubble */}
-      {isLoading &&
-        (messages.length === 0 ||
-          messages[messages.length - 1]?.role !== "model") && (
-          <div className="flex justify-start mb-1">
-            <div className="rounded-lg border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-tertiary)_85%,var(--bg-primary))] px-4 py-3">
-              <div className="flex space-x-1">
-                <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:0ms]" />
-                <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:150ms]" />
-                <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:300ms]" />
-              </div>
-            </div>
-          </div>
-        )}
-      <div ref={bottomRef} />
     </div>
   );
 }

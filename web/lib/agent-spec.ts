@@ -80,7 +80,7 @@ export interface HeartbeatCheck {
 
 export interface HeartbeatSpec {
   /** Heartbeat type determines which runner to use */
-  type: "full" | "simple" | "scout";
+  type: "full" | "simple" | "scout" | "friday";
   /** Cron schedule for the heartbeat */
   schedule: string;
   /** What the heartbeat checks for (displayed in Agent Inspector) */

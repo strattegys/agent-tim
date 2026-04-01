@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
+import useSWR from "swr";
 import { useSearchParams } from "next/navigation";
 import ReminderCard, { type Reminder } from "./ReminderCard";
 import SuziPunchListPanel from "./SuziPunchListPanel";
@@ -157,17 +158,13 @@ export default function SuziRemindersPanel({
     });
   }, []);
 
-  const [reminders, setReminders] = useState<Reminder[]>([]);
-  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("All");
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("Any Time");
   const [search, setSearch] = useState("");
-  /** Debounced value for API — avoids refetch + loading flicker on every keystroke (same in dev and local prod). */
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
-  const remindersLoadedOnceRef = useRef(false);
 
   useEffect(() => {
     const sf = localStorage.getItem("suzi_reminder_filter");
@@ -189,7 +186,6 @@ export default function SuziRemindersPanel({
     return () => clearTimeout(id);
   }, [search]);
 
-  // Persist filter state to localStorage
   useEffect(() => { localStorage.setItem("suzi_reminder_filter", filter); }, [filter]);
   useEffect(() => { localStorage.setItem("suzi_reminder_time_filter", timeFilter); }, [timeFilter]);
   useEffect(() => { localStorage.setItem("suzi_reminder_search", search); }, [search]);
@@ -197,52 +193,52 @@ export default function SuziRemindersPanel({
     localStorage.setItem("suzi_reminder_show_inactive", showInactive ? "1" : "0");
   }, [showInactive]);
 
-  const fetchReminders = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      const silent = opts?.silent === true;
-      if (!silent && !remindersLoadedOnceRef.current) {
-        setLoading(true);
-      }
-      const params = new URLSearchParams();
-      if (showInactive) params.set("includeInactive", "true");
-      const cat = FILTER_TO_CATEGORY[filter];
-      if (cat) params.set("category", cat);
-      if (debouncedSearch) params.set("search", debouncedSearch);
+  const reminderSwrKey = subTab === "reminders"
+    ? (() => {
+        const params = new URLSearchParams();
+        if (showInactive) params.set("includeInactive", "true");
+        const cat = FILTER_TO_CATEGORY[filter];
+        if (cat) params.set("category", cat);
+        if (debouncedSearch) params.set("search", debouncedSearch);
+        return `/api/reminders?${params}`;
+      })()
+    : null;
 
-      try {
-        const res = await fetch(`/api/reminders?${params}`);
-        const data = await res.json();
-        setReminders(data.reminders || []);
-      } catch {
-        setReminders([]);
-      } finally {
-        setLoading(false);
-        remindersLoadedOnceRef.current = true;
-      }
+  const {
+    data: remindersData,
+    isLoading: loading,
+    mutate: refreshReminders,
+  } = useSWR<{ reminders: Reminder[] }>(
+    reminderSwrKey,
+    async (url: string) => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
     },
-    [filter, debouncedSearch, showInactive]
+    { revalidateOnFocus: true, dedupingInterval: 10_000 },
   );
 
-  /** Only poll while Reminders sub-tab is visible — avoids useless API churn (and UI noise) on Punch List / Intake / Notes. */
+  const reminders = remindersData?.reminders ?? [];
+
   useEffect(() => {
     if (subTab !== "reminders") return undefined;
-    void fetchReminders();
-    const unsub = panelBus.on("reminders", () => {
-      void fetchReminders({ silent: true });
-    });
-    return unsub;
-  }, [fetchReminders, subTab]);
+    return panelBus.on("reminders", () => void refreshReminders());
+  }, [subTab, refreshReminders]);
 
   const handleToggle = async (id: string, isActive: boolean) => {
-    // Optimistic update
-    setReminders((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, isActive } : r))
+    await refreshReminders(
+      (prev) =>
+        prev
+          ? { reminders: prev.reminders.map((r) => (r.id === id ? { ...r, isActive } : r)) }
+          : prev,
+      false,
     );
     await fetch("/api/reminders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, isActive }),
     });
+    void refreshReminders();
   };
 
   const toggleSuziFocusReminder = useCallback(
@@ -275,7 +271,7 @@ export default function SuziRemindersPanel({
         return;
       }
       panelBus.emit("reminders");
-      await fetchReminders({ silent: true });
+      await refreshReminders();
     } finally {
       setBulkBusy(false);
     }
@@ -289,14 +285,17 @@ export default function SuziRemindersPanel({
     if (onFocusedReminderChange && focusedReminder?.id === id) {
       onFocusedReminderChange(null);
     }
-    // Optimistic remove
-    setReminders((prev) => prev.filter((r) => r.id !== id));
     setConfirmDelete(null);
+    await refreshReminders(
+      (prev) => (prev ? { reminders: prev.reminders.filter((r) => r.id !== id) } : prev),
+      false,
+    );
     await fetch("/api/reminders", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
+    void refreshReminders();
   };
 
   // Apply time filter (Pacific calendar — matches CRM / Govind expectations)

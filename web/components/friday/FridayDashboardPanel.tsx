@@ -1,85 +1,63 @@
 "use client";
 
-import HumanTasksPanel from "./HumanTasksPanel";
 import ToolsPanel from "./ToolsPanel";
+import FridayGoalsPanel from "./FridayGoalsPanel";
+import FridayCronPanel from "./FridayCronPanel";
 import FridayPackageAdminPanel from "./FridayPackageAdminPanel";
-import type { FridayDashboardTab, FridayPackageSubTab } from "@/lib/agent-ui-context";
+import type { FridayDashboardTab } from "@/lib/agent-ui-context";
 
 interface FridayDashboardPanelProps {
   onClose?: () => void;
-  onSwitchToAgent?: (agentId: string) => void;
-  pendingTaskCount?: number;
-  /** Top-level tab — owned by parent for URL sync and Penny → Friday redirects. */
   dashboardTab: FridayDashboardTab;
   onDashboardTabChange: (tab: FridayDashboardTab) => void;
-  /** Packages column sub-tab — owned by parent for URL sync. */
-  packageSubTab: FridayPackageSubTab;
-  onPackageSubTabChange: (sub: FridayPackageSubTab) => void;
 }
 
 export default function FridayDashboardPanel({
-  onSwitchToAgent,
-  pendingTaskCount = 0,
+  onClose: _onClose,
   dashboardTab: tab,
   onDashboardTabChange,
-  packageSubTab,
-  onPackageSubTabChange,
 }: FridayDashboardPanelProps) {
-  const TABS: { key: FridayDashboardTab; label: string; count?: string }[] = [
-    {
-      key: "packages",
-      label: "Packages",
-    },
-    {
-      key: "tasks",
-      label: "Human tasks",
-      count: pendingTaskCount > 0 ? String(pendingTaskCount) : undefined,
-    },
-    {
-      key: "tools",
-      label: "Tools",
-    },
+  const TABS: { key: FridayDashboardTab; label: string; title?: string }[] = [
+    { key: "goals", label: "Goals", title: "Throughput vs daily/weekly targets (from workflow type registry)" },
+    { key: "queue", label: "Queue", title: "Active, paused, completed — workflow steps; Kanban per workflow" },
+    { key: "planner", label: "Planner", title: "Draft and testing — build packages before activation" },
+    { key: "pkg-templates", label: "Package templates", title: "Static package type definitions" },
+    { key: "wf-templates", label: "Workflow templates", title: "Static workflow type definitions" },
+    { key: "tools", label: "Tools", title: "Internal tools registry" },
+    { key: "cron", label: "Cron", title: "All scheduled jobs — schedule, last run, status" },
   ];
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2 gap-1 overflow-x-auto">
         {TABS.map((t) => {
           const isActive = tab === t.key;
           return (
             <button
               key={t.key}
               type="button"
+              title={t.title}
               onClick={() => onDashboardTabChange(t.key)}
-              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors flex items-center gap-1.5 ${
+              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors flex items-center gap-1 shrink-0 whitespace-nowrap ${
                 isActive
                   ? "font-semibold text-[var(--text-primary)]"
                   : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {t.label}
-              {t.count ? (
-                <span className="text-[10px] font-normal text-[var(--text-tertiary)] tabular-nums">{t.count}</span>
-              ) : null}
             </button>
           );
         })}
       </div>
 
-      {tab === "packages" ? (
-        <FridayPackageAdminPanel
-          packageSubTab={packageSubTab}
-          onPackageSubTabChange={onPackageSubTabChange}
-        />
-      ) : tab === "tools" ? (
+      {tab === "tools" ? (
         <ToolsPanel />
+      ) : tab === "goals" ? (
+        <FridayGoalsPanel />
+      ) : tab === "cron" ? (
+        <FridayCronPanel />
       ) : (
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-          <HumanTasksPanel
-            onSwitchToAgent={onSwitchToAgent}
-            packageStageFilter="ACTIVE"
-          />
-        </div>
+        <FridayPackageAdminPanel activeView={tab} />
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import useSWR from "swr";
 import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
 import type { TimWorkQueueSelection } from "@/lib/tim-work-context";
@@ -48,6 +49,8 @@ interface MessagingTask {
   createdAt: string;
   /** Matches API; used for newest-first in messaging queue */
   updatedAt?: string;
+  /** Latest LinkedIn send/receive time (receipt messageSentAt + sent/received artifacts). */
+  lastMessageAt?: string | null;
   /** Warm-outreach MESSAGED — visible in Tim’s list but not an actionable draft submit */
   waitingFollowUp?: boolean;
   /** Discovery slot: Next/Contact placeholder person — show “add contact” in strip */
@@ -272,6 +275,28 @@ function timQueueCardSecondaryLine(task: MessagingTask): string | null {
   return task.stageLabel?.trim() || null;
 }
 
+/** Sort key and display: prefer last LinkedIn message/note time, then workflow row updates. */
+function timQueueItemActivityTimeMs(task: MessagingTask): number {
+  const raw = (task.lastMessageAt || task.updatedAt || task.createdAt || "").trim();
+  if (!raw) return 0;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function formatTimQueueItemDateTime(task: MessagingTask): string {
+  const raw = (task.lastMessageAt || task.updatedAt || task.createdAt || "").trim();
+  if (!raw) return "";
+  const d = new Date(raw);
+  if (!Number.isFinite(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function messageAffiliationLine(t: MessagingTask): string {
   if (!t.packageId) {
     if (t.workflowName?.trim()) return `General · ${t.workflowName.trim()}`;
@@ -311,16 +336,35 @@ function workflowTypeFilterLabel(wt: string): string {
   }
 }
 
-/** Shown only when `npm run dev` / Docker dev set this (see package.json). */
-const IS_LOCALDEV_UI =
-  typeof process.env.NEXT_PUBLIC_CC_RUNTIME_LABEL === "string" &&
-  process.env.NEXT_PUBLIC_CC_RUNTIME_LABEL.trim().toUpperCase() === "LOCALDEV";
-
-/** Background refresh; initial load still shows the full-screen spinner. */
 const POLL_INTERVAL_MS = 30_000;
 const POLL_INTERVAL_HIDDEN_MS = 120_000;
-/** Matches server default for GET human-tasks (ownerAgent=tim, non-summary). */
-const TIM_QUEUE_PAGE = 80;
+const TIM_QUEUE_PAGE = 120;
+const TIM_QUEUE_SWR_KEY = "tim-messaging-queue";
+
+interface TimTasksPage {
+  tasks: MessagingTask[];
+  hasMore: boolean;
+  nextOffset: number | null;
+}
+
+async function fetchTimTasksPage(): Promise<TimTasksPage> {
+  const qs = new URLSearchParams({
+    ownerAgent: "tim",
+    messagingOnly: "1",
+    limit: String(TIM_QUEUE_PAGE),
+    offset: "0",
+  });
+  const r = await fetch(`/api/crm/human-tasks?${qs}`, { credentials: "include" });
+  if (!r.ok) throw new Error(`Could not load queue (HTTP ${r.status}).`);
+  const raw = await r.json();
+  return {
+    tasks: Array.isArray(raw.tasks)
+      ? raw.tasks.map((t: Record<string, unknown>) => mapRawToMessagingTask(t))
+      : [],
+    hasMore: Boolean(raw.hasMore),
+    nextOffset: typeof raw.nextOffset === "number" ? raw.nextOffset : null,
+  };
+}
 
 function mapRawToMessagingTask(t: Record<string, unknown>): MessagingTask {
   return {
@@ -372,27 +416,32 @@ function mapRawToMessagingTask(t: Record<string, unknown>): MessagingTask {
   };
 }
 
-function timTasksFingerprint(
-  list: Array<{
-    itemId: string;
-    stage: string;
-    itemTitle: string;
-    stageLabel: string;
-    humanAction: string;
-    workflowId: string;
-    dueDate: string | null;
-    waitingFollowUp: boolean;
-    contactLinkedinPublicUrl?: string | null;
-    contactLinkedinMemberId?: string | null;
-    contactPrimaryEmail?: string | null;
-  }>
-): string {
-  return list
-    .map(
-      (t) =>
-        `${t.itemId}\t${t.stage}\t${t.itemTitle}\t${t.stageLabel}\t${t.humanAction}\t${t.workflowId}\t${t.dueDate ?? ""}\t${t.waitingFollowUp ? 1 : 0}\t${t.contactLinkedinPublicUrl ?? ""}\t${t.contactLinkedinMemberId ?? ""}\t${t.contactPrimaryEmail ?? ""}`
-    )
-    .join("\n");
+/** `_workflow_item.id` and optional CRM `person.id` — shown in prod for support and agent context. */
+function TimWorkQueueIdsAccessory({
+  itemId,
+  sourceId,
+}: {
+  itemId: string;
+  sourceId: string | null;
+}) {
+  return (
+    <span className="flex max-w-[min(100%,26rem)] flex-col items-end gap-0.5 text-right">
+      <span
+        className="font-mono text-[9px] leading-snug text-[var(--text-tertiary)] select-all break-all"
+        title="Queue row id (_workflow_item.id)"
+      >
+        {itemId}
+      </span>
+      {sourceId ? (
+        <span
+          className="font-mono text-[9px] leading-snug text-[var(--text-tertiary)] select-all break-all opacity-85"
+          title="CRM person id"
+        >
+          {sourceId}
+        </span>
+      ) : null}
+    </span>
+  );
 }
 
 function TimQueueItemRow({
@@ -405,6 +454,22 @@ function TimQueueItemRow({
   onSelect: () => void;
 }) {
   const secondary = timQueueCardSecondaryLine(task);
+  const whenLabel = formatTimQueueItemDateTime(task);
+  const whenIso = (task.lastMessageAt || task.updatedAt || task.createdAt || "").trim();
+  const whenTitle = (() => {
+    if (!whenLabel) return undefined;
+    const parts: string[] = [];
+    if (task.lastMessageAt?.trim()) {
+      parts.push(`Last LinkedIn send/receive: ${new Date(task.lastMessageAt).toLocaleString()}`);
+    }
+    if (task.updatedAt?.trim()) {
+      parts.push(`Queue row updated: ${new Date(task.updatedAt).toLocaleString()}`);
+    }
+    if (task.createdAt?.trim()) {
+      parts.push(`Queue row created: ${new Date(task.createdAt).toLocaleString()}`);
+    }
+    return parts.length ? parts.join("\n") : `Activity ${whenLabel}`;
+  })();
   return (
     <button
       type="button"
@@ -416,10 +481,21 @@ function TimQueueItemRow({
           : "border-[var(--border-color)] bg-[var(--bg-primary)]/90 hover:border-[var(--text-tertiary)]/55 hover:bg-[var(--bg-primary)]"
       }`}
     >
-      <div
-        className={`line-clamp-2 text-[12px] leading-relaxed break-words ${active ? "font-semibold text-[var(--text-primary)]" : "font-semibold text-[var(--text-chat-body)]"}`}
-      >
-        {timQueueCardPrimaryTitle(task)}
+      <div className="flex items-start justify-between gap-2">
+        <div
+          className={`min-w-0 flex-1 line-clamp-2 text-[12px] leading-relaxed break-words ${active ? "font-semibold text-[var(--text-primary)]" : "font-semibold text-[var(--text-chat-body)]"}`}
+        >
+          {timQueueCardPrimaryTitle(task)}
+        </div>
+        {whenLabel ? (
+          <time
+            dateTime={whenIso || undefined}
+            title={whenTitle}
+            className="shrink-0 pt-0.5 text-[8px] leading-tight tabular-nums text-[var(--text-tertiary)]"
+          >
+            {whenLabel}
+          </time>
+        ) : null}
       </div>
       {secondary ? (
         <div className="text-[10px] text-[var(--text-tertiary)] line-clamp-2 break-words mt-1.5 leading-snug">
@@ -429,6 +505,22 @@ function TimQueueItemRow({
       <div className="text-[9px] text-[var(--text-secondary)] truncate mt-1.5 leading-tight">
         {messageAffiliationLine(task)}
       </div>
+      <p
+        className="mt-1.5 font-mono text-[8px] leading-tight text-[var(--text-tertiary)] break-all select-all"
+        title={
+          task.sourceId
+            ? `Queue item ${task.itemId} · Person ${task.sourceId}`
+            : `Queue item ${task.itemId}`
+        }
+      >
+        {task.itemId}
+        {task.sourceId ? (
+          <>
+            <span className="text-[var(--text-tertiary)]/70"> · </span>
+            {task.sourceId}
+          </>
+        ) : null}
+      </p>
     </button>
   );
 }
@@ -447,129 +539,75 @@ export default function TimMessagesPanel({
   /** Lets main Tim chat include the selected queue row as ephemeral context. */
   onWorkSelectionChange?: (selection: TimWorkQueueSelection | null) => void;
 }) {
-  const [tasks, setTasks] = useState<MessagingTask[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
   const [syncingWarmContact, setSyncingWarmContact] = useState(false);
   const [warmSyncHint, setWarmSyncHint] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [queueFilter, setQueueFilter] = useState<TimQueueFilter>({ type: "all" });
   const [resolveHint, setResolveHint] = useState<string | null>(null);
-  const [queueHasMore, setQueueHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const mountedRef = useRef(true);
-  const lastTasksFingerprintRef = useRef<string>("");
-  const loadMoreNextRef = useRef<number | null>(null);
   const tabVisible = useDocumentVisible();
 
-  const fetchTasks = useCallback((opts?: { append?: boolean; silent?: boolean }): Promise<void> => {
-    const append = Boolean(opts?.append);
-    const silent = Boolean(opts?.silent);
-    const offset =
-      append && loadMoreNextRef.current != null ? loadMoreNextRef.current : 0;
+  const { data: swrPage, error: swrError, isLoading: loading, mutate: refreshTasks } = useSWR<TimTasksPage>(
+    TIM_QUEUE_SWR_KEY,
+    fetchTimTasksPage,
+    {
+      refreshInterval: tabVisible ? POLL_INTERVAL_MS : POLL_INTERVAL_HIDDEN_MS,
+      revalidateOnFocus: true,
+      dedupingInterval: 10_000,
+    },
+  );
 
-    if (!append && !silent && mountedRef.current) setLoading(true);
-    if (append && mountedRef.current) setLoadingMore(true);
-
-    const qs = new URLSearchParams({
-      ownerAgent: "tim",
-      messagingOnly: "1",
-      limit: String(TIM_QUEUE_PAGE),
-      offset: String(offset),
-    });
-
-    return fetch(`/api/crm/human-tasks?${qs.toString()}`, { credentials: "include" })
-      .then(async (r) => {
-        if (!r.ok) {
-          const snippet = (await r.text()).slice(0, 120);
-          console.warn("[TimMessagesPanel] human-tasks", r.status, snippet);
-          if (mountedRef.current) {
-            setLoadError(`Could not load queue (HTTP ${r.status}).`);
-            lastTasksFingerprintRef.current = "";
-            setTasks([]);
-            setQueueHasMore(false);
-            loadMoreNextRef.current = null;
-          }
-          return null;
-        }
-        if (mountedRef.current) setLoadError(null);
-        return r.json();
-      })
-      .then((data) => {
-        if (data == null) return;
-        if (data.error) console.warn("[TimMessagesPanel] human-tasks API:", data.error);
-        const list = Array.isArray(data.tasks) ? data.tasks : [];
-        if (mountedRef.current) {
-          const next = list.map((t: Record<string, unknown>) => mapRawToMessagingTask(t));
-          const nextOff = (data as { nextOffset?: unknown }).nextOffset;
-          loadMoreNextRef.current = typeof nextOff === "number" ? nextOff : null;
-          setQueueHasMore(Boolean((data as { hasMore?: unknown }).hasMore));
-
-          if (append) {
-            setTasks((prev) => {
-              const m = new Map(prev.map((x) => [x.itemId, x]));
-              for (const t of next) m.set(t.itemId, t);
-              return [...m.values()];
-            });
-          } else {
-            const fp = timTasksFingerprint(next);
-            if (fp !== lastTasksFingerprintRef.current) {
-              lastTasksFingerprintRef.current = fp;
-              setTasks(next);
-            }
-          }
-        }
-      })
-      .catch((e) => {
-        console.warn("[TimMessagesPanel] human-tasks fetch failed:", e);
-        if (mountedRef.current) {
-          setLoadError("Network error loading queue.");
-          lastTasksFingerprintRef.current = "";
-          setTasks([]);
-          setQueueHasMore(false);
-          loadMoreNextRef.current = null;
-        }
-      })
-      .finally(() => {
-        if (!mountedRef.current) return;
-        if (append) setLoadingMore(false);
-        else if (!silent) setLoading(false);
-      });
-  }, []);
-
-  const loadMoreTasks = useCallback(() => {
-    if (!queueHasMore || loadingMore || loadMoreNextRef.current == null) return;
-    void fetchTasks({ append: true });
-  }, [fetchTasks, queueHasMore, loadingMore]);
+  const tasks = swrPage?.tasks ?? [];
+  const loadError = swrError
+    ? (swrError instanceof Error ? swrError.message : "Network error loading queue.")
+    : null;
+  const queueHasMore = swrPage?.hasMore ?? false;
 
   useEffect(() => {
-    mountedRef.current = true;
-    void fetchTasks();
-    const silentRefresh = () => void fetchTasks({ silent: true });
-    const ms = tabVisible ? POLL_INTERVAL_MS : POLL_INTERVAL_HIDDEN_MS;
-    const interval = setInterval(silentRefresh, ms);
-    const u1 = panelBus.on("workflow_items", () => void fetchTasks({ silent: true }));
-    const u2 = panelBus.on("package_manager", () => void fetchTasks({ silent: true }));
-    const u3 = panelBus.on("tim_human_task_progress", () => void fetchTasks({ silent: true }));
-    const onVisible = () => {
-      if (document.visibilityState === "visible") void fetchTasks({ silent: true });
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      mountedRef.current = false;
-      clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisible);
-      u1();
-      u2();
-      u3();
-    };
-  }, [fetchTasks, tabVisible]);
+    const u1 = panelBus.on("workflow_items", () => void refreshTasks());
+    const u2 = panelBus.on("package_manager", () => void refreshTasks());
+    const u3 = panelBus.on("tim_human_task_progress", () => void refreshTasks());
+    return () => { u1(); u2(); u3(); };
+  }, [refreshTasks]);
+
+  const loadMoreTasks = useCallback(async () => {
+    if (!swrPage?.hasMore || loadingMore || swrPage.nextOffset == null) return;
+    setLoadingMore(true);
+    try {
+      const qs = new URLSearchParams({
+        ownerAgent: "tim",
+        messagingOnly: "1",
+        limit: String(TIM_QUEUE_PAGE),
+        offset: String(swrPage.nextOffset),
+      });
+      const r = await fetch(`/api/crm/human-tasks?${qs}`, { credentials: "include" });
+      if (!r.ok) return;
+      const raw = await r.json();
+      const next = Array.isArray(raw.tasks)
+        ? raw.tasks.map((t: Record<string, unknown>) => mapRawToMessagingTask(t))
+        : [];
+      await refreshTasks((prev) => {
+        if (!prev) return prev;
+        const m = new Map(prev.tasks.map((x) => [x.itemId, x]));
+        for (const t of next) m.set(t.itemId, t);
+        return {
+          tasks: [...m.values()].sort(
+            (a, b) => timQueueItemActivityTimeMs(b) - timQueueItemActivityTimeMs(a),
+          ),
+          hasMore: Boolean(raw.hasMore),
+          nextOffset: typeof raw.nextOffset === "number" ? raw.nextOffset : null,
+        };
+      }, false);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [swrPage, loadingMore, refreshTasks]);
 
   const sortedTasks = useMemo(
     () =>
-      [...tasks].sort((a, b) =>
-        String(b.updatedAt || b.createdAt).localeCompare(String(a.updatedAt || a.createdAt))
+      [...tasks].sort(
+        (a, b) => timQueueItemActivityTimeMs(b) - timQueueItemActivityTimeMs(a)
       ),
     [tasks]
   );
@@ -778,7 +816,7 @@ export default function TimMessagesPanel({
           panelBus.emit("tim_human_task_progress");
           panelBus.emit("dashboard_sync");
           await new Promise((r) => setTimeout(r, 350));
-          await fetchTasks({ silent: true });
+          await refreshTasks();
         } else {
           const errText =
             typeof (data as { error?: string }).error === "string"
@@ -795,7 +833,7 @@ export default function TimMessagesPanel({
       }
       setResolving(null);
     },
-    [fetchTasks, resolving, tasks]
+    [refreshTasks, resolving, tasks]
   );
 
   /** Header actions (ArtifactViewer top-right): warm-outreach steps + Reject when that transition is allowed. */
@@ -1134,7 +1172,7 @@ export default function TimMessagesPanel({
                               "Could not infer a person name from saved notes. Add a line like Name: First Last or put the full name alone on the first line."
                           );
                         }
-                        await fetchTasks({ silent: true });
+                        await refreshTasks();
                       } finally {
                         setSyncingWarmContact(false);
                       }
@@ -1151,17 +1189,9 @@ export default function TimMessagesPanel({
                   resolving={resolving === selected.itemId}
                   headerDetail={timPersonHeaderDetail}
                   titleAccessory={
-                    IS_LOCALDEV_UI ? (
-                      <span
-                        className="font-mono text-[10px] leading-tight text-[var(--text-tertiary)] select-all break-all opacity-90"
-                        title="Workflow item id (_workflow_item.id) — copy for dev / agent context"
-                      >
-                        {selected.itemId}
-                      </span>
-                    ) : undefined
+                    <TimWorkQueueIdsAccessory itemId={selected.itemId} sourceId={selected.sourceId} />
                   }
                   confirmedWorkflowActions={timArtifactHeaderActions}
-                  onClose={() => setSelectedId(null)}
                   onSubmitInput={async (notes) => {
                     await handleResolve(selected.itemId, "input", notes);
                   }}
@@ -1217,19 +1247,11 @@ export default function TimMessagesPanel({
                       onSubmitApprove={async (notes) => {
                         await handleResolve(selected.itemId, "approve", notes);
                       }}
-                      onMoved={() => void fetchTasks({ silent: true })}
+                      onMoved={() => void refreshTasks()}
                       headerDetail={timPersonHeaderDetail}
                       titleAccessory={
-                        IS_LOCALDEV_UI ? (
-                          <span
-                            className="font-mono text-[10px] leading-tight text-[var(--text-tertiary)] select-all break-all opacity-90"
-                            title="Workflow item id (_workflow_item.id) — copy for dev / agent context"
-                          >
-                            {selected.itemId}
-                          </span>
-                        ) : undefined
+                        <TimWorkQueueIdsAccessory itemId={selected.itemId} sourceId={selected.sourceId} />
                       }
-                      onClose={() => setSelectedId(null)}
                     />
                   </div>
                 ) : (
@@ -1257,14 +1279,7 @@ export default function TimMessagesPanel({
                       itemType={selected.itemType === "person" ? "person" : "content"}
                       title={selected.workflowName}
                       titleAccessory={
-                        IS_LOCALDEV_UI ? (
-                          <span
-                            className="font-mono text-[10px] leading-tight text-[var(--text-tertiary)] select-all break-all opacity-90"
-                            title="Workflow item id (_workflow_item.id) — copy for dev / agent context"
-                          >
-                            {selected.itemId}
-                          </span>
-                        ) : undefined
+                        <TimWorkQueueIdsAccessory itemId={selected.itemId} sourceId={selected.sourceId} />
                       }
                       headerDetail={timPersonHeaderDetail}
                       agentId={selected.ownerAgent || "tim"}

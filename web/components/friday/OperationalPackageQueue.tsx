@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
+import useSWR from "swr";
 import FridayPackageCard, {
   type FridayPackageRow,
   type FridayWorkflowBreakdown,
 } from "./FridayPackageCard";
+import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
+import { WORKFLOW_TYPES } from "@/lib/workflow-types";
 import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
 
@@ -23,86 +26,106 @@ const POLL_MS_HIDDEN = 30_000;
  */
 export default function OperationalPackageQueue() {
   const tabVisible = useDocumentVisible();
-  const [packages, setPackages] = useState<FridayPackageRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const mountedRef = useRef(true);
+  const [kanbanWorkflow, setKanbanWorkflow] = useState<{ id: string; name: string } | null>(
+    null
+  );
 
-  const fetchPackages = useCallback(() => {
-    fetch("/api/crm/packages?operational=true&includeStats=true&includeWorkflowBreakdown=true")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!mountedRef.current) return;
-        const rows = (data.packages || []) as Record<string, unknown>[];
-        setPackages(
-          rows.map((p) => {
-            const rawWf = p.workflows;
-            const workflows: FridayWorkflowBreakdown[] | undefined = Array.isArray(rawWf)
-              ? (rawWf as Record<string, unknown>[]).map((w) => ({
-                  id: String(w.id),
-                  name: String(w.name || ""),
-                  ownerAgent: String(w.ownerAgent || ""),
-                  workflowType: String(w.workflowType || ""),
-                  targetCount: Number(w.targetCount) || 0,
-                  volumeLabel:
-                    w.volumeLabel != null && String(w.volumeLabel).trim() !== ""
-                      ? String(w.volumeLabel)
-                      : null,
-                  totalItems: Number(w.totalItems) || 0,
-                  stageCounts:
-                    w.stageCounts && typeof w.stageCounts === "object" && !Array.isArray(w.stageCounts)
-                      ? (w.stageCounts as Record<string, number>)
-                      : {},
-                  stages: Array.isArray(w.stages)
-                    ? (w.stages as Record<string, unknown>[]).map((s) => ({
-                        key: String(s.key),
-                        label: String(s.label),
-                        color: typeof s.color === "string" ? s.color : "#64748b",
-                        requiresHuman: Boolean(s.requiresHuman),
-                      }))
-                    : [],
-                }))
-              : undefined;
-            return {
-              id: String(p.id),
-              name: String(p.name || ""),
-              templateId: String(p.templateId || ""),
-              stage: String(p.stage || "").toUpperCase(),
-              packageNumber: p.packageNumber != null ? Number(p.packageNumber) : undefined,
-              workflowCount: Number(p.workflowCount) || 0,
-              itemCount: p.itemCount != null ? Number(p.itemCount) : undefined,
-              createdAt: String(p.createdAt || ""),
-              workflows,
-            };
-          })
-        );
-      })
-      .catch(() => {
-        if (mountedRef.current) setPackages([]);
-      })
-      .finally(() => {
-        if (mountedRef.current) setLoading(false);
+  const { data: pkgRows, isLoading: loading, mutate: refreshPackages } = useSWR<FridayPackageRow[]>(
+    "/api/crm/packages?operational=true&includeStats=true&includeWorkflowBreakdown=true",
+    async (url: string) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      const rows = (data.packages || []) as Record<string, unknown>[];
+      return rows.map((p): FridayPackageRow => {
+        const rawWf = p.workflows;
+        const workflows: FridayWorkflowBreakdown[] | undefined = Array.isArray(rawWf)
+          ? (rawWf as Record<string, unknown>[]).map((w) => ({
+              id: String(w.id),
+              name: String(w.name || ""),
+              ownerAgent: String(w.ownerAgent || ""),
+              workflowType: String(w.workflowType || ""),
+              targetCount: Number(w.targetCount) || 0,
+              volumeLabel:
+                w.volumeLabel != null && String(w.volumeLabel).trim() !== ""
+                  ? String(w.volumeLabel)
+                  : null,
+              totalItems: Number(w.totalItems) || 0,
+              stageCounts:
+                w.stageCounts && typeof w.stageCounts === "object" && !Array.isArray(w.stageCounts)
+                  ? (w.stageCounts as Record<string, number>)
+                  : {},
+              stages: Array.isArray(w.stages)
+                ? (w.stages as Record<string, unknown>[]).map((s) => ({
+                    key: String(s.key),
+                    label: String(s.label),
+                    color: typeof s.color === "string" ? s.color : "#64748b",
+                    requiresHuman: Boolean(s.requiresHuman),
+                  }))
+                : [],
+            }))
+          : undefined;
+        return {
+          id: String(p.id),
+          name: String(p.name || ""),
+          templateId: String(p.templateId || ""),
+          stage: String(p.stage || "").toUpperCase(),
+          packageNumber: p.packageNumber != null ? Number(p.packageNumber) : undefined,
+          workflowCount: Number(p.workflowCount) || 0,
+          itemCount: p.itemCount != null ? Number(p.itemCount) : undefined,
+          createdAt: String(p.createdAt || ""),
+          spec: p.spec,
+          workflows,
+        };
       });
-  }, []);
+    },
+    {
+      refreshInterval: tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN,
+      revalidateOnFocus: true,
+      dedupingInterval: 5_000,
+    },
+  );
+  const packages = pkgRows ?? [];
+
+  const fetchPackages = useCallback(() => void refreshPackages(), [refreshPackages]);
 
   useEffect(() => {
-    mountedRef.current = true;
-    fetchPackages();
-    const ms = tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN;
-    const interval = setInterval(fetchPackages, ms);
-    const unsubWf = panelBus.on("workflow_manager", fetchPackages);
-    const unsubPkg = panelBus.on("package_manager", fetchPackages);
-    return () => {
-      mountedRef.current = false;
-      clearInterval(interval);
-      unsubWf();
-      unsubPkg();
-    };
-  }, [fetchPackages, tabVisible]);
+    const unsubWf = panelBus.on("workflow_manager", () => void refreshPackages());
+    const unsubPkg = panelBus.on("package_manager", () => void refreshPackages());
+    return () => { unsubWf(); unsubPkg(); };
+  }, [refreshPackages]);
 
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <p className="text-sm text-[var(--text-tertiary)]">Loading package queue…</p>
+      </div>
+    );
+  }
+
+  if (kanbanWorkflow) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-primary)]">
+        <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center gap-2 px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setKanbanWorkflow(null)}
+            className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer px-2 py-1 rounded border border-[var(--border-color)]"
+          >
+            ← Queue
+          </button>
+          <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+            {kanbanWorkflow.name}
+          </span>
+        </div>
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <KanbanInlinePanel
+            onClose={() => setKanbanWorkflow(null)}
+            fixedWorkflowId={kanbanWorkflow.id}
+            fixedWorkflowLabel={kanbanWorkflow.name}
+            agentId="friday"
+          />
+        </div>
       </div>
     );
   }
@@ -135,7 +158,21 @@ export default function OperationalPackageQueue() {
                   <span className="text-[10px] text-[var(--text-tertiary)]">None</span>
                 </div>
               ) : (
-                colPkgs.map((p) => <FridayPackageCard key={p.id} pkg={p} />)
+                colPkgs.map((p) => (
+                  <FridayPackageCard
+                    key={p.id}
+                    pkg={p}
+                    onPackageMutate={fetchPackages}
+                    onOpenWorkflowKanban={(wf) =>
+                      setKanbanWorkflow({
+                        id: wf.id,
+                        name:
+                          (wf.workflowType && WORKFLOW_TYPES[wf.workflowType]?.label) ||
+                          (wf.name?.trim() ? wf.name : wf.workflowType || "Workflow"),
+                      })
+                    }
+                  />
+                ))
               )}
             </div>
           </div>

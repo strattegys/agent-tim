@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import {
-  packageTemplatesVisibleInPlanner,
+  PLANNER_PACKAGE_TEMPLATES,
   type PackageTemplateSpec,
 } from "@/lib/package-types";
 
@@ -13,7 +13,7 @@ interface AddPackageModalProps {
 }
 
 export default function AddPackageModal({ open, onClose, onCreated }: AddPackageModalProps) {
-  const templates = packageTemplatesVisibleInPlanner();
+  const templates = PLANNER_PACKAGE_TEMPLATES;
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -23,7 +23,7 @@ export default function AddPackageModal({ open, onClose, onCreated }: AddPackage
     if (!open) return;
     setError(null);
     setSubmitting(false);
-    const first = packageTemplatesVisibleInPlanner()[0];
+    const first = PLANNER_PACKAGE_TEMPLATES[0];
     if (first?.id) setTemplateId(first.id);
     setName("");
   }, [open]);

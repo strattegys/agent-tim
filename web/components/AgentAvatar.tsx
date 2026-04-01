@@ -47,7 +47,7 @@ export default function AgentAvatar({
   return (
     <div
       className={`relative shrink-0 rounded-full overflow-hidden flex items-center justify-center ${circleClassName} ${className}`.trim()}
-      style={{ backgroundColor: color, ...style }}
+      style={{ position: "relative", overflow: "hidden", borderRadius: "9999px", backgroundColor: color, ...style }}
     >
       <span
         className={`absolute inset-0 flex items-center justify-center z-[1] select-none ${initialClassName}`.trim()}
@@ -60,6 +60,7 @@ export default function AgentAvatar({
           src={resolved}
           alt={alt ?? name}
           className="absolute inset-0 z-[2] w-full h-full object-cover"
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
           onError={() => setHideImage(true)}
           loading="lazy"
           decoding="async"

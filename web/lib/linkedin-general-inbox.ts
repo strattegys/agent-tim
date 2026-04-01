@@ -3,16 +3,22 @@
  * Packaged warm-outreach / linkedin-outreach steps are handled elsewhere before this runs.
  */
 import { query } from "@/lib/db";
+import { personHasNonSystemBlockingPackagedWorkflow } from "@/lib/person-packaged-workflow-exclusivity";
 import {
+  extractLinkedInHintFromArtifactOrNotes,
   isLinkedInProviderMemberId,
+  linkedinUrlJsonCoalesceUnsupported,
   postgresMissingColumn,
+  sqlPersonLinkedinUrlCoalesce,
 } from "@/lib/linkedin-person-identity";
 import {
   findLinkedinOutreachItemsAtInitiated,
   resolvePostgresPersonIdsForLinkedInSender,
 } from "@/lib/warm-outreach-inbound-reply";
+import { applyUnipileResearchToPerson } from "@/lib/warm-contact-intake-apply";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { ensureTimLinkedInSystemPackageWorkflow } from "@/lib/ensure-tim-linkedin-system-package-workflow";
+import { fetchUnipileLinkedInProfile, isUnipileConfigured } from "@/lib/unipile-profile";
 
 const GENERAL_STAGE = "LINKEDIN_INBOUND";
 
@@ -117,6 +123,134 @@ async function ensurePostgresPersonForLinkedInInbound(args: {
   }
 }
 
+function coalesceArtifactContentForHeal(raw: string | null | undefined): string {
+  const s = raw == null ? "" : String(raw).trim();
+  if (!s) return "";
+  if (s.startsWith("{") && s.endsWith("}")) {
+    try {
+      const o = JSON.parse(s) as Record<string, unknown>;
+      for (const k of ["markdown", "text", "body", "content", "value"]) {
+        const v = o[k];
+        if (typeof v === "string" && v.trim()) return v;
+      }
+    } catch {
+      /* plain text */
+    }
+  }
+  return s;
+}
+
+/**
+ * Persist Unipile sender id / vanity from webhooks onto `person` so thread load and sends work.
+ * When the id is ACoA… and Unipile is configured, merges public profile into the CRM row.
+ */
+export async function ensurePersonLinkedInFromUnipileWebhook(
+  personId: string,
+  senderProviderId: string
+): Promise<void> {
+  const slug = senderProviderId?.trim();
+  if (!slug) return;
+
+  if (isLinkedInProviderMemberId(slug)) {
+    try {
+      await query(
+        `UPDATE person SET "linkedinProviderId" = $1, "updatedAt" = NOW()
+         WHERE id = $2::uuid AND "deletedAt" IS NULL`,
+        [slug, personId]
+      );
+    } catch (e) {
+      if (!postgresMissingColumn(e, "linkedinProviderId")) throw e;
+    }
+  } else {
+    const url = `https://www.linkedin.com/in/${slug.replace(/^\/+/, "")}`;
+    await query(
+      `UPDATE person SET
+         "linkedinLinkPrimaryLinkUrl" = COALESCE(NULLIF(TRIM("linkedinLinkPrimaryLinkUrl"), ''), $1),
+         "updatedAt" = NOW()
+       WHERE id = $2::uuid AND "deletedAt" IS NULL`,
+      [url, personId]
+    );
+  }
+
+  if (isLinkedInProviderMemberId(slug) && isUnipileConfigured()) {
+    try {
+      const raw = await fetchUnipileLinkedInProfile(slug);
+      const logs: string[] = [];
+      await applyUnipileResearchToPerson(personId, raw, logs);
+    } catch (e) {
+      console.warn("[linkedin-general-inbox] Unipile profile sync after webhook resolve:", e);
+    }
+  }
+}
+
+/**
+ * If the person row has no LinkedIn fields yet, copy **Provider id** / URL hints from this queue item’s artifacts
+ * (connection-acceptance or general-inbox snapshots) and persist them. Used before Tim’s queue lists rows and on thread GET.
+ */
+export async function healPersonLinkedInFromWorkflowArtifactsIfNeeded(
+  personId: string,
+  workflowItemId: string | null
+): Promise<boolean> {
+  const wid = workflowItemId?.trim();
+  if (!wid) return false;
+
+  let hasUrl = false;
+  let hasProvider = false;
+  try {
+    const rows = await query<{ u: string | null; p: string | null }>(
+      `SELECT ${sqlPersonLinkedinUrlCoalesce("p")} AS u, p."linkedinProviderId" AS p
+       FROM person p WHERE p.id = $1::uuid AND p."deletedAt" IS NULL LIMIT 1`,
+      [personId]
+    );
+    const r = rows[0];
+    if (r) {
+      hasUrl = Boolean((r.u || "").trim());
+      hasProvider = Boolean((r.p || "").trim());
+    }
+  } catch (e) {
+    if (linkedinUrlJsonCoalesceUnsupported(e)) {
+      const rows = await query<{ u: string | null; p: string | null }>(
+        `SELECT NULLIF(TRIM(p."linkedinLinkPrimaryLinkUrl"), '') AS u, p."linkedinProviderId" AS p
+         FROM person p WHERE p.id = $1::uuid AND p."deletedAt" IS NULL LIMIT 1`,
+        [personId]
+      );
+      const r = rows[0];
+      if (r) {
+        hasUrl = Boolean((r.u || "").trim());
+        hasProvider = Boolean((r.p || "").trim());
+      }
+    } else if (postgresMissingColumn(e, "linkedinProviderId")) {
+      const rows = await query<{ u: string | null }>(
+        `SELECT ${sqlPersonLinkedinUrlCoalesce("p")} AS u
+         FROM person p WHERE p.id = $1::uuid AND p."deletedAt" IS NULL LIMIT 1`,
+        [personId]
+      );
+      hasUrl = Boolean((rows[0]?.u || "").trim());
+    } else {
+      throw e;
+    }
+  }
+  if (hasUrl || hasProvider) return false;
+
+  const artRows = await query<{ content: string }>(
+    `SELECT a.content::text AS content
+     FROM "_artifact" a
+     WHERE a."workflowItemId" = $1::uuid AND a."deletedAt" IS NULL
+     ORDER BY a."createdAt" DESC NULLS LAST
+     LIMIT 25`,
+    [wid]
+  );
+  const blob = artRows
+    .map((row) => coalesceArtifactContentForHeal(row.content))
+    .filter(Boolean)
+    .join("\n\n");
+  const hint = extractLinkedInHintFromArtifactOrNotes(blob);
+  if (!hint?.trim()) return false;
+
+  await ensurePersonLinkedInFromUnipileWebhook(personId, hint);
+  return true;
+}
+
 async function findOpenGeneralInboxItem(
   workflowId: string,
   personId: string
@@ -128,10 +262,50 @@ async function findOpenGeneralInboxItem(
        AND wi."sourceType" = 'person'
        AND wi."sourceId" = $2
        AND UPPER(TRIM(wi.stage::text)) = $3
-       AND wi."deletedAt" IS NULL`,
+       AND wi."deletedAt" IS NULL
+     ORDER BY wi."updatedAt" DESC NULLS LAST, wi."createdAt" DESC
+     LIMIT 1`,
     [workflowId, personId, GENERAL_STAGE]
   );
   return rows[0]?.id ?? null;
+}
+
+/**
+ * Multiple active LINKEDIN_INBOUND rows for the same person (race, retries, or ID resolution drift)
+ * duplicate Tim’s queue. Keep the newest row, move artifacts onto it, soft-delete the rest.
+ */
+async function mergeDuplicateActiveGeneralInboxInboundRows(
+  workflowId: string,
+  personId: string
+): Promise<void> {
+  const rows = await query<{ id: string }>(
+    `SELECT wi.id
+     FROM "_workflow_item" wi
+     WHERE wi."workflowId" = $1
+       AND wi."sourceType" = 'person'
+       AND wi."sourceId" = $2
+       AND UPPER(TRIM(wi.stage::text)) = $3
+       AND wi."deletedAt" IS NULL
+     ORDER BY wi."updatedAt" DESC NULLS LAST, wi."createdAt" DESC`,
+    [workflowId, personId, GENERAL_STAGE]
+  );
+  if (rows.length <= 1) return;
+  const keeper = rows[0].id;
+  for (let i = 1; i < rows.length; i++) {
+    const loserId = rows[i].id;
+    await query(
+      `UPDATE "_artifact"
+       SET "workflowItemId" = $1::uuid, "updatedAt" = NOW()
+       WHERE "workflowItemId" = $2::uuid AND "deletedAt" IS NULL`,
+      [keeper, loserId]
+    );
+    await query(
+      `UPDATE "_workflow_item"
+       SET "deletedAt" = NOW(), "humanTaskOpen" = false, "updatedAt" = NOW()
+       WHERE id = $1::uuid`,
+      [loserId]
+    );
+  }
 }
 
 /**
@@ -229,9 +403,20 @@ export async function recordGeneralLinkedInInbound(args: {
     };
   }
 
+  await ensurePersonLinkedInFromUnipileWebhook(primaryPersonId, args.senderProviderId);
+
+  if (await personHasNonSystemBlockingPackagedWorkflow(primaryPersonId)) {
+    return {
+      ok: false,
+      reason:
+        "Person is already on an active or planned package pipeline — skipping Tim LinkedIn general-inbox queue row (inbound still visible in Unipile).",
+    };
+  }
+
   await refreshInboundPersonDisplayNameIfPlaceholder(primaryPersonId, args.senderDisplayName);
 
   const workflowId = await ensureGeneralLinkedInInboxWorkflowId();
+  await mergeDuplicateActiveGeneralInboxInboundRows(workflowId, primaryPersonId);
   const ts = args.timestampIso || new Date().toISOString();
   const body = [
     "## LinkedIn — inbound message (general inbox)",

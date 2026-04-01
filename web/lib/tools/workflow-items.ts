@@ -49,7 +49,7 @@ const tool: ToolModule = {
     name: "workflow_items",
     description:
       "Manage workflow items and artifact bodies. " +
-      "add-person-to-workflow: arg1=workflowId, arg2=personId, arg3=stage optional (else first board stage), arg4=optional closeIntakeItemId (Tim LinkedIn intake queue item id — dismisses that row after attach; same person). " +
+      "add-person-to-workflow: arg1=workflowId, arg2=personId, arg3=stage optional (else first board stage), arg4=optional closeIntakeItemId (required when person still has Tim LinkedIn intake/inbox row — closes it after attach). Blocked if person is already on another ACTIVE/DRAFT/PAUSED/PENDING_APPROVAL package pipeline. " +
       "add-content-to-workflow: arg1=workflowId, arg2=title, arg3=description, arg4=contentType (article|post|email), arg5=stage optional. " +
       "list-items: arg1=workflowId, arg2=stage filter optional. " +
       "move-item: arg1=workflow item id, arg2=newStage (board key, typically UPPERCASE). " +

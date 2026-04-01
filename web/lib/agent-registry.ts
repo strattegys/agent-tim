@@ -51,34 +51,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       { label: "CRM", connected: true, toolId: "twenty_crm" },
       { label: "LinkedIn", connected: true, toolId: "linkedin" },
     ],
-    routines: [
-      {
-        id: "daily-target-research",
-        name: "Daily Target Research",
-        schedule: "0 8 * * 1-5",
-        description:
-          "Process research pipeline: research targets, qualify, load into Tim's outreach",
-        handler: "scout-daily-research",
-      },
-    ],
-    heartbeat: {
-      type: "scout",
-      schedule: "*/10 * * * *",
-      checks: [
-        {
-          name: "Delegated Tasks",
-          description:
-            "Processes research tasks queued by other agents",
-          priority: "high",
-        },
-        {
-          name: "Research Pipeline",
-          description:
-            "Checks for unprocessed targets in DISCOVERED stage",
-          priority: "medium",
-        },
-      ],
-    },
+    routines: [],
+    heartbeat: null,
     workflowTypes: ["research-pipeline"],
     delegation: {
       canDelegateTo: ["tim"],
@@ -124,74 +98,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       { label: "CRM", connected: true, toolId: "twenty_crm" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
-    routines: [
-      {
-        id: "linkedin-sync",
-        name: "LinkedIn Message Sync",
-        schedule: "*/30 * * * *",
-        description:
-          "Python extractor — backup/drift catch-up vs webhooks; primary inbound is Unipile → queue",
-        handler: "linkedin-extractor",
-        logFile: "/root/.nanobot/linkedin_alerts.log",
-      },
-      {
-        id: "scheduled-messages",
-        name: "Scheduled Message Processor",
-        schedule: "* * * * *",
-        description: "Sends due scheduled LinkedIn messages from the queue",
-        handler: "scheduled-messages-process",
-        logFile: "/root/.nanobot/scheduled_messages.log",
-      },
-      {
-        id: "crm-backup",
-        name: "CRM Backup",
-        schedule: "0 2 * * *",
-        description: "Nightly backup of Twenty CRM database",
-        handler: "crm-backup",
-        logFile: "/var/log/twenty-backup.log",
-      },
-      {
-        id: "linkedin-connections",
-        name: "LinkedIn Connections Check",
-        schedule: "*/30 * * * *",
-        description:
-          "Polls new connections, CRM note + bell (no LLM); connection intake queue when not on package path",
-        handler: "linkedin-connections",
-      },
-      {
-        id: "warm-outreach-discovery",
-        name: "Warm outreach — LinkedIn discovery slots",
-        schedule: "*/30 * * * *",
-        timeZone: "America/Los_Angeles",
-        description:
-          "Pacific: :00 & :30, 8:30–16:30 PT. Default: up to N/day + min interval. Package spec warmOutreachDiscovery.pacedDaily: weekdays only, first slot from bootstrap time if empty, next slot after post-intake delay (resolve sets nextEligibleSpawnAt; no LLM)",
-        handler: "warm-outreach-discovery",
-      },
-    ],
-    heartbeat: {
-      type: "full",
-      schedule: "*/30 * * * *",
-      checks: [
-        {
-          name: "Scout delegations",
-          description:
-            "Bell when Scout research tasks complete for Tim (no LLM in heartbeat)",
-          priority: "medium",
-        },
-        {
-          name: "Warm outreach backlog",
-          description:
-            "Nags when many find-contact (LinkedIn) tasks pile up for an active warm-outreach package",
-          priority: "high",
-        },
-        {
-          name: "Warm outreach daily pace",
-          description:
-            "Medium from 9 a.m. PT, high after 2 p.m., critical after 4 p.m. if intakes remain; bell dedup 2h per category",
-          priority: "critical",
-        },
-      ],
-    },
+    routines: [],
+    heartbeat: null,
     workflowTypes: ["linkedin-outreach", "warm-outreach", "linkedin-connection-intake"],
     ttsVoice: "Timothy",
     delegation: {
@@ -257,6 +165,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     role: "Right Hand Robot",
     description:
       "Your right hand robot — manages workflows, monitors tools, and helps coordinate agents. " +
+      "Owns all centralized cron jobs and supervises work-item throughput. " +
       "System prompt updates and backend changes are done in the repo (Cursor) and deployed via CI/CD.",
     category: "Utility",
     color: "#9B59B6",
@@ -272,13 +181,77 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "Monitor packages",
       "Web search",
       "Tool registry",
+      "Cron hub",
     ],
     connections: [
       { label: "Packages", connected: true, toolId: "workflow_manager" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
-    routines: [],
-    heartbeat: null,
+    routines: [
+      {
+        id: "crm-backup",
+        name: "CRM Backup",
+        schedule: "0 2 * * *",
+        description: "Nightly backup of Twenty CRM database",
+        handler: "crm-backup",
+        logFile: "/var/log/twenty-backup.log",
+      },
+      {
+        id: "linkedin-connections",
+        name: "LinkedIn Connections Check",
+        schedule: "*/30 * * * *",
+        description:
+          "Polls new connections, CRM note + bell (no LLM); connection intake queue when not on package path",
+        handler: "linkedin-connections",
+      },
+      {
+        id: "warm-outreach-discovery",
+        name: "Warm outreach — LinkedIn discovery slots",
+        schedule: "*/30 * * * *",
+        timeZone: "America/Los_Angeles",
+        description:
+          "Pacific: :00 & :30, 8:30–16:30 PT. Default: up to N/day + min interval. Package spec warmOutreachDiscovery.pacedDaily: weekdays only, first slot from bootstrap time if empty, next slot after post-intake delay (resolve sets nextEligibleSpawnAt; no LLM)",
+        handler: "warm-outreach-discovery",
+      },
+      {
+        id: "daily-target-research",
+        name: "Daily Target Research",
+        schedule: "0 8 * * 1-5",
+        description:
+          "Process research pipeline: research targets, qualify, load into Tim's outreach",
+        handler: "scout-daily-research",
+      },
+    ],
+    heartbeat: {
+      type: "friday",
+      schedule: "*/10 * * * *",
+      checks: [
+        {
+          name: "Scout delegations",
+          description:
+            "Bell when Scout research tasks complete for Tim (no LLM in heartbeat)",
+          priority: "medium",
+        },
+        {
+          name: "Warm outreach backlog",
+          description:
+            "Nags when many find-contact (LinkedIn) tasks pile up for an active warm-outreach package",
+          priority: "high",
+        },
+        {
+          name: "Warm outreach daily pace",
+          description:
+            "Medium from 9 a.m. PT, high after 2 p.m., critical after 4 p.m. if intakes remain; bell dedup 2h per category",
+          priority: "critical",
+        },
+        {
+          name: "Scout task processing",
+          description:
+            "Picks up pending research tasks delegated by other agents and processes them via Scout LLM",
+          priority: "high",
+        },
+      ],
+    },
     workflowTypes: [],
     delegation: {
       canDelegateTo: [],

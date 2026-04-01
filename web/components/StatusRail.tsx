@@ -331,6 +331,8 @@ export default function StatusRail({
   const railTitle =
     labMode === "tim" ? "Tim lab" : labMode === "friday" ? "Friday lab" : "System monitor";
   const [services, setServices] = useState<ServiceRow[] | null>(null);
+  /** Set when /api/system-status is non-OK, times out, or cannot be parsed (session, server crash, etc.). */
+  const [systemStatusFetchHint, setSystemStatusFetchHint] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
   const [systemNotices, setSystemNotices] = useState<SystemNotice[]>([]);
   const [reconnectBusy, setReconnectBusy] = useState(false);
@@ -359,18 +361,63 @@ export default function StatusRail({
   }, []);
 
   const fetchStatus = useCallback(() => {
-    fetch("/api/system-status", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data) => {
-        if (Array.isArray(data.services)) setServices(data.services);
+    const ac = new AbortController();
+    const tid = window.setTimeout(() => ac.abort(), 22_000);
+    fetch("/api/system-status", { credentials: "include", signal: ac.signal })
+      .then(async (r) => {
+        let data: { services?: unknown; alerts?: unknown; error?: string } = {};
+        try {
+          data = (await r.json()) as typeof data;
+        } catch {
+          /* non-JSON */
+        }
+
+        if (!r.ok) {
+          const errText =
+            typeof data.error === "string"
+              ? data.error
+              : r.status === 401
+                ? "Unauthorized"
+                : `HTTP ${r.status}`;
+          setSystemStatusFetchHint(
+            r.status === 401
+              ? "Session expired or cookies blocked — sign out and sign in again (same host as NEXTAUTH_URL)."
+              : `/api/system-status failed (${errText}). Check the terminal running next dev or Docker web logs.`
+          );
+          setServices([
+            { id: "web", label: "Command Central", status: "ok", ms: 0 },
+            {
+              id: "data_platform",
+              label: "Data Platform",
+              status: "skipped",
+              detail:
+                r.status === 401
+                  ? "Not authenticated — status API needs your login session"
+                  : `API ${r.status}: ${errText}`,
+            },
+          ]);
+          if (Array.isArray(data.alerts)) setSystemNotices(data.alerts as SystemNotice[]);
+          else setSystemNotices([]);
+          return;
+        }
+
+        setSystemStatusFetchHint(null);
+        if (Array.isArray(data.services)) setServices(data.services as ServiceRow[]);
         else setServices([]);
-        if (Array.isArray(data.alerts)) setSystemNotices(data.alerts);
+        if (Array.isArray(data.alerts)) setSystemNotices(data.alerts as SystemNotice[]);
         else setSystemNotices([]);
       })
-      .catch(() => {
+      .catch((e) => {
+        const aborted = e instanceof DOMException && e.name === "AbortError";
+        setSystemStatusFetchHint(
+          aborted
+            ? "Status check timed out (22s). Postgres or outbound HTTP may be slow; try Refresh Data Platform or restart dev."
+            : "Could not reach /api/system-status — is the dev server running?"
+        );
         setServices([]);
         setSystemNotices([]);
-      });
+      })
+      .finally(() => clearTimeout(tid));
   }, []);
 
   const fetchNotifications = useCallback(() => {
@@ -458,6 +505,16 @@ export default function StatusRail({
     }
   }, [fetchStatus, fetchAgentOps]);
 
+  const statusFetchBanner =
+    systemStatusFetchHint != null && systemStatusFetchHint !== "" ? (
+      <p
+        className="mb-2 rounded border border-amber-500/35 bg-amber-500/10 px-2 py-1.5 text-[9px] leading-snug text-amber-100/95"
+        role="status"
+      >
+        {systemStatusFetchHint}
+      </p>
+    ) : null;
+
   const systemStatusSection = (
     <section>
       <ul className="font-mono text-[10px] space-y-1">
@@ -513,6 +570,7 @@ export default function StatusRail({
         {labMode === "tim" ? (
           <>
             <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
+              {statusFetchBanner}
               {systemStatusSection}
             </div>
             <TimLabLogDock fillRail />
@@ -520,6 +578,7 @@ export default function StatusRail({
         ) : labMode === "friday" ? (
           <>
             <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
+              {statusFetchBanner}
               {systemStatusSection}
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
@@ -532,6 +591,7 @@ export default function StatusRail({
           </>
         ) : (
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
+        {statusFetchBanner}
         {systemStatusSection}
 
         <section>

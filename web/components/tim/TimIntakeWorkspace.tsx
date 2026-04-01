@@ -51,12 +51,10 @@ interface TimIntakeWorkspaceProps {
   onSubmitInput: (notes: string) => Promise<void>;
   /** Under the title row — same as ArtifactViewer `headerDetail` (e.g. Tim name / LinkedIn / company / title). */
   headerDetail?: ReactNode;
-  /** Shown next to the workflow title (e.g. LOCALDEV item id). */
+  /** Shown next to the workflow title (e.g. queue item + person UUIDs). */
   titleAccessory?: ReactNode;
   /** Confirmed secondary actions (Replied, End sequence, …) — same pattern as ArtifactViewer header. */
   confirmedWorkflowActions?: ArtifactConfirmedWorkflowAction[];
-  /** Optional close control (inline work panel). */
-  onClose?: () => void;
   /** Sidebar agent name in the idea-intake copy (default Tim; use Ghost for Ghost’s queue). */
   chatAgentLabel?: string;
 }
@@ -71,7 +69,6 @@ export default function TimIntakeWorkspace({
   headerDetail,
   titleAccessory,
   confirmedWorkflowActions,
-  onClose,
   chatAgentLabel = "Tim",
 }: TimIntakeWorkspaceProps) {
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
@@ -202,19 +199,6 @@ export default function TimIntakeWorkspace({
             >
               {resolving ? "Submitting…" : "Submit"}
             </button>
-            {onClose ? (
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                aria-label="Close"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            ) : null}
           </div>
         </div>
         {headerDetail ? (

@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010",
+    "dev": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010 --webpack",
+    "dev:clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010 --webpack",
+    "dev:turbo": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010 --turbopack",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
+    "analyze": "cross-env ANALYZE=true next build",
     "build:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD next build && node scripts/copy-standalone-assets.mjs",
     "start": "next start",
     "start:local-prod": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALPROD next start -p 3001",
@@ -23,6 +26,7 @@
     "db:vector-memory": "node scripts/db-exec.mjs scripts/migrate-vector-memory.sql",
     "db:linkedin-inbound-receipt": "node scripts/db-exec.mjs scripts/migrate-linkedin-inbound-receipt.sql",
     "db:linkedin-inbound-receipt-outcome": "node scripts/db-exec.mjs scripts/migrate-linkedin-inbound-receipt-outcome.sql",
+    "db:linkedin-inbound-receipt-message-sent-at": "node scripts/db-exec.mjs scripts/migrate-linkedin-inbound-receipt-message-sent-at.sql",
     "db:unipile-webhook-inbox": "node scripts/db-exec.mjs scripts/migrate-unipile-webhook-inbox.sql",
     "check:linkedin-inbound-receipt": "npx tsx scripts/check-linkedin-inbound-receipt.ts",
     "check:linkedin-inbound-orphans": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/check-linkedin-inbound-orphans.ts",
@@ -40,7 +44,8 @@
     "backfill:warm-replied-inbound": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-warm-replied-inbound.ts",
     "migrate:tim-crm-slice": "node scripts/migrate-tim-crm-slice.mjs",
     "migrate:linkedin-connection-intake": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/migrate-linkedin-connection-intake-items.ts",
-    "backfill:tim-human-task-open": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-tim-human-task-open.ts"
+    "backfill:tim-human-task-open": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-tim-human-task-open.ts",
+    "cleanup:person-dupes": "node --env-file=.env.local -r ./scripts/empty-server-only.cjs --import tsx ./scripts/cleanup-person-duplicates.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
@@ -53,9 +58,11 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-markdown": "^10.1.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "swr": "^2.4.1"
   },
   "devDependencies": {
+    "@next/bundle-analyzer": "^16.2.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/node-cron": "^3.0.11",

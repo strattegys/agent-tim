@@ -1,22 +1,25 @@
 "use client";
 
-import { useState, useCallback, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import ChatWindow, { type Message } from "@/components/ChatWindow";
 import ChatInput, { type ReplyContext } from "@/components/ChatInput";
 import AgentSidebar from "@/components/AgentSidebar";
-import AgentInfoPanel from "@/components/AgentInfoPanel";
-import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
-import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
-import TimAgentPanel from "@/components/tim/TimAgentPanel";
-import GhostAgentPanel from "@/components/ghost/GhostAgentPanel";
-import SuziRemindersPanel from "@/components/suzi/SuziRemindersPanel";
-import MarniWorkPanel from "@/components/marni/MarniWorkPanel";
+import PanelSkeleton from "@/components/shared/PanelSkeleton";
 import type { MarniKnowledgeFocus } from "@/components/marni/MarniKnowledgePanel";
-import AgentKnowledgePanel from "@/components/agents/AgentKnowledgePanel";
-import KingCostPanel from "@/components/king/KingCostPanel";
 import StatusRail from "@/components/StatusRail";
 import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
+
+const AgentInfoPanel = dynamic(() => import("@/components/AgentInfoPanel"), { loading: () => <PanelSkeleton /> });
+const KanbanInlinePanel = dynamic(() => import("@/components/kanban/KanbanInlinePanel"), { loading: () => <PanelSkeleton /> });
+const FridayDashboardPanel = dynamic(() => import("@/components/friday/FridayDashboardPanel"), { loading: () => <PanelSkeleton /> });
+const TimAgentPanel = dynamic(() => import("@/components/tim/TimAgentPanel"), { loading: () => <PanelSkeleton /> });
+const GhostAgentPanel = dynamic(() => import("@/components/ghost/GhostAgentPanel"), { loading: () => <PanelSkeleton /> });
+const SuziRemindersPanel = dynamic(() => import("@/components/suzi/SuziRemindersPanel"), { loading: () => <PanelSkeleton /> });
+const MarniWorkPanel = dynamic(() => import("@/components/marni/MarniWorkPanel"), { loading: () => <PanelSkeleton /> });
+const AgentKnowledgePanel = dynamic(() => import("@/components/agents/AgentKnowledgePanel"), { loading: () => <PanelSkeleton /> });
+const KingCostPanel = dynamic(() => import("@/components/king/KingCostPanel"), { loading: () => <PanelSkeleton /> });
 
 import AgentAvatar from "@/components/AgentAvatar";
 import { getSidebarHeaderTitle } from "@/lib/app-brand";
@@ -51,11 +54,7 @@ import {
   SESSION_HISTORY_FOCUS_SUZI_WORK,
   SESSION_HISTORY_FOCUS_TIM_WORK_ITEM,
 } from "@/lib/chat-stream-options";
-import {
-  formatAgentUiContext,
-  type FridayDashboardTab,
-  type FridayPackageSubTab,
-} from "@/lib/agent-ui-context";
+import { formatAgentUiContext, type FridayDashboardTab } from "@/lib/agent-ui-context";
 import type { DashboardNotification, DashboardSyncResponse } from "@/lib/dashboard-sync-types";
 import Link from "next/link";
 
@@ -101,32 +100,45 @@ function timLabQueryTruthy(raw: string | null): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
-/** Initial Friday top-level work-panel tab from URL (also used after Penny legacy links). */
+/** Friday work-panel tab from URL (`panel=` and legacy Penny / workflow links). */
 function fridayTabFromSearchParams(agent: string | null, panel: string | null): FridayDashboardTab {
-  if (panel === "tasks") return "tasks";
-  if (panel === "workflow-manager") return "packages";
-  if (panel === "packages" || panel === "planner") return "packages";
-  if (panel === "observation" || panel === "workflows") return "packages";
-  if (agent === "penny" && panel === "dashboard") return "packages";
-  return "packages";
-}
-
-/** Initial Packages sub-tab from URL (legacy `workflows` / `pipelines` → Queue). */
-function fridayPackageSubTabFromSearchParams(
-  agent: string | null,
-  panel: string | null
-): FridayPackageSubTab {
+  if (panel === "tasks") return "queue";
+  if (panel === "tools") return "tools";
+  if (panel === "goals") return "goals";
+  if (panel === "cron") return "cron";
+  if (panel === "pkg-templates" || panel === "package-templates") return "pkg-templates";
+  if (panel === "wf-templates" || panel === "workflow-templates") return "wf-templates";
+  if (panel === "planner") return "planner";
   if (agent === "penny" && panel === "dashboard") return "planner";
+  if (panel === "dashboard") return "goals";
   if (
     panel === "workflow-manager" ||
-    panel === "workflows" ||
+    panel === "packages" ||
     panel === "observation" ||
+    panel === "workflows" ||
     panel === "pipelines"
   )
     return "queue";
-  if (panel === "planner") return "planner";
-  return "queue";
+  return "goals";
 }
+
+const FRIDAY_WORK_DASHBOARD_PANELS = new Set<string>([
+  "dashboard",
+  "goals",
+  "tasks",
+  "tools",
+  "cron",
+  "pkg-templates",
+  "package-templates",
+  "wf-templates",
+  "workflow-templates",
+  "workflow-manager",
+  "packages",
+  "planner",
+  "observation",
+  "workflows",
+  "pipelines",
+]);
 
 export default function CommandCentralClient() {
   const searchParams = useSearchParams();
@@ -136,12 +148,6 @@ export default function CommandCentralClient() {
   const fridayLabLayout = timLabQueryTruthy(searchParams.get("fridayLab"));
   /** Same chrome as Tim lab: no left agent rail, wider main + right column (workflow / messaging focus). */
   const compactLabLayout = timLabLayout || fridayLabLayout;
-
-  /** Hide chrome (avatars, sidebar) until after layout — avoids a one-frame icon flash on hard refresh. */
-  const [shellReady, setShellReady] = useState(false);
-  useLayoutEffect(() => {
-    setShellReady(true);
-  }, []);
 
   // Each agent's default panel when selected
   function defaultPanelFor(agentId: string): RightPanel {
@@ -170,15 +176,7 @@ export default function CommandCentralClient() {
         ? paramAgent
         : paramAgent || "suzi";
     const p = paramPanel as RightPanel | null;
-    if (
-      agent === "friday" &&
-      (paramPanel === "tasks" ||
-        paramPanel === "observation" ||
-        paramPanel === "workflows" ||
-        paramPanel === "packages" ||
-        paramPanel === "planner" ||
-        paramPanel === "workflow-manager")
-    )
+    if (agent === "friday" && paramPanel && FRIDAY_WORK_DASHBOARD_PANELS.has(paramPanel))
       return "dashboard";
     if (agent === "tim" && p === "kanban") return "messages";
     if (agent === "ghost" && p === "kanban") return "messages";
@@ -197,15 +195,13 @@ export default function CommandCentralClient() {
     if (fridayLabLayout) {
       setActiveAgent("friday");
       setRightPanel("dashboard");
-      setFridayDashboardTab("packages");
-      setFridayPackageSubTab("queue");
+      setFridayDashboardTab("queue");
       return;
     }
     if (paramAgent === "penny" && paramPanel === "dashboard") {
       setActiveAgent("friday");
       setRightPanel("dashboard");
-      setFridayDashboardTab("packages");
-      setFridayPackageSubTab("planner");
+      setFridayDashboardTab("planner");
       return;
     }
     if (paramAgent && AGENTS.some((a) => a.id === paramAgent)) {
@@ -219,38 +215,13 @@ export default function CommandCentralClient() {
       setRightPanel("marni-work");
       return;
     }
-    if (paramAgent === "friday" && paramPanel === "workflow-manager") {
+    if (paramAgent === "friday" && paramPanel && FRIDAY_WORK_DASHBOARD_PANELS.has(paramPanel)) {
       setRightPanel("dashboard");
-      setFridayDashboardTab("packages");
-      setFridayPackageSubTab("queue");
-      return;
-    }
-    if (paramAgent === "friday" && paramPanel === "planner") {
-      setRightPanel("dashboard");
-      setFridayDashboardTab("packages");
-      setFridayPackageSubTab("planner");
-      return;
-    }
-    if (paramAgent === "friday" && paramPanel === "packages") {
-      setRightPanel("dashboard");
-      setFridayDashboardTab("packages");
-      setFridayPackageSubTab("queue");
-      return;
-    }
-    if (
-      paramAgent === "friday" &&
-      (paramPanel === "observation" || paramPanel === "workflows")
-    ) {
-      setRightPanel("dashboard");
-      setFridayDashboardTab("packages");
-      setFridayPackageSubTab("queue");
+      setFridayDashboardTab(fridayTabFromSearchParams(paramAgent, paramPanel));
       return;
     }
     if (paramPanel && VALID_RIGHT_PANELS.includes(paramPanel as RightPanel)) {
-      if (paramAgent === "friday" && paramPanel === "tasks") {
-        setRightPanel("dashboard");
-        setFridayDashboardTab("tasks");
-      } else if (paramAgent === "tim" && paramPanel === "kanban") {
+      if (paramAgent === "tim" && paramPanel === "kanban") {
         setRightPanel("messages");
       } else if (paramAgent === "ghost" && paramPanel === "kanban") {
         setRightPanel("messages");
@@ -326,8 +297,6 @@ export default function CommandCentralClient() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
 
-  const [pendingTaskCount, setPendingTaskCount] = useState(0);
-  const [testingTaskCount, setTestingTaskCount] = useState(0);
   const [timMessagingTaskCount, setTimMessagingTaskCount] = useState(0);
   const [timPendingQueueCount, setTimPendingQueueCount] = useState(0);
   const [ghostContentTaskCount, setGhostContentTaskCount] = useState(0);
@@ -336,26 +305,16 @@ export default function CommandCentralClient() {
 
   const workBellBadges = useMemo(
     () => ({
-      pendingTaskCount,
-      testingTaskCount,
       timMessagingTaskCount,
       ghostContentTaskCount,
       suziDueReminderCount,
     }),
-    [
-      pendingTaskCount,
-      testingTaskCount,
-      timMessagingTaskCount,
-      ghostContentTaskCount,
-      suziDueReminderCount,
-    ]
+    [timMessagingTaskCount, ghostContentTaskCount, suziDueReminderCount]
   );
 
   const applyDashboardSync = useCallback((data: DashboardSyncResponse) => {
     if (!data?.badges) return;
     const b = data.badges;
-    setPendingTaskCount(b.pendingTaskCount);
-    setTestingTaskCount(b.testingTaskCount);
     setTimMessagingTaskCount(b.timMessagingTaskCount);
     setTimPendingQueueCount(b.timPendingQueueCount);
     setGhostContentTaskCount(b.ghostContentTaskCount);
@@ -438,9 +397,6 @@ export default function CommandCentralClient() {
   const [suziFocusedNote, setSuziFocusedNote] = useState<SuziFocusedNote | null>(null);
   const [fridayDashboardTab, setFridayDashboardTab] = useState<FridayDashboardTab>(() =>
     fridayTabFromSearchParams(searchParams.get("agent"), searchParams.get("panel"))
-  );
-  const [fridayPackageSubTab, setFridayPackageSubTab] = useState<FridayPackageSubTab>(() =>
-    fridayPackageSubTabFromSearchParams(searchParams.get("agent"), searchParams.get("panel"))
   );
   const [marniKnowledgeFocus, setMarniKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
   const [timKnowledgeFocus, setTimKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
@@ -1001,8 +957,6 @@ export default function CommandCentralClient() {
             ghostHasWorkQueueSelection:
               activeAgent === "ghost" && ghostWorkSelection != null,
             fridayTab: fridayDashboardTab,
-            fridayPackageSubTab:
-              fridayDashboardTab === "packages" ? fridayPackageSubTab : undefined,
             marniKnowledgeTopic:
               activeAgent === "marni" && rightPanel === "agent-knowledge" && marniKnowledgeFocus
                 ? { id: marniKnowledgeFocus.topicId, name: marniKnowledgeFocus.name }
@@ -1214,12 +1168,7 @@ export default function CommandCentralClient() {
       className="flex h-screen w-screen overflow-hidden bg-[#0a0f18]"
       style={{ backgroundColor: "#0a0f18" }}
     >
-      <div
-        className={`flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden ${
-          shellReady ? "opacity-100" : "pointer-events-none select-none opacity-0"
-        }`}
-        aria-busy={!shellReady}
-      >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
         <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
@@ -1389,8 +1338,6 @@ export default function CommandCentralClient() {
           agents={agents}
           activeAgent={activeAgent}
           unreadCounts={unreadCounts}
-          pendingTaskCount={pendingTaskCount}
-          testingTaskCount={testingTaskCount}
           timMessagingTaskCount={timMessagingTaskCount}
           ghostContentTaskCount={ghostContentTaskCount}
           suziDueReminderCount={suziDueReminderCount}
@@ -1573,7 +1520,7 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Friday — packages, workflow manager, human tasks & tools"
+                title="Friday — goals, queue, planner, templates & tools"
               >
                 <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -1724,12 +1671,8 @@ export default function CommandCentralClient() {
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
             <FridayDashboardPanel
               onClose={() => setRightPanel("info")}
-              onSwitchToAgent={(id) => setActiveAgent(id)}
-              pendingTaskCount={pendingTaskCount}
               dashboardTab={fridayDashboardTab}
               onDashboardTabChange={setFridayDashboardTab}
-              packageSubTab={fridayPackageSubTab}
-              onPackageSubTabChange={setFridayPackageSubTab}
             />
           ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
             <SuziRemindersPanel

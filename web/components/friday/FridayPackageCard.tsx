@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { WORKFLOW_TYPES } from "@/lib/workflow-types";
+import OperationalPackageEditModal from "./OperationalPackageEditModal";
 import { getAgentSpec } from "@/lib/agent-registry";
 import AgentAvatar from "../AgentAvatar";
 
@@ -35,12 +37,18 @@ export interface FridayPackageRow {
   workflowCount: number;
   itemCount?: number;
   createdAt: string;
+  /** Raw package spec (name/brief PATCH) — included on operational GET */
+  spec?: unknown;
   /** Per-workflow pipeline steps + counts (when API sends includeWorkflowBreakdown) */
   workflows?: FridayWorkflowBreakdown[];
 }
 
 interface FridayPackageCardProps {
   pkg: FridayPackageRow;
+  /** Open full Kanban for this workflow (Friday queue drill-down). */
+  onOpenWorkflowKanban?: (wf: FridayWorkflowBreakdown) => void;
+  /** After PATCH from edit modal — refresh operational list */
+  onPackageMutate?: () => void;
 }
 
 function stageCount(map: Record<string, number>, key: string): number {
@@ -76,30 +84,40 @@ function timHumanStagesCountForWorkflow(wf: FridayWorkflowBreakdown): number {
   return n;
 }
 
-function packageStagePillBg(stage: string): string {
-  const s = stage.toUpperCase();
-  if (s === "ACTIVE") return "var(--accent-green)";
-  if (s === "PAUSED") return "var(--accent-orange)";
-  if (s === "COMPLETED") return "#64748b";
-  return "var(--text-tertiary)";
-}
-
 /** One workflow’s pipeline strip (used inside package queue cards). */
-export function FridayWorkflowPipelineBlock({ wf }: { wf: FridayWorkflowBreakdown }) {
+export function FridayWorkflowPipelineBlock({
+  wf,
+  onOpenBoard,
+}: {
+  wf: FridayWorkflowBreakdown;
+  onOpenBoard?: () => void;
+}) {
   const typeLabel =
     (wf.workflowType && WORKFLOW_TYPES[wf.workflowType]?.label) || wf.name || "Workflow";
   const ownerId = (wf.ownerAgent || "tim").toLowerCase();
   const agentSpec = getAgentSpec(ownerId);
+  const wfRegistry = wf.workflowType ? WORKFLOW_TYPES[wf.workflowType] : undefined;
+  const itemType = wfRegistry?.itemType ?? "person";
   const vol = typeof wf.volumeLabel === "string" ? wf.volumeLabel.trim() : "";
   const cap = wf.targetCount > 0 ? wf.targetCount : null;
+  const flightNoun =
+    itemType === "content" ? (cap === 1 ? "article" : "articles") : cap === 1 ? "contact" : "contacts";
   const goalLine =
     vol && cap
-      ? `${vol} · up to ${cap} contact${cap !== 1 ? "s" : ""} in flight`
+      ? `${vol} · up to ${cap} ${flightNoun} in flight`
       : vol
         ? vol
         : cap
-          ? `Up to ${cap} contact${cap !== 1 ? "s" : ""} in flight`
+          ? `Up to ${cap} ${flightNoun} in flight`
           : null;
+  const pipelineNoun =
+    itemType === "content"
+      ? wf.totalItems === 1
+        ? "article"
+        : "articles"
+      : wf.totalItems === 1
+        ? "item"
+        : "items";
 
   return (
     <div className="space-y-2">
@@ -121,10 +139,23 @@ export function FridayWorkflowPipelineBlock({ wf }: { wf: FridayWorkflowBreakdow
             {typeLabel}
           </span>
           <span className="text-[9px] text-[var(--text-tertiary)] capitalize truncate">
-            {ownerId} · {wf.totalItems} in pipeline
+            {ownerId} · {wf.totalItems} {pipelineNoun} in pipeline
             {goalLine ? ` · ${goalLine}` : ""}
           </span>
         </div>
+        {onOpenBoard ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenBoard();
+            }}
+            className="shrink-0 text-[9px] font-semibold px-1.5 py-0.5 rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)] cursor-pointer"
+            title="Open Kanban board for this workflow"
+          >
+            Board
+          </button>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap gap-1 items-center">
@@ -168,7 +199,12 @@ export function FridayWorkflowPipelineBlock({ wf }: { wf: FridayWorkflowBreakdow
   );
 }
 
-export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
+export default function FridayPackageCard({
+  pkg,
+  onOpenWorkflowKanban,
+  onPackageMutate,
+}: FridayPackageCardProps) {
+  const [editOpen, setEditOpen] = useState(false);
   const items = pkg.itemCount ?? 0;
   const breakdown = pkg.workflows && pkg.workflows.length > 0 ? pkg.workflows : null;
   const awaitingContactTotal =
@@ -179,6 +215,18 @@ export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
 
   return (
     <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-2.5 space-y-1.5">
+      <OperationalPackageEditModal
+        pkg={{
+          id: pkg.id,
+          name: pkg.name,
+          templateId: pkg.templateId,
+          stage: pkg.stage,
+          spec: pkg.spec ?? {},
+        }}
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => onPackageMutate?.()}
+      />
       <div className="flex items-center gap-1.5 min-w-0">
         {pkg.packageNumber != null && !Number.isNaN(pkg.packageNumber) && (
           <span className="text-[10px] font-bold tabular-nums text-[var(--text-tertiary)] shrink-0">
@@ -186,15 +234,16 @@ export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
           </span>
         )}
         <span className="text-xs font-medium text-[var(--text-chat-body)] truncate flex-1">{pkg.name}</span>
+        <button
+          type="button"
+          title="Edit name, brief, or move to draft"
+          onClick={() => setEditOpen(true)}
+          className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)]"
+        >
+          Edit
+        </button>
       </div>
       <div className="flex items-center gap-1.5 flex-wrap text-[9px] text-[var(--text-tertiary)]">
-        <span
-          className="px-1.5 py-0.5 rounded font-medium text-white shrink-0"
-          style={{ backgroundColor: packageStagePillBg(pkg.stage) }}
-          title="Package lifecycle stage"
-        >
-          {pkg.stage}
-        </span>
         <span className="px-1.5 py-0.5 rounded bg-[var(--bg-primary)] font-medium">{pkg.templateId}</span>
         <span>
           {pkg.workflowCount} workflow{pkg.workflowCount !== 1 ? "s" : ""}
@@ -225,7 +274,12 @@ export default function FridayPackageCard({ pkg }: FridayPackageCardProps) {
             key={wf.id}
             className="pt-2 mt-1 border-t border-[var(--border-color)] space-y-2"
           >
-            <FridayWorkflowPipelineBlock wf={wf} />
+            <FridayWorkflowPipelineBlock
+              wf={wf}
+              onOpenBoard={
+                onOpenWorkflowKanban ? () => onOpenWorkflowKanban(wf) : undefined
+              }
+            />
           </div>
         ))}
     </div>

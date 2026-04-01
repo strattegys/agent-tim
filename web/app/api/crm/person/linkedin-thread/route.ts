@@ -16,28 +16,7 @@ import {
 } from "@/lib/unipile-person-chat-thread";
 import { fetchUnipileLinkedInProfile } from "@/lib/unipile-profile";
 import { resolveUnipileLinkedInProviderId } from "@/lib/unipile-send";
-
-// #region agent log
-function agentLog847(payload: {
-  hypothesisId: string;
-  location: string;
-  message: string;
-  data: Record<string, unknown>;
-}) {
-  const row = {
-    sessionId: "847f63",
-    runId: "pre-fix",
-    timestamp: Date.now(),
-    ...payload,
-  };
-  console.error("[DEBUG-847f63]", JSON.stringify(row));
-  void fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-    body: JSON.stringify(row),
-  }).catch(() => {});
-}
-// #endregion
+import { healPersonLinkedInFromWorkflowArtifactsIfNeeded } from "@/lib/linkedin-general-inbox";
 
 /** Some DB layers store artifact `content` as JSON — unwrap so Provider id / Chat ID lines are visible. */
 function coalesceArtifactBody(raw: string | null | undefined): string {
@@ -184,19 +163,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "personId is required" }, { status: 400 });
   }
 
-  // #region agent log
-  agentLog847({
-    hypothesisId: "H3",
-    location: "linkedin-thread/route.ts:GET:entry",
-    message: "linkedin-thread GET",
-    data: {
-      personIdLen: personId.length,
-      hasWorkflowItemId: Boolean(workflowItemId),
-    },
-  });
-  // #endregion
-
-  const { linkedinUrl, linkedinProviderId } = await loadPersonLinkedInFields(personId);
+  let { linkedinUrl, linkedinProviderId } = await loadPersonLinkedInFields(personId);
+  if (
+    workflowItemId &&
+    !(linkedinUrl || "").trim() &&
+    !(linkedinProviderId || "").trim()
+  ) {
+    const healed = await healPersonLinkedInFromWorkflowArtifactsIfNeeded(personId, workflowItemId);
+    if (healed) {
+      const again = await loadPersonLinkedInFields(personId);
+      linkedinUrl = again.linkedinUrl;
+      linkedinProviderId = again.linkedinProviderId;
+    }
+  }
   const personExists = await query<{ one: number }>(
     `SELECT 1 AS one FROM person p WHERE p.id = $1::uuid AND p."deletedAt" IS NULL LIMIT 1`,
     [personId]
@@ -211,19 +190,6 @@ export async function GET(req: NextRequest) {
   const inboundChatId = extractUnipileInboundChatIdFromNotes(artifactNotes);
   if (inboundChatId) {
     const direct = await tryFetchLinkedInThreadViaInboundChatId(inboundChatId);
-    // #region agent log
-    agentLog847({
-      hypothesisId: "H3,H4",
-      location: "linkedin-thread/route.ts:GET:inboundChatAttempt",
-      message: "inbound webhook chat id path",
-      data: {
-        chatIdLen: inboundChatId.length,
-        directOk: direct.ok,
-        unipileHttpStatus: direct.ok ? "ok" : direct.httpStatus,
-        msgCount: direct.ok ? direct.messages.length : -1,
-      },
-    });
-    // #endregion
     if (direct.ok) {
       let personCrmSynced = false;
       const personSyncLogs: string[] = [];
@@ -262,18 +228,6 @@ export async function GET(req: NextRequest) {
   });
 
   if (!hint) {
-    // #region agent log
-    agentLog847({
-      hypothesisId: "H3",
-      location: "linkedin-thread/route.ts:GET:noHint",
-      message: "resolveUnipilePersonIdentifier returned null",
-      data: {
-        artifactNotesLen: artifactNotes.length,
-        hasLinkedinUrl: Boolean(linkedinUrl),
-        hasProviderCol: Boolean(linkedinProviderId),
-      },
-    });
-    // #endregion
     return NextResponse.json({
       ok: false,
       error:
@@ -316,17 +270,6 @@ export async function GET(req: NextRequest) {
 
   const thread = await fetchLinkedInThreadForProviderMemberId(memberId);
   if (!thread.ok) {
-    // #region agent log
-    agentLog847({
-      hypothesisId: "H3,H4",
-      location: "linkedin-thread/route.ts:GET:threadFetchFail",
-      message: "fetchLinkedInThreadForProviderMemberId failed",
-      data: {
-        errSlice: String(thread.error).slice(0, 160),
-        scanned: thread.scannedChats ?? 0,
-      },
-    });
-    // #endregion
     return NextResponse.json({
       ok: false,
       error: thread.error,
@@ -337,19 +280,6 @@ export async function GET(req: NextRequest) {
       personSyncLogs: personSyncLogs.slice(-6),
     });
   }
-
-  // #region agent log
-  agentLog847({
-    hypothesisId: "H4",
-    location: "linkedin-thread/route.ts:GET:threadOk",
-    message: "thread fetch success",
-    data: {
-      resolution: thread.resolution,
-      msgCount: thread.messages.length,
-      scannedChats: thread.scannedChats,
-    },
-  });
-  // #endregion
 
   return NextResponse.json({
     ok: true,

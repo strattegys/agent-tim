@@ -1,5 +1,5 @@
+import nextDynamic from "next/dynamic";
 import { Suspense } from "react";
-import CommandCentralClient from "./CommandCentralClient";
 import { redirectIfBackendOnlyUi } from "@/lib/main-ui-gate";
 
 /** Avoid static prerender + CSR bailout blank shell when the client reads search params. */
@@ -12,6 +12,11 @@ function HomeFallback() {
     </div>
   );
 }
+
+/** Separate async chunk so dev does not time out compiling one giant `app/page.js` bundle. */
+const CommandCentralClient = nextDynamic(() => import("./CommandCentralClient"), {
+  loading: () => <HomeFallback />,
+});
 
 export default function HomePage() {
   redirectIfBackendOnlyUi();

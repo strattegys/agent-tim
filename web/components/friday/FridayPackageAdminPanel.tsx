@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
+import useSWR from "swr";
 import {
-  packageTemplatesVisibleInPlanner,
+  PLANNER_PACKAGE_TEMPLATES,
   type PackageTemplateSpec,
 } from "@/lib/package-types";
 import { WORKFLOW_TYPES, type WorkflowTypeSpec } from "@/lib/workflow-types";
@@ -11,10 +12,15 @@ import { useDocumentVisible } from "@/lib/use-document-visible";
 import PackageDetailCard from "@/components/penny/PackageDetailCard";
 import AddPackageModal from "@/components/penny/AddPackageModal";
 import WorkflowTemplateCard from "@/components/penny/WorkflowTemplateCard";
-import HumanTasksPanel from "./HumanTasksPanel";
 import OperationalPackageQueue from "./OperationalPackageQueue";
 import type { PackageSpec } from "@/lib/package-types";
-import type { FridayPackageSubTab } from "@/lib/agent-ui-context";
+import type { FridayDashboardTab } from "@/lib/agent-ui-context";
+
+/** Package-area views mounted from Friday’s top-level tabs (not tasks/tools). */
+export type FridayPackageAdminView = Extract<
+  FridayDashboardTab,
+  "queue" | "planner" | "pkg-templates" | "wf-templates"
+>;
 
 interface PackageRow {
   id: string;
@@ -34,61 +40,62 @@ const POLL_MS_VISIBLE = 5000;
 const POLL_MS_HIDDEN = 30_000;
 
 interface FridayPackageAdminPanelProps {
-  packageSubTab: FridayPackageSubTab;
-  onPackageSubTabChange: (tab: FridayPackageSubTab) => void;
+  activeView: FridayPackageAdminView;
 }
 
-export default function FridayPackageAdminPanel({
-  packageSubTab: tab,
-  onPackageSubTabChange: setTab,
-}: FridayPackageAdminPanelProps) {
+export default function FridayPackageAdminPanel({ activeView: tab }: FridayPackageAdminPanelProps) {
   const tabVisible = useDocumentVisible();
 
-  const [packages, setPackages] = useState<PackageRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [orphanState, setOrphanState] = useState<{
-    loading: boolean;
+  const { data: pkgData, isLoading: loading, mutate: refreshPackages } = useSWR<{ packages: PackageRow[] }>(
+    "/api/crm/packages",
+    async (url: string) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    {
+      refreshInterval: tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN,
+      revalidateOnFocus: true,
+      dedupingInterval: 5_000,
+    },
+  );
+  const packages = pkgData?.packages ?? [];
+
+  const { data: orphanData, mutate: refreshOrphans } = useSWR<{
     count: number;
     migrateAllowed: boolean;
-  }>({ loading: true, count: 0, migrateAllowed: false });
+  }>(
+    "/api/crm/packages/orphan-workflows",
+    async (url: string) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const d = await r.json();
+      return {
+        count: typeof d.count === "number" ? d.count : 0,
+        migrateAllowed: d.migrateAllowed === true,
+      };
+    },
+    { refreshInterval: tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN, dedupingInterval: 5_000 },
+  );
+  const orphanState = {
+    loading: !orphanData,
+    count: orphanData?.count ?? 0,
+    migrateAllowed: orphanData?.migrateAllowed ?? false,
+  };
+
   const [orphanMigrating, setOrphanMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
   const [addPackageOpen, setAddPackageOpen] = useState(false);
-  const mountedRef = useRef(true);
 
-  const pkgTemplates: PackageTemplateSpec[] = packageTemplatesVisibleInPlanner();
-  const wfTemplates: WorkflowTypeSpec[] = Object.values(WORKFLOW_TYPES);
+  const fetchPackages = useCallback(() => void refreshPackages(), [refreshPackages]);
 
-  const fetchPackages = useCallback(() => {
-    fetch("/api/crm/packages")
-      .then((r) => r.json())
-      .then((data) => {
-        if (mountedRef.current) setPackages(data.packages || []);
-      })
-      .catch(() => {
-        if (mountedRef.current) setPackages([]);
-      })
-      .finally(() => {
-        if (mountedRef.current) setLoading(false);
-      });
-  }, []);
-
-  const fetchOrphans = useCallback(() => {
-    fetch("/api/crm/packages/orphan-workflows")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!mountedRef.current) return;
-        setOrphanState({
-          loading: false,
-          count: typeof data.count === "number" ? data.count : 0,
-          migrateAllowed: data.migrateAllowed === true,
-        });
-      })
-      .catch(() => {
-        if (mountedRef.current)
-          setOrphanState({ loading: false, count: 0, migrateAllowed: false });
-      });
-  }, []);
+  useEffect(() => {
+    const unsub = panelBus.on("package_manager", () => {
+      void refreshPackages();
+      void refreshOrphans();
+    });
+    return unsub;
+  }, [refreshPackages, refreshOrphans]);
 
   const runOrphanMigration = useCallback(async () => {
     setMigrationError(null);
@@ -107,86 +114,21 @@ export default function FridayPackageAdminPanel({
       }
       panelBus.emit("package_manager");
       panelBus.emit("dashboard_sync");
-      fetchPackages();
-      fetchOrphans();
+      void refreshPackages();
+      void refreshOrphans();
     } finally {
       setOrphanMigrating(false);
     }
-  }, [fetchPackages, fetchOrphans]);
+  }, [refreshPackages, refreshOrphans]);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchPackages();
-    fetchOrphans();
-    const tick = () => {
-      fetchPackages();
-      fetchOrphans();
-    };
-    const ms = tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN;
-    const interval = setInterval(tick, ms);
-    const unsub = panelBus.on("package_manager", tick);
-    return () => {
-      mountedRef.current = false;
-      clearInterval(interval);
-      unsub();
-    };
-  }, [fetchPackages, fetchOrphans, tabVisible]);
-
-  const TABS: { key: FridayPackageSubTab; label: string; title?: string; count?: string }[] = [
-    {
-      key: "queue",
-      label: "Queue",
-      title: "Active, paused, completed — workflow steps per package; open Kanban per workflow",
-    },
-    {
-      key: "planner",
-      label: "Planner",
-      title: "Draft and testing — build packages before activation",
-      count: loading ? "..." : `${packages.length}`,
-    },
-    {
-      key: "pkg-templates",
-      label: "Package templates",
-      count: `${pkgTemplates.length}`,
-    },
-    {
-      key: "wf-templates",
-      label: "Workflow templates",
-      count: `${wfTemplates.length}`,
-    },
-  ];
+  const pkgTemplates: PackageTemplateSpec[] = PLANNER_PACKAGE_TEMPLATES;
+  const wfTemplates: WorkflowTypeSpec[] = Object.values(WORKFLOW_TYPES);
 
   const draftPackages = packages.filter((p) => p.stage.toUpperCase() === "DRAFT");
   const testingPackages = packages.filter((p) => p.stage.toUpperCase() === "PENDING_APPROVAL");
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
-        {TABS.map((t) => {
-          const isActive = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              title={t.title}
-              onClick={() => setTab(t.key)}
-              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors flex items-center gap-1 ${
-                isActive
-                  ? "font-semibold text-[var(--text-primary)]"
-                  : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              {t.label}
-              {t.count != null && (
-                <span className="text-[10px] font-normal text-[var(--text-tertiary)] tabular-nums">
-                  {t.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
       {tab === "queue" ? (
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           <OperationalPackageQueue />
@@ -359,33 +301,14 @@ export default function FridayPackageAdminPanel({
                       <div key={pkg.id} className="space-y-2">
                         <PackageDetailCard pkg={pkg} onPackageMutate={fetchPackages} />
 
-                        <div className="flex gap-1.5 min-h-[220px] max-h-[min(55vh,520px)] min-h-0 shrink-0">
-                          <div
-                            style={{ width: "60%" }}
-                            className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col"
-                          >
-                            <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-                              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                                Tasks
-                              </span>
-                            </div>
-                            <div className="flex-1 min-h-0 overflow-hidden">
-                              <HumanTasksPanel packageStageFilter="PENDING_APPROVAL" compact />
-                            </div>
+                        <div className="min-h-[220px] max-h-[min(55vh,520px)] min-h-0 shrink-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col">
+                          <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+                            <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                              Logs
+                            </span>
                           </div>
-
-                          <div
-                            style={{ width: "40%" }}
-                            className="min-h-0 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] overflow-hidden flex flex-col"
-                          >
-                            <div className="shrink-0 px-2.5 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-                              <span className="text-[10px] font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                                Logs
-                              </span>
-                            </div>
-                            <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-0">
-                              <SimLogViewer packageId={pkg.id} />
-                            </div>
+                          <div className="flex-1 min-h-0 overflow-hidden flex flex-col p-0">
+                            <SimLogViewer packageId={pkg.id} />
                           </div>
                         </div>
                       </div>

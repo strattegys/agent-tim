@@ -87,7 +87,6 @@ interface TimLinkedInInboxIntakeWorkspaceProps {
   onMoved?: () => void;
   headerDetail?: ReactNode;
   titleAccessory?: ReactNode;
-  onClose?: () => void;
 }
 
 export default function TimLinkedInInboxIntakeWorkspace({
@@ -97,7 +96,6 @@ export default function TimLinkedInInboxIntakeWorkspace({
   onMoved,
   headerDetail,
   titleAccessory,
-  onClose,
 }: TimLinkedInInboxIntakeWorkspaceProps) {
   const [artifacts, setArtifacts] = useState<ArtifactRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -177,56 +175,14 @@ export default function TimLinkedInInboxIntakeWorkspace({
     return () => window.removeEventListener("keydown", onKey);
   }, [moveDialogOpen, closeMoveDialog]);
 
-  const loadUnipileThread = useCallback((reason: "effect" | "click" = "effect") => {
-    // Browser-visible (production-safe): prior debug only POSTed to localhost and was silent on HTTPS.
-    console.warn("[DEBUG-847f63][client] loadUnipileThread", {
-      reason,
-      hasSourceId: Boolean(task.sourceId?.trim()),
-      hasItemId: Boolean(task.itemId?.trim()),
-    });
+  const loadUnipileThread = useCallback(() => {
     const gen = ++unipileFetchGenRef.current;
     setUnipileLoading(true);
     setUnipileError(null);
     setUnipileEmptyAfterFetch(false);
     setUnipileResolution(null);
 
-    // #region agent log
-    fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-      body: JSON.stringify({
-        sessionId: "847f63",
-        runId: "pre-fix",
-        hypothesisId: "H1,H5",
-        location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:start",
-        message: "loadUnipileThread invoked",
-        data: {
-          hasSourceId: Boolean(task.sourceId?.trim()),
-          hasItemId: Boolean(task.itemId?.trim()),
-          gen,
-          refAfter: unipileFetchGenRef.current,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
-
     if (!task.sourceId?.trim()) {
-      // #region agent log
-      fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-        body: JSON.stringify({
-          sessionId: "847f63",
-          runId: "pre-fix",
-          hypothesisId: "H1",
-          location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:noSourceId",
-          message: "early exit missing sourceId",
-          data: { gen },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-      // #endregion
       if (gen === unipileFetchGenRef.current) {
         setUnipileLines([]);
         setUnipileError(
@@ -245,43 +201,10 @@ export default function TimLinkedInInboxIntakeWorkspace({
           { credentials: "include", cache: "no-store" }
         );
         const rawText = await r.text();
-        console.warn("[DEBUG-847f63][client] linkedin-thread HTTP", {
-          reason,
-          httpStatus: r.status,
-          rOk: r.ok,
-          bodyChars: rawText.length,
-          gen,
-        });
         let d: Record<string, unknown> = {};
         try {
           d = JSON.parse(rawText) as Record<string, unknown>;
         } catch {
-          console.warn("[DEBUG-847f63][client] linkedin-thread not JSON", {
-            reason,
-            httpStatus: r.status,
-            bodyHead: rawText.slice(0, 80),
-          });
-          // #region agent log
-          fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-            body: JSON.stringify({
-              sessionId: "847f63",
-              runId: "pre-fix",
-              hypothesisId: "H2",
-              location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:jsonParseFail",
-              message: "response not JSON",
-              data: {
-                httpStatus: r.status,
-                rOk: r.ok,
-                rawLen: rawText.length,
-                gen,
-                ref: unipileFetchGenRef.current,
-              },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
           if (gen !== unipileFetchGenRef.current) return;
           setUnipileLines([]);
           setUnipileError(r.ok ? "Bad response from server" : `HTTP ${r.status}`);
@@ -289,64 +212,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
           return;
         }
 
-        if (gen !== unipileFetchGenRef.current) {
-          console.warn("[DEBUG-847f63][client] linkedin-thread stale gen skip UI", {
-            reason,
-            gen,
-            ref: unipileFetchGenRef.current,
-          });
-          // #region agent log
-          fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-            body: JSON.stringify({
-              sessionId: "847f63",
-              runId: "pre-fix",
-              hypothesisId: "H5",
-              location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:staleGen",
-              message: "skipped state updates stale generation",
-              data: { gen, ref: unipileFetchGenRef.current },
-              timestamp: Date.now(),
-            }),
-          }).catch(() => {});
-          // #endregion
-          return;
-        }
-
-        // #region agent log
-        const msgArr = d.messages;
-        const msgLen = Array.isArray(msgArr) ? msgArr.length : -1;
-        console.warn("[DEBUG-847f63][client] linkedin-thread parsed", {
-          reason,
-          httpStatus: r.status,
-          bodyOk: d.ok,
-          resolution: typeof d.resolution === "string" ? d.resolution : null,
-          messagesArrayLen: msgLen,
-          errSlice: typeof d.error === "string" ? d.error.slice(0, 120) : null,
-          gen,
-        });
-        fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-          body: JSON.stringify({
-            sessionId: "847f63",
-            runId: "pre-fix",
-            hypothesisId: "H2,H3,H4",
-            location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:response",
-            message: "linkedin-thread response parsed",
-            data: {
-              httpStatus: r.status,
-              rOk: r.ok,
-              bodyOk: d.ok,
-              errType: typeof d.error,
-              resolution: typeof d.resolution === "string" ? d.resolution : null,
-              messagesArrayLen: msgLen,
-              gen,
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
+        if (gen !== unipileFetchGenRef.current) return;
 
         const crmSynced = d.personCrmSynced === true;
         if (crmSynced) {
@@ -392,40 +258,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
                 : null
         );
         setUnipileEmptyAfterFetch(lines.length === 0);
-        // #region agent log
-        fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-          body: JSON.stringify({
-            sessionId: "847f63",
-            runId: "pre-fix",
-            hypothesisId: "H4",
-            location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:normalized",
-            message: "normalized thread lines",
-            data: { normalizedCount: lines.length, gen },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
       } catch (err) {
-        // #region agent log
-        fetch("http://127.0.0.1:7599/ingest/c5690072-2887-4a67-869d-71f1f6b28771", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "847f63" },
-          body: JSON.stringify({
-            sessionId: "847f63",
-            runId: "pre-fix",
-            hypothesisId: "H2",
-            location: "TimLinkedInInboxIntakeWorkspace.tsx:loadUnipileThread:catch",
-            message: "fetch threw",
-            data: {
-              gen,
-              err: err instanceof Error ? err.message.slice(0, 120) : "unknown",
-            },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {});
-        // #endregion
         if (gen !== unipileFetchGenRef.current) return;
         setUnipileLines([]);
         const msg = err instanceof Error ? err.message : "Could not load LinkedIn thread";
@@ -438,7 +271,7 @@ export default function TimLinkedInInboxIntakeWorkspace({
   }, [task.sourceId, task.itemId]);
 
   useEffect(() => {
-    loadUnipileThread("effect");
+    loadUnipileThread();
     return () => {
       unipileFetchGenRef.current += 1;
     };
@@ -534,12 +367,21 @@ export default function TimLinkedInInboxIntakeWorkspace({
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [artifacts]);
 
-  /** Oldest first — connection note, inbound DMs, human notes (excludes profile + reply draft). */
+  /** Newest first — inbound snapshots read like a thread (excludes profile + reply draft). */
   const messageHistoryArtifacts = useMemo(() => {
     return [...artifacts]
       .filter((a) => a.name !== PROFILE_ARTIFACT_NAME && a.name !== DRAFT_ARTIFACT_NAME)
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [artifacts]);
+
+  /** Unipile lines are oldest→newest from API; show newest at top in the UI. */
+  const unipileLinesNewestFirst = useMemo(
+    () =>
+      [...unipileLines].sort(
+        (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()
+      ),
+    [unipileLines]
+  );
 
   function threadEntryTitle(a: ArtifactRow): string {
     if (a.name === "LinkedIn: connection accepted") return "Connection accepted";
@@ -611,6 +453,86 @@ export default function TimLinkedInInboxIntakeWorkspace({
     }
   };
 
+  const unipilePanel = (
+    <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-4 py-3">
+      <section aria-label="LinkedIn thread from Unipile">
+        <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+              LinkedIn thread (Unipile)
+            </p>
+            <p className="mt-0.5 text-[9px] leading-snug text-[var(--text-tertiary)]">
+              Stays on screen when you open <strong className="font-medium text-[var(--text-secondary)]">History</strong>{" "}
+              tabs — Refresh always runs the same request.
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-busy={unipileLoading}
+            title={
+              unipileLoading
+                ? "Request in progress — you can click again to retry"
+                : "Reload thread from Unipile"
+            }
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void loadUnipileThread();
+            }}
+            className={`pointer-events-auto shrink-0 text-[10px] font-medium rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${unipileLoading ? "opacity-70" : ""}`}
+          >
+            {unipileLoading ? "Loading…" : "Refresh from LinkedIn"}
+          </button>
+        </div>
+        {unipileCrmHint ? (
+          <p className="mt-1.5 text-[10px] leading-snug text-[var(--accent-green)]">{unipileCrmHint}</p>
+        ) : null}
+        {unipileLoading && unipileLines.length === 0 ? (
+          <p className="text-[11px] text-[var(--text-tertiary)]">Loading conversation…</p>
+        ) : null}
+        {unipileError && !unipileLoading ? (
+          <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-400">{unipileError}</p>
+        ) : null}
+        {unipileEmptyAfterFetch && !unipileLoading && unipileLines.length === 0 && !unipileError ? (
+          <p className="text-[11px] leading-snug text-[var(--text-tertiary)]">
+            {unipileResolution === "inbound_webhook_chat"
+              ? "Unipile returned no messages for the chat id from this inbound snapshot (new thread, or API returned an empty page). Try Refresh after LinkedIn sync."
+              : unipileResolution === "attendee_chats"
+                ? "Unipile did not return a 1:1 chat for this LinkedIn member id (or the thread has no text yet). Try Refresh after LinkedIn sync, or confirm linkedinProviderId matches their ACoA id."
+                : `No matching 1:1 chat after scanning ${unipileScannedChats || "many"} recent conversations. Older threads may sit outside the scan — use Refresh after new activity, or ask dev to raise scan depth.`}
+          </p>
+        ) : null}
+        {unipileLines.length > 0 ? (
+          <ul className="mt-2 flex max-h-[min(22rem,42vh)] flex-col gap-2 overflow-y-auto pr-0.5">
+            {unipileLinesNewestFirst.map((ln, idx) => (
+              <li
+                key={`${ln.at}-${idx}`}
+                className="rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-primary)]/90 px-2.5 py-2"
+              >
+                <p className="text-[9px] text-[var(--text-tertiary)]">
+                  {ln.at
+                    ? new Date(ln.at).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })
+                    : "—"}{" "}
+                  <span className="font-medium text-[var(--text-secondary)]">
+                    · {ln.direction === "outbound" ? "You" : "Them"}
+                  </span>
+                </p>
+                <p className="mt-1 whitespace-pre-wrap text-[12px] leading-snug text-[var(--text-chat-body)]">
+                  {ln.body}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] shadow-sm">
       <div className="shrink-0 border-b border-[var(--border-color)]">
@@ -661,19 +583,6 @@ export default function TimLinkedInInboxIntakeWorkspace({
             >
               {resolving ? "Submitting…" : "Submit"}
             </button>
-            {onClose ? (
-              <button
-                type="button"
-                onClick={onClose}
-                className="shrink-0 rounded-lg p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                aria-label="Close"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            ) : null}
             {draftErr ? (
               <span className="max-w-[10rem] truncate text-[10px] text-amber-600 dark:text-amber-400 sm:max-w-[14rem]" title={draftErr}>
                 {draftErr}
@@ -744,166 +653,98 @@ export default function TimLinkedInInboxIntakeWorkspace({
       <div className="flex min-h-0 flex-1 flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col border-r border-[var(--border-color)]">
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)]/40 px-4 py-3">
-              <section aria-label="LinkedIn thread from Unipile">
-                <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                      LinkedIn thread (Unipile)
-                    </p>
-                    <p className="mt-0.5 text-[9px] leading-snug text-[var(--text-tertiary)]">
-                      Stays on screen when you open <strong className="font-medium text-[var(--text-secondary)]">History</strong>{" "}
-                      tabs — Refresh always runs the same request.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-busy={unipileLoading}
-                    title={
-                      unipileLoading
-                        ? "Request in progress — you can click again to retry"
-                        : "Reload thread from Unipile"
-                    }
-                    onClick={(e) => {
-                      console.warn("[DEBUG-847f63][client] Refresh button onClick");
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void loadUnipileThread("click");
-                    }}
-                    className={`pointer-events-auto shrink-0 text-[10px] font-medium rounded-md border border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] ${unipileLoading ? "opacity-70" : ""}`}
-                  >
-                    {unipileLoading ? "Loading…" : "Refresh from LinkedIn"}
-                  </button>
-                </div>
-                {unipileCrmHint ? (
-                  <p className="mt-1.5 text-[10px] leading-snug text-[var(--accent-green)]">{unipileCrmHint}</p>
-                ) : null}
-                {unipileLoading && unipileLines.length === 0 ? (
-                  <p className="text-[11px] text-[var(--text-tertiary)]">Loading conversation…</p>
-                ) : null}
-                {unipileError ? (
-                  <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-400">{unipileError}</p>
-                ) : null}
-                {unipileEmptyAfterFetch && !unipileLoading && unipileLines.length === 0 && !unipileError ? (
-                  <p className="text-[11px] leading-snug text-[var(--text-tertiary)]">
-                    {unipileResolution === "inbound_webhook_chat"
-                      ? "Unipile returned no messages for the chat id from this inbound snapshot (new thread, or API returned an empty page). Try Refresh after LinkedIn sync."
-                      : unipileResolution === "attendee_chats"
-                        ? "Unipile did not return a 1:1 chat for this LinkedIn member id (or the thread has no text yet). Try Refresh after LinkedIn sync, or confirm linkedinProviderId matches their ACoA id."
-                        : `No matching 1:1 chat after scanning ${unipileScannedChats || "many"} recent conversations. Older threads may sit outside the scan — use Refresh after new activity, or ask dev to raise scan depth.`}
-                  </p>
-                ) : null}
-                {unipileLines.length > 0 ? (
-                  <ul className="mt-2 flex max-h-[min(22rem,42vh)] flex-col gap-2 overflow-y-auto pr-0.5">
-                    {unipileLines.map((ln, idx) => (
-                      <li
-                        key={`${ln.at}-${idx}`}
-                        className="rounded-md border border-[var(--border-color)]/70 bg-[var(--bg-primary)]/90 px-2.5 py-2"
-                      >
-                        <p className="text-[9px] text-[var(--text-tertiary)]">
-                          {ln.at
-                            ? new Date(ln.at).toLocaleString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                              })
-                            : "—"}{" "}
-                          <span className="font-medium text-[var(--text-secondary)]">
-                            · {ln.direction === "outbound" ? "You" : "Them"}
-                          </span>
-                        </p>
-                        <p className="mt-1 whitespace-pre-wrap text-[12px] leading-snug text-[var(--text-chat-body)]">
-                          {ln.body}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </section>
-            </div>
-
             {activeTab === REPLY_TAB ? (
-              <div className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-                <div className="shrink-0 space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/85 p-3 shadow-sm">
-                  <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                    Initial reply (optional)
-                  </label>
-                  <textarea
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Short draft or leave blank…"
-                    rows={3}
-                    className="min-h-[4.5rem] max-h-[7rem] w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-2 text-[12px] leading-snug text-[var(--text-chat-body)] placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-color)] focus:outline-none"
-                  />
+              <div className="flex min-h-0 flex-1 flex-col gap-3">
+                <div className="shrink-0 space-y-2 px-4 pt-4">
+                  <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/85 p-3 shadow-sm">
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+                      Initial reply (optional)
+                    </label>
+                    <textarea
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="Short draft or leave blank…"
+                      rows={3}
+                      className="min-h-[4.5rem] max-h-[7rem] w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-2.5 py-2 text-[12px] leading-snug text-[var(--text-chat-body)] placeholder:text-[var(--text-tertiary)] focus:border-[var(--border-color)] focus:outline-none"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/50">
-                  <div className="shrink-0 border-b border-[var(--border-color)]/70 px-3 py-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
-                      Queue snapshots (CRM)
-                    </p>
-                    <p className="mt-0.5 text-[9px] leading-snug text-[var(--text-tertiary)]">
-                      Inbound webhook copies and notes for this row. Live Unipile thread is in the panel above. Open{" "}
-                      <strong className="font-medium text-[var(--text-secondary)]">Contact profile</strong> in History
-                      for CRM fields.
-                    </p>
-                  </div>
-                  <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-2">
-                    <section aria-label="CRM artifacts for this queue item">
-                      {loading ? (
-                        <p className="text-[11px] text-[var(--text-tertiary)]">Loading artifacts…</p>
-                      ) : messageHistoryArtifacts.length === 0 ? (
-                        <p className="text-[11px] leading-snug text-[var(--text-tertiary)]">
-                          No artifacts on this row yet (webhook intake, your submits, etc.).
-                        </p>
-                      ) : (
-                        <ul className="flex flex-col gap-4">
-                          {messageHistoryArtifacts.map((a) => (
-                            <li
-                              key={a.id}
-                              className="border-b border-[var(--border-color)]/60 pb-4 last:border-b-0 last:pb-0"
-                            >
-                              <p className="mb-1.5 text-[9px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-                                {a.createdAt
-                                  ? new Date(a.createdAt).toLocaleString(undefined, {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                      hour: "numeric",
-                                      minute: "2-digit",
-                                    })
-                                  : "—"}{" "}
-                                <span className="normal-case tracking-normal text-[var(--text-secondary)]">
-                                  · {threadEntryTitle(a)}
-                                </span>
-                              </p>
-                              <div className="max-w-none text-[12px] text-[var(--text-chat-body)] [&_p]:my-1 [&_ul]:my-1">
-                                <MarkdownRenderer content={a.content} />
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </section>
+                {unipilePanel}
+
+                <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)]/50">
+                    <div className="shrink-0 border-b border-[var(--border-color)]/70 px-3 py-2">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-tertiary)]">
+                        Queue snapshots (CRM)
+                      </p>
+                      <p className="mt-0.5 text-[9px] leading-snug text-[var(--text-tertiary)]">
+                        Inbound webhook copies and notes for this row. Live Unipile thread is in the panel above. Open{" "}
+                        <strong className="font-medium text-[var(--text-secondary)]">Contact profile</strong> in History
+                        for CRM fields.
+                      </p>
+                    </div>
+                    <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-2">
+                      <section aria-label="CRM artifacts for this queue item">
+                        {loading ? (
+                          <p className="text-[11px] text-[var(--text-tertiary)]">Loading artifacts…</p>
+                        ) : messageHistoryArtifacts.length === 0 ? (
+                          <p className="text-[11px] leading-snug text-[var(--text-tertiary)]">
+                            No artifacts on this row yet (webhook intake, your submits, etc.).
+                          </p>
+                        ) : (
+                          <ul className="flex flex-col gap-4">
+                            {messageHistoryArtifacts.map((a) => (
+                              <li
+                                key={a.id}
+                                className="border-b border-[var(--border-color)]/60 pb-4 last:border-b-0 last:pb-0"
+                              >
+                                <p className="mb-1.5 text-[9px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
+                                  {a.createdAt
+                                    ? new Date(a.createdAt).toLocaleString(undefined, {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                        hour: "numeric",
+                                        minute: "2-digit",
+                                      })
+                                    : "—"}{" "}
+                                  <span className="normal-case tracking-normal text-[var(--text-secondary)]">
+                                    · {threadEntryTitle(a)}
+                                  </span>
+                                </p>
+                                <div className="max-w-none text-[12px] text-[var(--text-chat-body)] [&_p]:my-1 [&_ul]:my-1">
+                                  <MarkdownRenderer content={a.content} />
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </section>
+                    </div>
                   </div>
                 </div>
 
                 {task.humanAction ? (
-                  <p className="shrink-0 text-[11px] leading-snug text-[var(--text-chat-body)]">
+                  <p className="shrink-0 px-4 pb-3 text-[11px] leading-snug text-[var(--text-chat-body)]">
                     <span className="text-[var(--text-tertiary)]">Task: </span>
                     {task.humanAction}
                   </p>
                 ) : null}
               </div>
-            ) : loading ? (
-              <div className="p-8 text-center text-sm text-[var(--text-tertiary)]">Loading…</div>
-            ) : activeArtifact ? (
-              <div className="min-h-0 max-w-none p-4 text-[var(--text-chat-body)]">
-                <MarkdownRenderer content={activeArtifact.content} />
-              </div>
             ) : (
-              <div className="p-8 text-center text-sm text-[var(--text-tertiary)]">No artifact</div>
+              <>
+                {unipilePanel}
+                {loading ? (
+                  <div className="p-8 text-center text-sm text-[var(--text-tertiary)]">Loading…</div>
+                ) : activeArtifact ? (
+                  <div className="min-h-0 max-w-none p-4 text-[var(--text-chat-body)]">
+                    <MarkdownRenderer content={activeArtifact.content} />
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-sm text-[var(--text-tertiary)]">No artifact</div>
+                )}
+              </>
             )}
           </div>
         </div>

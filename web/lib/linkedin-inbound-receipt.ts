@@ -23,6 +23,23 @@ function isUniqueViolation(e: unknown): boolean {
   return c === "23505";
 }
 
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function errCode(e: unknown): string | undefined {
+  if (e && typeof e === "object" && "code" in e) {
+    return String((e as { code: string }).code);
+  }
+  return undefined;
+}
+
+function isMissingMessageSentAtColumn(e: unknown): boolean {
+  if (errCode(e) !== "42703") return false;
+  const m = errMsg(e);
+  return /messageSentAt/i.test(m) && (/does not exist/i.test(m) || /column/i.test(m));
+}
+
 /** Stable key when Unipile omits message_id (should be rare). */
 export function fallbackUnipileMessageDedupeId(
   chatId: string,
@@ -49,12 +66,36 @@ export async function tryClaimLinkedInInboundReceipt(args: {
   eventKind: LinkedInInboundReceiptEventKind;
   senderProviderId: string;
   senderDisplayName: string;
+  /** Unipile payload.timestamp — when the message/event occurred (ISO string). */
+  messageSentAt?: string | null;
 }): Promise<{ claimed: boolean }> {
   const mid = args.unipileMessageId.trim();
   if (!mid) return { claimed: true };
 
-  try {
-    const rows = await query<{ id: string }>(
+  const sentRaw = args.messageSentAt?.trim() || null;
+  const sentAtParam =
+    sentRaw && Number.isFinite(new Date(sentRaw).getTime()) ? sentRaw : null;
+
+  async function insertWithOptionalSentAt(includeSentAt: boolean): Promise<{ id: string }[]> {
+    if (includeSentAt) {
+      return query<{ id: string }>(
+        `INSERT INTO "_linkedin_inbound_receipt"
+          ("personId", "unipileMessageId", "chatId", "eventKind", "senderProviderId", "senderDisplayName", "messageSentAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz)
+         ON CONFLICT ("unipileMessageId") DO NOTHING
+         RETURNING id`,
+        [
+          args.personId,
+          mid,
+          (args.chatId || "").trim(),
+          args.eventKind,
+          args.senderProviderId?.trim() || null,
+          args.senderDisplayName?.trim() || null,
+          sentAtParam,
+        ]
+      );
+    }
+    return query<{ id: string }>(
       `INSERT INTO "_linkedin_inbound_receipt"
         ("personId", "unipileMessageId", "chatId", "eventKind", "senderProviderId", "senderDisplayName")
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -69,6 +110,19 @@ export async function tryClaimLinkedInInboundReceipt(args: {
         args.senderDisplayName?.trim() || null,
       ]
     );
+  }
+
+  try {
+    let rows: { id: string }[];
+    try {
+      rows = await insertWithOptionalSentAt(true);
+    } catch (e) {
+      if (isMissingMessageSentAtColumn(e)) {
+        rows = await insertWithOptionalSentAt(false);
+      } else {
+        throw e;
+      }
+    }
     return { claimed: rows.length > 0 };
   } catch (e) {
     if (isUndefinedTableError(e)) {

@@ -226,21 +226,21 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
     ],
   },
 
-  // ─── AI Article (Ghost-only — single article, no outreach) ────────────────
+  // ─── Weekly content publishing (Ghost — content pipeline, throughput goal on Goals tab) ──
   "ai-article": {
     id: "ai-article",
-    label: "AI Article",
+    label: "Weekly Content Publishing",
+    showPackageBrief: true,
     description:
-      "Single article creation using Ghost's AI article builder. " +
-      "Ghost builds a campaign spec from a short idea, researches the topic, " +
-      "generates the article via the Anthropic API (article_builder), and publishes to strattegys.com.",
+      "Ongoing article production on strattegys.com. Ghost runs the content pipeline (idea → spec → draft → review → publish). " +
+      "Throughput target is three articles published per week (same bar as Friday Goals); this package usually keeps one article moving through the pipeline at a time.",
     deliverables: [
       {
         workflowType: "content-pipeline",
         ownerAgent: "ghost",
         targetCount: 1,
-        label: "Article Creation",
-        // No pacing — single article, sequential stages
+        label: "Article creation",
+        volumeLabel: "3 articles published per week (throughput goal)",
       },
     ],
   },
@@ -287,7 +287,10 @@ export function getPackageTemplate(
   return PACKAGE_TEMPLATES[id];
 }
 
-/** Penny / Friday pickers — excludes infrastructure templates (LinkedIn system inboxes). */
-export function packageTemplatesVisibleInPlanner(): PackageTemplateSpec[] {
-  return Object.values(PACKAGE_TEMPLATES).filter((t) => !t.hideFromPlanner);
-}
+/**
+ * Penny / Friday template pickers — excludes `hideFromPlanner` infrastructure templates.
+ * Exported as a const (not a function) so client bundles always resolve a defined value under webpack.
+ */
+export const PLANNER_PACKAGE_TEMPLATES: PackageTemplateSpec[] = Object.values(
+  PACKAGE_TEMPLATES
+).filter((t) => !t.hideFromPlanner);

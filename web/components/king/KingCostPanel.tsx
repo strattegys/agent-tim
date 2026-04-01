@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
+import useSWR from "swr";
 import type {
   CostSummaryResponse,
   UsageWarehouseCoverage,
@@ -8,13 +9,6 @@ import type {
 
 /** Work tabs inside King’s work panel — extend when adding surfaces (e.g. invoices). */
 export type KingWorkTab = "cost-usage";
-
-function isAbortError(e: unknown): boolean {
-  return (
-    (e instanceof DOMException && e.name === "AbortError") ||
-    (e instanceof Error && e.name === "AbortError")
-  );
-}
 
 /** Hours between warehouse min and max occurredAt (null if unknown). */
 function warehouseSpanHours(coverage: {
@@ -55,55 +49,27 @@ function KingWarehouseCoverage({ coverage }: { coverage: UsageWarehouseCoverage 
 export default function KingCostPanel() {
   const [workTab, setWorkTab] = useState<KingWorkTab>("cost-usage");
   const [days, setDays] = useState(30);
-  const [reloadNonce, setReloadNonce] = useState(0);
-  const [data, setData] = useState<CostSummaryResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
-  const fetchGenRef = useRef(0);
+  const { data: data = null, error: swrError, isLoading: loading, mutate: refreshCosts } = useSWR<CostSummaryResponse>(
+    `/api/costs/summary?days=${days}`,
+    async (url: string) => {
+      const res = await fetch(url, { credentials: "include", cache: "no-store" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error((j as { error?: string }).error || res.statusText);
+      }
+      return res.json() as Promise<CostSummaryResponse>;
+    },
+    { revalidateOnFocus: true, dedupingInterval: 15_000 },
+  );
+
+  const error = swrError ? (swrError instanceof Error ? swrError.message : "Failed to load") : null;
 
   const requestRefresh = useCallback(() => {
-    setReloadNonce((n) => n + 1);
-  }, []);
-
-  useEffect(() => {
-    const loadId = ++fetchGenRef.current;
-    const ac = new AbortController();
-
-    setLoading(true);
-    setError(null);
-
-    const url = `/api/costs/summary?days=${days}`;
-
-    void (async () => {
-      try {
-        const res = await fetch(url, {
-          credentials: "include",
-          cache: "no-store",
-          signal: ac.signal,
-        });
-        if (loadId !== fetchGenRef.current) return;
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error((j as { error?: string }).error || res.statusText);
-        }
-        const json = (await res.json()) as CostSummaryResponse;
-        if (loadId !== fetchGenRef.current) return;
-        setData(json);
-      } catch (e) {
-        if (ac.signal.aborted || isAbortError(e)) return;
-        if (loadId !== fetchGenRef.current) return;
-        setError(e instanceof Error ? e.message : "Failed to load");
-        setData(null);
-      } finally {
-        if (loadId === fetchGenRef.current) setLoading(false);
-      }
-    })();
-
-    return () => ac.abort();
-  }, [days, reloadNonce]);
+    void refreshCosts();
+  }, [refreshCosts]);
 
   const runAnthropicSync = async () => {
     setSyncing(true);

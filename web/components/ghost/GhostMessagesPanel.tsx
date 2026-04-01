@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import useSWR from "swr";
 import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
 import type { GhostWorkQueueSelection } from "@/lib/ghost-work-context";
@@ -48,24 +49,39 @@ function messageAffiliationLine(t: ContentWorkTask): string {
 
 const POLL_MS_VISIBLE = 8000;
 const POLL_MS_HIDDEN = 30_000;
+const GHOST_QUEUE_SWR_KEY = "ghost-content-queue";
 
-function contentTasksFingerprint(
-  list: Array<{
-    itemId: string;
-    stage: string;
-    itemTitle: string;
-    stageLabel: string;
-    humanAction: string;
-    workflowId: string;
-    dueDate: string | null;
-  }>
-): string {
+async function fetchGhostTasksPage(): Promise<ContentWorkTask[]> {
+  const r = await fetch(
+    "/api/crm/human-tasks?ownerAgent=ghost&sourceType=content&excludePackageStages=DRAFT,PENDING_APPROVAL",
+    { credentials: "include" },
+  );
+  if (!r.ok) throw new Error(`Could not load queue (HTTP ${r.status}).`);
+  const data = await r.json();
+  const list = Array.isArray(data.tasks) ? data.tasks : [];
   return list
-    .map(
-      (t) =>
-        `${t.itemId}\t${t.stage}\t${t.itemTitle}\t${t.stageLabel}\t${t.humanAction}\t${t.workflowId}\t${t.dueDate ?? ""}`
-    )
-    .join("\n");
+    .filter((t: Record<string, unknown>) => String(t.itemType || "").toLowerCase() === "content")
+    .map((t: Record<string, unknown>): ContentWorkTask => ({
+      itemId: String(t.itemId),
+      itemTitle: String(t.itemTitle || ""),
+      itemSubtitle: String(t.itemSubtitle || ""),
+      sourceId: t.sourceId != null ? String(t.sourceId) : null,
+      workflowId: String(t.workflowId || ""),
+      workflowName: String(t.workflowName || ""),
+      packageName: String(t.packageName || ""),
+      ownerAgent: String(t.ownerAgent || "ghost"),
+      packageId: t.packageId != null ? String(t.packageId) : null,
+      packageNumber: t.packageNumber != null ? Number(t.packageNumber) : null,
+      packageStage: t.packageStage != null ? String(t.packageStage) : null,
+      inActiveCampaign: Boolean(t.inActiveCampaign),
+      workflowType: String(t.workflowType || ""),
+      stage: String(t.stage || ""),
+      stageLabel: String(t.stageLabel || ""),
+      humanAction: String(t.humanAction || ""),
+      dueDate: t.dueDate != null ? String(t.dueDate) : null,
+      itemType: String(t.itemType || "content"),
+      createdAt: String(t.createdAt || ""),
+    }));
 }
 
 function GhostQueueItemRow({
@@ -145,9 +161,6 @@ export default function GhostMessagesPanel({
   embedded?: boolean;
   onWorkSelectionChange?: (selection: GhostWorkQueueSelection | null) => void;
 }) {
-  const [tasks, setTasks] = useState<ContentWorkTask[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [resolveHint, setResolveHint] = useState<string | null>(null);
@@ -155,93 +168,28 @@ export default function GhostMessagesPanel({
   const [savingContentTitle, setSavingContentTitle] = useState(false);
   const [rollbackLoading, setRollbackLoading] = useState(false);
   const [focusedArtifact, setFocusedArtifact] = useState<{ stage: string; label: string } | null>(null);
-  const mountedRef = useRef(true);
-  const lastTasksFingerprintRef = useRef<string>("");
   const tabVisible = useDocumentVisible();
 
-  const fetchTasks = useCallback((): Promise<void> => {
-    return fetch(
-      "/api/crm/human-tasks?ownerAgent=ghost&sourceType=content&excludePackageStages=DRAFT,PENDING_APPROVAL",
-      { credentials: "include" }
-    )
-      .then(async (r) => {
-        if (!r.ok) {
-          const snippet = (await r.text()).slice(0, 120);
-          console.warn("[GhostMessagesPanel] human-tasks", r.status, snippet);
-          if (mountedRef.current) {
-            setLoadError(`Could not load queue (HTTP ${r.status}).`);
-            lastTasksFingerprintRef.current = "";
-            setTasks([]);
-          }
-          return null;
-        }
-        if (mountedRef.current) setLoadError(null);
-        return r.json();
-      })
-      .then((data) => {
-        if (data == null) return;
-        if (data.error) console.warn("[GhostMessagesPanel] human-tasks API:", data.error);
-        const list = Array.isArray(data.tasks) ? data.tasks : [];
-        if (mountedRef.current) {
-          const next = list
-            .filter((t: Record<string, unknown>) => String(t.itemType || "").toLowerCase() === "content")
-            .map((t: Record<string, unknown>) => ({
-              itemId: String(t.itemId),
-              itemTitle: String(t.itemTitle || ""),
-              itemSubtitle: String(t.itemSubtitle || ""),
-              sourceId: t.sourceId != null ? String(t.sourceId) : null,
-              workflowId: String(t.workflowId || ""),
-              workflowName: String(t.workflowName || ""),
-              packageName: String(t.packageName || ""),
-              ownerAgent: String(t.ownerAgent || "ghost"),
-              packageId: t.packageId != null ? String(t.packageId) : null,
-              packageNumber: t.packageNumber != null ? Number(t.packageNumber) : null,
-              packageStage: t.packageStage != null ? String(t.packageStage) : null,
-              inActiveCampaign: Boolean(t.inActiveCampaign),
-              workflowType: String(t.workflowType || ""),
-              stage: String(t.stage || ""),
-              stageLabel: String(t.stageLabel || ""),
-              humanAction: String(t.humanAction || ""),
-              dueDate: t.dueDate != null ? String(t.dueDate) : null,
-              itemType: String(t.itemType || "content"),
-              createdAt: String(t.createdAt || ""),
-            }));
-          const fp = contentTasksFingerprint(next);
-          if (fp !== lastTasksFingerprintRef.current) {
-            lastTasksFingerprintRef.current = fp;
-            setTasks(next);
-          }
-        }
-      })
-      .catch((e) => {
-        console.warn("[GhostMessagesPanel] human-tasks fetch failed:", e);
-        if (mountedRef.current) {
-          setLoadError("Network error loading queue.");
-          lastTasksFingerprintRef.current = "";
-          setTasks([]);
-        }
-      })
-      .finally(() => {
-        if (mountedRef.current) setLoading(false);
-      });
-  }, []);
+  const { data: tasks = [], error: swrError, isLoading: loading, mutate: refreshTasks } = useSWR<ContentWorkTask[]>(
+    GHOST_QUEUE_SWR_KEY,
+    fetchGhostTasksPage,
+    {
+      refreshInterval: tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN,
+      revalidateOnFocus: true,
+      dedupingInterval: 5_000,
+    },
+  );
+
+  const loadError = swrError
+    ? (swrError instanceof Error ? swrError.message : "Network error loading queue.")
+    : null;
 
   useEffect(() => {
-    mountedRef.current = true;
-    fetchTasks();
-    const ms = tabVisible ? POLL_MS_VISIBLE : POLL_MS_HIDDEN;
-    const interval = setInterval(fetchTasks, ms);
-    const u1 = panelBus.on("workflow_items", fetchTasks);
-    const u2 = panelBus.on("package_manager", fetchTasks);
-    const u3 = panelBus.on("ghost_human_task_progress", fetchTasks);
-    return () => {
-      mountedRef.current = false;
-      clearInterval(interval);
-      u1();
-      u2();
-      u3();
-    };
-  }, [fetchTasks, tabVisible]);
+    const u1 = panelBus.on("workflow_items", () => void refreshTasks());
+    const u2 = panelBus.on("package_manager", () => void refreshTasks());
+    const u3 = panelBus.on("ghost_human_task_progress", () => void refreshTasks());
+    return () => { u1(); u2(); u3(); };
+  }, [refreshTasks]);
 
   const sortedTasks = useMemo(
     () => [...tasks].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
@@ -336,7 +284,7 @@ export default function GhostMessagesPanel({
           panelBus.emit("ghost_human_task_progress");
           panelBus.emit("dashboard_sync");
           await new Promise((r) => setTimeout(r, 350));
-          await fetchTasks();
+          await refreshTasks();
         } else {
           const errText =
             typeof (data as { error?: string }).error === "string"
@@ -353,7 +301,7 @@ export default function GhostMessagesPanel({
       }
       setResolving(null);
     },
-    [fetchTasks, resolving, tasks]
+    [refreshTasks, resolving, tasks]
   );
 
   if (loading) {
@@ -455,7 +403,7 @@ export default function GhostMessagesPanel({
                         }
                         setResolveHint(null);
                         panelBus.emit("workflow_items");
-                        await fetchTasks();
+                        await refreshTasks();
                       } finally {
                         setSavingContentTitle(false);
                       }
@@ -503,7 +451,7 @@ export default function GhostMessagesPanel({
                         }
                         panelBus.emit("ghost_human_task_progress");
                         panelBus.emit("workflow_items");
-                        await fetchTasks();
+                        await refreshTasks();
                       } finally {
                         setRollbackLoading(false);
                       }
@@ -531,7 +479,6 @@ export default function GhostMessagesPanel({
                   task={selected}
                   resolving={resolving === selected.itemId}
                   chatAgentLabel="Ghost"
-                  onClose={() => setSelectedId(null)}
                   onSubmitInput={async (notes) => {
                     await handleResolve(selected.itemId, "input", notes);
                   }}

@@ -25,6 +25,23 @@ export interface StageSpec {
   humanAction?: string;
 }
 
+/** How Friday’s Goals tab counts completed work (see GET /api/crm/workflow-throughput). */
+export type WorkflowThroughputMetric =
+  /** `MESSAGED` artifacts named `LinkedIn DM sent` (first-touch sends only). */
+  | "warm_outreach_dm_sent"
+  /** `PUBLISHED` artifacts named `Published Article Record` (content pipeline). */
+  | "content_article_published";
+
+export interface WorkflowThroughputGoalSpec {
+  period: "day" | "week";
+  target: number;
+  metric: WorkflowThroughputMetric;
+  /** Shown on Goals cards (e.g. Tim, Ghost). */
+  ownerLabel: string;
+  /** One-line explanation of what is counted. */
+  metricLabel: string;
+}
+
 export interface WorkflowTypeSpec {
   /** Unique slug for this workflow type */
   id: string;
@@ -42,6 +59,11 @@ export interface WorkflowTypeSpec {
     stages: StageSpec[];
     transitions: Record<string, string[]>;
   };
+  /**
+   * Optional throughput target for Friday’s Goals tab. Add a metric when the workflow
+   * has a clear CRM signal (artifacts / stages); keep in sync with the throughput API SQL.
+   */
+  throughputGoal?: WorkflowThroughputGoalSpec;
 }
 
 export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
@@ -305,6 +327,13 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
         ENDED: [],
       },
     },
+    throughputGoal: {
+      period: "day",
+      target: 5,
+      metric: "warm_outreach_dm_sent",
+      ownerLabel: "Tim",
+      metricLabel: "Warm outreach — LinkedIn DMs sent (first message in the sequence)",
+    },
   },
 
   // ─── LinkedIn General Inbox (Tim) — unmatched webhook events ─────────────
@@ -454,6 +483,13 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
         PUBLISHED: [],
       },
     },
+    throughputGoal: {
+      period: "week",
+      target: 3,
+      metric: "content_article_published",
+      ownerLabel: "Ghost",
+      metricLabel: "Articles fully published (content pipeline)",
+    },
   },
 
   // ─── Content Distribution (Marni) ─────────────────────────────
@@ -518,6 +554,17 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
   },
 
 };
+
+/** Workflow types that define a Friday Goals throughput target (single source of truth with the registry). */
+export function workflowTypesWithThroughputGoals(): Array<{
+  id: string;
+  label: string;
+  throughputGoal: WorkflowThroughputGoalSpec;
+}> {
+  return Object.values(WORKFLOW_TYPES).flatMap((w) =>
+    w.throughputGoal ? [{ id: w.id, label: w.label, throughputGoal: w.throughputGoal }] : []
+  );
+}
 
 /** Look up a workflow type by ID. Returns undefined if not found. */
 export function getWorkflowType(id: string): WorkflowTypeSpec | undefined {

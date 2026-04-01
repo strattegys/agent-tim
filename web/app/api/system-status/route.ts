@@ -13,6 +13,36 @@ export const runtime = "nodejs";
 
 const PROBE_MS = 4000;
 
+/** Hard cap so the route always responds even if `pg` connect/query hangs past `connectionTimeoutMillis`. */
+function dataPlatformProbeBudgetMs(): number {
+  return crmPostgresProbeTimeoutMs() + 4000;
+}
+
+function raceTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => T): Promise<T> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const t = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(onTimeout());
+    }, ms);
+    p.then(
+      (v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        resolve(v);
+      },
+      () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(t);
+        resolve(onTimeout());
+      }
+    );
+  });
+}
+
 /** Postgres probe can be slower than HTTP (SSH tunnel to 127.0.0.1:5433, Tailscale, etc.). */
 function crmPostgresProbeTimeoutMs(): number {
   const raw = process.env.CRM_DB_PROBE_TIMEOUT_MS;
@@ -347,10 +377,13 @@ async function probeUnipile(): Promise<ProbeResult> {
 }
 
 /**
- * GET /api/system-status — lightweight reachability checks (server-side only).
  * Website-Projects: Strattegys (SITE_API_URL origin) + optional Rainbow (PROJECT_SERVER_RAINBOW_URL).
  */
-export async function GET() {
+async function computeSystemStatusPayload(): Promise<{
+  checkedAt: string;
+  services: ProbeResult[];
+  alerts: SystemStatusAlert[];
+}> {
   const siteArticles = process.env.SITE_API_URL?.trim() || "https://strattegys.com/api/articles";
   let siteOrigin = "https://strattegys.com";
   try {
@@ -362,8 +395,14 @@ export async function GET() {
   /** Public Rainbow origin on the project server (optional; skipped if unset). */
   const rainbowBase = process.env.PROJECT_SERVER_RAINBOW_URL?.trim() || "";
 
+  const budget = dataPlatformProbeBudgetMs();
   const [dataPlatform, strattegys, rainbow, unipile] = await Promise.all([
-    probeDataPlatform(),
+    raceTimeout(probeDataPlatform(), budget, () => ({
+      id: DATA_PLATFORM_ID,
+      label: DATA_PLATFORM_LABEL,
+      status: "down" as const,
+      detail: `probe stalled (${budget}ms) — CRM unreachable, tunnel stopped, or raise CRM_DB_PROBE_TIMEOUT_MS`,
+    })),
     probeHttp("strattegys", "Strattegys", siteOrigin, "/"),
     probeHttp("rainbow", "Rainbow", rainbowBase || undefined, "/"),
     probeUnipile(),
@@ -399,9 +438,73 @@ export async function GET() {
     inworldTts,
   ];
 
-  return NextResponse.json({
+  return {
     checkedAt: new Date().toISOString(),
     services,
     alerts: buildSystemAlerts(),
-  });
+  };
+}
+
+function degradedPayload(message: string): {
+  checkedAt: string;
+  services: ProbeResult[];
+  alerts: SystemStatusAlert[];
+} {
+  let alerts: SystemStatusAlert[] = [];
+  try {
+    alerts = buildSystemAlerts();
+  } catch {
+    /* ignore */
+  }
+  return {
+    checkedAt: new Date().toISOString(),
+    alerts,
+    services: [
+      { id: "web", label: "Command Central", status: "ok", ms: 0 },
+      {
+        id: DATA_PLATFORM_ID,
+        label: DATA_PLATFORM_LABEL,
+        status: "down",
+        detail: message.slice(0, 220),
+      },
+      {
+        id: "strattegys",
+        label: "Strattegys",
+        status: "skipped",
+        detail: "probe skipped after status handler error",
+      },
+      {
+        id: "rainbow",
+        label: "Rainbow",
+        status: "skipped",
+        detail: "not probed",
+      },
+      {
+        id: "unipile",
+        label: "Unipile (LinkedIn)",
+        status: "skipped",
+        detail: "not probed",
+      },
+      {
+        id: "inworld_tts",
+        label: "Inworld TTS",
+        status: "skipped",
+        detail: "not probed",
+      },
+    ],
+  };
+}
+
+/** GET /api/system-status — lightweight reachability checks (server-side only). */
+export async function GET() {
+  try {
+    const payload = await computeSystemStatusPayload();
+    return NextResponse.json(payload);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[api/system-status] uncaught", e);
+    return NextResponse.json(
+      degradedPayload(`Status handler crashed — check web server logs: ${msg}`)
+    );
+  }
 }

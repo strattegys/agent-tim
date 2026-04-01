@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 
 interface ToolInfo {
   id: string;
@@ -37,18 +38,18 @@ const AGENT_COLORS: Record<string, string> = {
 };
 
 export default function ToolsPanel() {
-  const [tools, setTools] = useState<ToolInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: toolsData, isLoading: loading } = useSWR<{ tools: ToolInfo[] }>(
+    "/api/tools",
+    async (url: string) => {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return r.json();
+    },
+    { revalidateOnFocus: true, dedupingInterval: 30_000 },
+  );
+  const tools = toolsData?.tools ?? [];
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
-
-  useEffect(() => {
-    fetch("/api/tools")
-      .then((r) => r.json())
-      .then((data) => setTools(data.tools || []))
-      .catch(() => setTools([]))
-      .finally(() => setLoading(false));
-  }, []);
 
   const filtered =
     filter === "all"

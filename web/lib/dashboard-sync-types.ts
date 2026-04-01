@@ -9,8 +9,6 @@ export type DashboardNotification = {
 };
 
 export type DashboardSyncBadges = {
-  pendingTaskCount: number;
-  testingTaskCount: number;
   timMessagingTaskCount: number;
   timPendingQueueCount: number;
   ghostContentTaskCount: number;

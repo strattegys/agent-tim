@@ -179,6 +179,7 @@ export async function handleUnipileWebhook(
     eventKind: "message",
     senderProviderId,
     senderDisplayName: senderName,
+    messageSentAt: timestamp,
   });
   if (!inboundClaimed) {
     console.log(
@@ -410,9 +411,15 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
   });
   let relationReceiptMid: string | null = null;
   if (primaryForDedupe) {
+    /** Prefer Unipile message_id. Otherwise stable per LinkedIn member — NOT timestamp (retries/webhook
+     * variants used to get a new id every time, bypass receipt dedupe and duplicate connection-intake rows). */
+    const trimmedMsgId = payload.message_id != null ? String(payload.message_id).trim() : "";
+    const providerTrim = senderProviderId.trim();
     const relDedupeId =
-      (payload.message_id && String(payload.message_id).trim()) ||
-      `new_relation:${senderProviderId}:${timestamp}`;
+      trimmedMsgId ||
+      (providerTrim
+        ? `new_relation:rel:${providerTrim}`
+        : `new_relation:rel:notoken:${senderName}:${timestamp}`);
     const { claimed: relClaimed } = await tryClaimLinkedInInboundReceipt({
       personId: primaryForDedupe,
       unipileMessageId: relDedupeId,
@@ -420,6 +427,7 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
       eventKind: "connection_accepted",
       senderProviderId,
       senderDisplayName: senderName,
+      messageSentAt: timestamp,
     });
     if (!relClaimed) {
       console.log(
@@ -500,6 +508,7 @@ async function handleNewRelation(payload: UnipileWebhookPayload): Promise<void> 
         senderProviderId,
         senderDisplayName: senderName,
         timestampIso: timestamp,
+        chatId: chatIdRel || undefined,
       });
       if (!gen.ok && gen.reason) {
         console.log(`[linkedin-webhook] Connection intake skipped: ${gen.reason}`);

@@ -17,16 +17,15 @@ export type AgentUiRightPanel =
   | "marni-work"
   | "agent-knowledge";
 
-export type FridayDashboardTab = "packages" | "tasks" | "tools";
-/**
- * Sub-view under Friday → Packages: operational queue (with per-workflow Kanban),
- * draft/testing planner, and static templates.
- */
-export type FridayPackageSubTab =
+/** Friday work panel — flat top-level tabs (goals first, then queue / planner / templates / tools / cron). */
+export type FridayDashboardTab =
+  | "goals"
   | "queue"
   | "planner"
   | "pkg-templates"
-  | "wf-templates";
+  | "wf-templates"
+  | "tools"
+  | "cron";
 
 export interface AgentUiContextInput {
   agentId: string;
@@ -41,7 +40,6 @@ export interface AgentUiContextInput {
    */
   ghostHasWorkQueueSelection?: boolean;
   fridayTab?: FridayDashboardTab;
-  fridayPackageSubTab?: FridayPackageSubTab;
   /** Marni: selected research topic while Knowledge base (book panel) is open. */
   marniKnowledgeTopic?: { id: string; name: string } | null;
   /** Tim: selected research topic while Knowledge base (book panel) is open. */
@@ -128,22 +126,24 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   }
 
   if (rightPanel === "dashboard" && agentId === "friday") {
-    const tab = input.fridayTab ?? "packages";
-    const pkgSub = input.fridayPackageSubTab ?? "queue";
+    const tab = input.fridayTab ?? "goals";
     let label: string;
-    if (tab === "tasks") label = "Human tasks";
-    else if (tab === "tools") label = "Tools registry";
-    else if (tab === "packages") {
-      label =
-        pkgSub === "queue"
-          ? "Packages — Queue (packages, workflow steps, open Kanban per workflow)"
-          : pkgSub === "planner"
-            ? "Packages — Planner (draft & testing)"
-            : pkgSub === "pkg-templates"
-              ? "Packages — Package templates"
-              : "Packages — Workflow templates";
+    if (tab === "goals") {
+      label = "Goals (workflow throughput vs targets)";
+    } else if (tab === "queue") {
+      label = "Queue (packages, workflow steps, Kanban per workflow)";
+    } else if (tab === "planner") {
+      label = "Planner (draft & testing)";
+    } else if (tab === "pkg-templates") {
+      label = "Package templates";
+    } else if (tab === "wf-templates") {
+      label = "Workflow templates";
+    } else if (tab === "tools") {
+      label = "Tools registry";
+    } else if (tab === "cron") {
+      label = "Cron hub (all scheduled jobs, status, last run)";
     } else {
-      label = "Packages";
+      label = "Goals (workflow throughput vs targets)";
     }
     return (
       "## Friday — UI (this message only)\n" +

@@ -2,7 +2,11 @@
  * LinkedIn connection acceptances without a packaged outreach row → Tim queue (system package + workflow).
  */
 import { query } from "@/lib/db";
-import { resolvePrimaryPostgresPersonForLinkedInInbound } from "@/lib/linkedin-general-inbox";
+import {
+  ensurePersonLinkedInFromUnipileWebhook,
+  resolvePrimaryPostgresPersonForLinkedInInbound,
+} from "@/lib/linkedin-general-inbox";
+import { personHasNonSystemBlockingPackagedWorkflow } from "@/lib/person-packaged-workflow-exclusivity";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { ensureTimLinkedInSystemPackageWorkflow } from "@/lib/ensure-tim-linkedin-system-package-workflow";
 
@@ -26,10 +30,50 @@ async function findOpenIntakeItem(workflowId: string, personId: string): Promise
        AND wi."sourceType" = 'person'
        AND wi."sourceId" = $2
        AND UPPER(TRIM(wi.stage::text)) = $3
-       AND wi."deletedAt" IS NULL`,
+       AND wi."deletedAt" IS NULL
+     ORDER BY wi."updatedAt" DESC NULLS LAST, wi."createdAt" DESC
+     LIMIT 1`,
     [workflowId, personId, INTAKE_STAGE]
   );
   return rows[0]?.id ?? null;
+}
+
+/**
+ * Multiple CONNECTION_ACCEPTED rows for the same person (race, retries before stable receipt dedupe)
+ * duplicate Tim’s queue. Keep newest, repoint artifacts, soft-delete the rest.
+ */
+async function mergeDuplicateActiveConnectionIntakeRows(
+  workflowId: string,
+  personId: string
+): Promise<void> {
+  const rows = await query<{ id: string }>(
+    `SELECT wi.id
+     FROM "_workflow_item" wi
+     WHERE wi."workflowId" = $1
+       AND wi."sourceType" = 'person'
+       AND wi."sourceId" = $2
+       AND UPPER(TRIM(wi.stage::text)) = $3
+       AND wi."deletedAt" IS NULL
+     ORDER BY wi."updatedAt" DESC NULLS LAST, wi."createdAt" DESC`,
+    [workflowId, personId, INTAKE_STAGE]
+  );
+  if (rows.length <= 1) return;
+  const keeper = rows[0].id;
+  for (let i = 1; i < rows.length; i++) {
+    const loserId = rows[i].id;
+    await query(
+      `UPDATE "_artifact"
+       SET "workflowItemId" = $1::uuid, "updatedAt" = NOW()
+       WHERE "workflowItemId" = $2::uuid AND "deletedAt" IS NULL`,
+      [keeper, loserId]
+    );
+    await query(
+      `UPDATE "_workflow_item"
+       SET "deletedAt" = NOW(), "humanTaskOpen" = false, "updatedAt" = NOW()
+       WHERE id = $1::uuid`,
+      [loserId]
+    );
+  }
 }
 
 async function findAnyIntakeItemForPerson(workflowId: string, personId: string): Promise<string | null> {
@@ -77,7 +121,18 @@ export async function recordLinkedInConnectionAccepted(args: {
     };
   }
 
+  await ensurePersonLinkedInFromUnipileWebhook(primaryPersonId, args.senderProviderId);
+
+  if (await personHasNonSystemBlockingPackagedWorkflow(primaryPersonId)) {
+    return {
+      ok: false,
+      reason:
+        "Person is already on an active or planned package pipeline (e.g. outreach) — skipping Tim LinkedIn connection-intake queue row.",
+    };
+  }
+
   const workflowId = await ensureLinkedInConnectionIntakeWorkflowId();
+  await mergeDuplicateActiveConnectionIntakeRows(workflowId, primaryPersonId);
   const ts = args.timestampIso || new Date().toISOString();
   const body = [
     "## LinkedIn — connection accepted (intake)",

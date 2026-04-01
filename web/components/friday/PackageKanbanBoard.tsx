@@ -6,9 +6,11 @@ import PackageDetailCard from "@/components/penny/PackageDetailCard";
 import AddPackageModal from "@/components/penny/AddPackageModal";
 import FridayPackageBuilderModal from "./FridayPackageBuilderModal";
 import KanbanInlinePanel from "@/components/kanban/KanbanInlinePanel";
-import type { PackageSpec } from "@/lib/package-types";
+import type { PackageDeliverable, PackageSpec } from "@/lib/package-types";
+import PackageWorkflowsEditorModal from "@/components/penny/PackageWorkflowsEditorModal";
 import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
+import { PLANNER_PACKAGE_TEMPLATES } from "@/lib/package-types";
 import PackageKanbanCard from "./PackageKanbanCard";
 import FridayPackageCard, {
   type FridayPackageRow,
@@ -182,6 +184,7 @@ export default function PackageKanbanBoard() {
   const tabVisible = useDocumentVisible();
   const [kanbanWorkflow, setKanbanWorkflow] = useState<{ id: string; name: string } | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [workflowEditorOpen, setWorkflowEditorOpen] = useState(false);
   const [addPackageOpen, setAddPackageOpen] = useState(false);
   const [packageWizardOpen, setPackageWizardOpen] = useState(false);
   const [orphanMigrating, setOrphanMigrating] = useState(false);
@@ -269,15 +272,36 @@ export default function PackageKanbanBoard() {
     [combined, detailId]
   );
 
+  const overlayWorkflowDeliverables: PackageDeliverable[] = useMemo(() => {
+    if (!detailEntry) return [];
+    const raw = detailEntry.planner.spec?.deliverables;
+    if (!Array.isArray(raw)) return [];
+    return (raw as PackageDeliverable[]).map((d) => ({ ...d }));
+  }, [detailEntry]);
+
+  const showOverlayWorkflowButton =
+    Boolean(detailEntry) &&
+    detailEntry!.stageNorm === "DRAFT" &&
+    detailEntry!.planner.templateId === "custom";
+
+  useEffect(() => {
+    setWorkflowEditorOpen(false);
+  }, [detailId]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setDetailId(null);
+      if (e.key !== "Escape") return;
+      if (workflowEditorOpen) {
+        setWorkflowEditorOpen(false);
+        return;
+      }
+      setDetailId(null);
     };
     if (detailId) {
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
     }
-  }, [detailId]);
+  }, [detailId, workflowEditorOpen]);
 
   const openWorkflowKanban = useCallback((wf: FridayWorkflowBreakdown) => {
     setDetailId(null);
@@ -342,13 +366,15 @@ export default function PackageKanbanBoard() {
           Package Kanban
         </h3>
         <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setPackageWizardOpen(true)}
-            className="text-[10px] font-semibold px-2.5 py-1 rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-          >
-            Package wizard
-          </button>
+          {PLANNER_PACKAGE_TEMPLATES.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setPackageWizardOpen(true)}
+              className="text-[10px] font-semibold px-2.5 py-1 rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+            >
+              Package wizard
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => setAddPackageOpen(true)}
@@ -477,13 +503,24 @@ export default function PackageKanbanBoard() {
                   {detailEntry.stageNorm.replace(/_/g, " ")} · {detailEntry.planner.templateId}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setDetailId(null)}
-                className="shrink-0 rounded-md border border-[var(--border-color)] px-2 py-1 text-[10px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {showOverlayWorkflowButton ? (
+                  <button
+                    type="button"
+                    onClick={() => setWorkflowEditorOpen(true)}
+                    className="rounded-md px-2.5 py-1 text-[10px] font-semibold text-white bg-[#9B59B6] hover:opacity-90 transition-opacity"
+                  >
+                    {overlayWorkflowDeliverables.length === 0 ? "Add workflows" : "Edit workflows"}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setDetailId(null)}
+                  className="rounded-md border border-[var(--border-color)] px-2 py-1 text-[10px] font-semibold text-[var(--text-secondary)] hover:bg-[var(--bg-primary)]"
+                >
+                  Close
+                </button>
+              </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-3">
               {detailEntry.stageNorm === "DRAFT" || detailEntry.stageNorm === "PENDING_APPROVAL" ? (
@@ -491,6 +528,7 @@ export default function PackageKanbanBoard() {
                   <PackageDetailCard
                     pkg={detailEntry.planner}
                     initialCollapsed={detailEntry.stageNorm === "DRAFT"}
+                    suppressWorkflowEditor={detailEntry.stageNorm === "DRAFT"}
                     onPackageMutate={() => {
                       fetchPackages();
                     }}
@@ -516,6 +554,23 @@ export default function PackageKanbanBoard() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {detailEntry && showOverlayWorkflowButton ? (
+        <PackageWorkflowsEditorModal
+          open={workflowEditorOpen}
+          onClose={() => setWorkflowEditorOpen(false)}
+          packageId={detailEntry.planner.id}
+          packageSpec={detailEntry.planner.spec}
+          initialDeliverables={overlayWorkflowDeliverables}
+          title={overlayWorkflowDeliverables.length === 0 ? "Add workflows" : "Edit workflows"}
+          onSaved={() => {
+            setWorkflowEditorOpen(false);
+            panelBus.emit("package_manager");
+            panelBus.emit("dashboard_sync");
+            fetchPackages();
+          }}
+        />
       ) : null}
     </div>
   );

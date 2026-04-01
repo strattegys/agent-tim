@@ -1,10 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  PLANNER_PACKAGE_TEMPLATES,
-  type PackageTemplateSpec,
-} from "@/lib/package-types";
+import type { PackageDeliverable } from "@/lib/package-types";
 
 interface AddPackageModalProps {
   open: boolean;
@@ -13,8 +10,6 @@ interface AddPackageModalProps {
 }
 
 export default function AddPackageModal({ open, onClose, onCreated }: AddPackageModalProps) {
-  const templates = PLANNER_PACKAGE_TEMPLATES;
-  const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,12 +18,8 @@ export default function AddPackageModal({ open, onClose, onCreated }: AddPackage
     if (!open) return;
     setError(null);
     setSubmitting(false);
-    const first = PLANNER_PACKAGE_TEMPLATES[0];
-    if (first?.id) setTemplateId(first.id);
     setName("");
   }, [open]);
-
-  const selected = templates.find((t) => t.id === templateId);
 
   if (!open) return null;
 
@@ -36,15 +27,16 @@ export default function AddPackageModal({ open, onClose, onCreated }: AddPackage
     setError(null);
     setSubmitting(true);
     try {
-      const body: { templateId: string; name?: string } = { templateId };
       const trimmed = name.trim();
-      if (trimmed) body.name = trimmed;
-
       const r = await fetch("/api/crm/packages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          templateId: "custom",
+          name: trimmed || "New package",
+          spec: { deliverables: [] as PackageDeliverable[] },
+        }),
       });
       const data = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) {
@@ -81,32 +73,15 @@ export default function AddPackageModal({ open, onClose, onCreated }: AddPackage
         </div>
         <div className="p-4 space-y-3">
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-            Pick a template (deliverables and agents), then name the package. Leave the name blank to use the
-            template label. The package starts in <strong>Draft</strong> on the planner.
+            Creates a <strong>Draft</strong> package with no workflows yet. Open it from the kanban and use{" "}
+            <strong>Add workflows</strong> in the overlay to define deliverables before testing.
           </p>
-          <label className="block space-y-1">
-            <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">Template</span>
-            <select
-              value={templateId}
-              onChange={(e) => setTemplateId(e.target.value)}
-              className="w-full text-[12px] bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg px-2 py-2 text-[var(--text-primary)]"
-            >
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.label} ({t.id})
-                </option>
-              ))}
-            </select>
-          </label>
-          {selected ? (
-            <p className="text-[10px] text-[var(--text-tertiary)] leading-snug">{selected.description}</p>
-          ) : null}
           <label className="block space-y-1">
             <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">Package name</span>
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={selected?.label || "e.g. Q1 thought leadership"}
+              placeholder="e.g. Agent Builder Launch"
               className="w-full text-[12px] bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg px-2 py-2 text-[var(--text-primary)] placeholder:text-[var(--text-tertiary)]"
             />
           </label>
@@ -122,8 +97,8 @@ export default function AddPackageModal({ open, onClose, onCreated }: AddPackage
           </button>
           <button
             type="button"
-            disabled={submitting || !templateId}
-            onClick={handleCreate}
+            disabled={submitting}
+            onClick={() => void handleCreate()}
             className="text-[11px] px-3 py-1.5 rounded-lg bg-[#E67E22] text-white font-semibold hover:opacity-90 disabled:opacity-40"
           >
             {submitting ? "Creating…" : "Create package"}

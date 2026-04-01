@@ -4,6 +4,10 @@
  * Defines reusable service package templates. Each package bundles multiple
  * workflow deliverables across agents. When a package is approved, the system
  * auto-creates the corresponding workflows for each deliverable.
+ *
+ * **Catalog templates are turned off for now** — only `custom` (ad-hoc spec on the row)
+ * and hidden **system** packages (LinkedIn inboxes) remain. Create packages with
+ * `templateId: "custom"` and `spec.deliverables`; copy shape from an existing package if needed.
  */
 
 export interface PackageDeliverable {
@@ -117,132 +121,18 @@ export interface PackageTemplateSpec {
 }
 
 export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
-  "influencer-package": {
-    id: "influencer-package",
-    label: "Influencer Package",
+  /**
+   * Ad-hoc packages: deliverables and brief live in `spec` on the row.
+   * POST /api/crm/packages with templateId `custom` and optional `spec.deliverables`.
+   */
+  custom: {
+    id: "custom",
+    label: "Custom package",
     description:
-      "Full influencer outreach with target research, LinkedIn engagement, " +
-      "article creation, and multi-channel content distribution",
-    deliverables: [
-      // 0 — Ghost writes the article FIRST (everything depends on this)
-      {
-        workflowType: "content-pipeline",
-        ownerAgent: "ghost",
-        targetCount: 1,
-        label: "Article Creation",
-        // No pacing — single article, sequential stages
-      },
-      // 1 — Marni creates LinkedIn posts + connection message from the published article
-      // 3 posts over 3 weeks = 1 post per week
-      {
-        workflowType: "content-distribution",
-        ownerAgent: "marni",
-        targetCount: 3,
-        pacing: {
-          batchSize: 1,
-          interval: "weekly",
-        },
-        label: "LinkedIn Content & Messaging",
-        blockedBy: [
-          {
-            deliverableIndex: 0,
-            stage: "PUBLISHED",
-            reason:
-              "Distribution needs the published article URL to create derivative content",
-          },
-        ],
-      },
-      // 2 — Scout finds & qualifies targets AFTER article is reviewed
-      // No fixed cap — runs 5/day until Tim hits 20 ended sequences
-      {
-        workflowType: "research-pipeline",
-        ownerAgent: "scout",
-        targetCount: 0, // No cap — driven by stopWhen
-        pacing: {
-          batchSize: 5,
-          interval: "daily",
-        },
-        label: "Target Research",
-        blockedBy: [
-          {
-            deliverableIndex: 0,
-            stage: "REVIEW",
-            reason:
-              "Target research should incorporate content from the article — wait until the draft is reviewed",
-          },
-        ],
-        stopWhen: {
-          deliverableIndex: 3, // Tim's outreach
-          stage: "ENDED",
-          count: 20,
-          reason: "Scout stops sourcing when 20 targets have completed Tim's outreach sequence",
-        },
-      },
-      // 3 — Tim's outreach as targets arrive from Scout
-      // Tim starts as soon as first targets + connection message are ready
-      {
-        workflowType: "linkedin-outreach",
-        ownerAgent: "tim",
-        targetCount: 20,
-        pacing: {
-          batchSize: 5,
-          interval: "daily",
-        },
-        label: "LinkedIn Outreach Cold",
-        blockedBy: [
-          {
-            deliverableIndex: 2,
-            stage: "HANDED_OFF",
-            reason:
-              "Tim needs qualified targets from Scout before initiating outreach",
-          },
-          {
-            deliverableIndex: 1,
-            stage: "CONN_MSG_DRAFTED",
-            reason:
-              "Tim needs the approved connection request message template before sending requests",
-          },
-        ],
-      },
-    ],
-  },
-  // ─── Vibe coding warm outreach (Tim — one contact at a time) ────────────────
-  "vibe-coding-outreach": {
-    id: "vibe-coding-outreach",
-    label: "Warm Outreach",
-    description:
-      "Warm LinkedIn DMs to existing contacts (vibe coding & AI agent buildout) — one at a time, " +
-      "3-message sequence, conversation mode if they reply",
+      "No catalog template — workflows are defined only on this package. Copy deliverables from another package or edit in planner.",
+    hideFromPlanner: true,
+    deliverables: [],
     showPackageBrief: true,
-    deliverables: [
-      {
-        workflowType: "warm-outreach",
-        ownerAgent: "tim",
-        /** Total contact slots / campaign cap; pacing is volumeLabel (five DMs/day). */
-        targetCount: 5,
-        label: "Warm Outreach",
-        volumeLabel: "Five messages per day",
-      },
-    ],
-  },
-
-  // ─── Weekly content publishing (Ghost — content pipeline, throughput goal on Goals tab) ──
-  "ai-article": {
-    id: "ai-article",
-    label: "Weekly Content Publishing",
-    showPackageBrief: true,
-    description:
-      "Ongoing article production on strattegys.com. Ghost runs the content pipeline (idea → spec → draft → review → publish). " +
-      "Throughput target is three articles published per week (same bar as Friday Goals); this package usually keeps one article moving through the pipeline at a time.",
-    deliverables: [
-      {
-        workflowType: "content-pipeline",
-        ownerAgent: "ghost",
-        targetCount: 1,
-        label: "Article creation",
-        volumeLabel: "3 articles published per week (throughput goal)",
-      },
-    ],
   },
 
   /** Tim — always-on LinkedIn message inbox (one workflow, same name as package). */
@@ -280,7 +170,7 @@ export const PACKAGE_TEMPLATES: Record<string, PackageTemplateSpec> = {
   },
 };
 
-/** Look up a package template by ID. Returns undefined if not found. */
+/** Look up a package template by ID. Returns undefined if not found (e.g. legacy rows with old template ids). */
 export function getPackageTemplate(
   id: string
 ): PackageTemplateSpec | undefined {
@@ -288,8 +178,8 @@ export function getPackageTemplate(
 }
 
 /**
- * Penny / Friday template pickers — excludes `hideFromPlanner` infrastructure templates.
- * Exported as a const (not a function) so client bundles always resolve a defined value under webpack.
+ * Catalog templates for Penny / Friday pickers — empty until you add real templates again.
+ * System packages use `hideFromPlanner: true` and are not listed here.
  */
 export const PLANNER_PACKAGE_TEMPLATES: PackageTemplateSpec[] = Object.values(
   PACKAGE_TEMPLATES

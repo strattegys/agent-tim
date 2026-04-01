@@ -82,6 +82,30 @@ export default function FridayPackageBuilderModal({
 
   if (!open) return null;
 
+  if (templates.length === 0) {
+    return (
+      <div
+        className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div className="w-full max-w-sm rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4 shadow-xl">
+          <p className="text-sm text-[var(--text-secondary)] leading-relaxed mb-3">
+            There are no catalog package templates. Use <strong className="text-[var(--text-primary)]">New package</strong>{" "}
+            on Package Kanban, then add deliverables on the package card.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-[11px] px-3 py-1.5 rounded-lg bg-[#9B59B6] text-white font-semibold"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const goNext = () => {
     setError(null);
     if (step === 1 && !name.trim() && selected) {

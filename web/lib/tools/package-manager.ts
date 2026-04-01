@@ -28,8 +28,8 @@ const tool: ToolModule = {
     description:
       "Manage service packages that bundle workflows across agents. " +
       "Commands: " +
-      "list-templates (show available package templates), " +
-      "create-package (arg1=templateId, arg2=optional package name — defaults to template label, arg3=customerId, arg4=customerType [person|company]), " +
+      "list-templates (catalog is empty — use templateId custom + deliverables JSON), " +
+      "create-package (arg1 must be \"custom\", arg2=package name, arg3=optional JSON: { \"deliverables\": [...] } or a bare deliverables array), " +
       "customize-package (arg1=packageId, arg2=JSON spec with deliverables array), " +
       "submit-for-approval (arg1=packageId — sets stage to PENDING_APPROVAL), " +
       "approve-package (arg1=packageId — REQUIRES user approval phrase — creates all workflows), " +
@@ -52,15 +52,20 @@ const tool: ToolModule = {
         arg2: {
           type: "string",
           description:
-            "Second arg: package name (create — omit to use template label), JSON spec (customize), customerId filter (list), or new name (rename-package)",
+            "Second arg: package name (create-package custom), JSON spec (customize), customerId filter (list), or new name (rename-package)",
         },
         arg3: {
           type: "string",
-          description: "Third arg: customerId (create-package)",
+          description:
+            'Third arg: JSON deliverables array or { "deliverables": [...] } (create-package custom only, optional)',
         },
         arg4: {
           type: "string",
-          description: "Fourth arg: customerType — 'person' or 'company' (create-package)",
+          description: "Fourth arg: customerId (create-package custom, optional)",
+        },
+        arg5: {
+          type: "string",
+          description: "Fifth arg: customerType person|company (create-package custom, optional)",
         },
       },
       required: ["command"],
@@ -77,7 +82,13 @@ const tool: ToolModule = {
     // ─── list-templates ──────────────────────────────────────────
     if (cmd === "list-templates") {
       const templates = PLANNER_PACKAGE_TEMPLATES;
-      if (templates.length === 0) return "No package templates defined.";
+      if (templates.length === 0) {
+        return (
+          "No catalog templates. Use create-package with arg1=custom, arg2=name, arg3=optional JSON deliverables " +
+          '(e.g. [{"workflowType":"linkedin-opener-sequence","ownerAgent":"tim","targetCount":25,"label":"LinkedIn opener sequence"},...]). ' +
+          "Or customize-package on an existing package id to copy shape."
+        );
+      }
       return templates
         .map((t) => {
           const deliverables = t.deliverables
@@ -90,27 +101,47 @@ const tool: ToolModule = {
 
     // ─── create-package ──────────────────────────────────────────
     if (cmd === "create-package") {
-      if (!args.arg1) return "Error: arg1 (templateId) is required";
-
-      const template = PACKAGE_TEMPLATES[args.arg1];
-      if (!template) return `Error: unknown template "${args.arg1}". Use list-templates to see available templates.`;
-      if (template.hideFromPlanner) {
-        return `Error: template "${template.id}" is system infrastructure (created automatically). Do not create it with create-package.`;
+      if (!args.arg1 || String(args.arg1).trim().toLowerCase() !== "custom") {
+        return 'Error: arg1 must be "custom". Pass arg2=package name and optional arg3=JSON with deliverables.';
       }
 
-      const packageName = (args.arg2 && String(args.arg2).trim()) || template.label;
-      const customerId = args.arg3 || null;
-      const customerType = args.arg4 || "person";
-      const spec = JSON.stringify({ deliverables: template.deliverables });
+      const packageName = (args.arg2 && String(args.arg2).trim()) || "New package";
+      const customerId = args.arg4 || null;
+      const customerType = args.arg5 || "person";
+
+      let deliverables: PackageDeliverable[] = [];
+      const raw = args.arg3?.trim();
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw) as unknown;
+          if (Array.isArray(parsed)) {
+            deliverables = parsed as PackageDeliverable[];
+          } else if (
+            parsed &&
+            typeof parsed === "object" &&
+            !Array.isArray(parsed) &&
+            Array.isArray((parsed as { deliverables?: unknown }).deliverables)
+          ) {
+            deliverables = (parsed as { deliverables: PackageDeliverable[] }).deliverables;
+          } else {
+            return 'Error: arg3 must be a JSON array of deliverables or { "deliverables": [...] }';
+          }
+        } catch {
+          return "Error: arg3 must be valid JSON";
+        }
+      }
+
+      const spec = JSON.stringify({ deliverables });
 
       const rows = await dbQuery(
         `INSERT INTO "_package" ("templateId", name, "customerId", "customerType", spec, stage, "createdBy", "createdAt", "updatedAt")
          VALUES ($1, $2, $3, $4, $5::jsonb, 'DRAFT', $6, NOW(), NOW()) RETURNING id`,
-        [args.arg1, packageName, customerId, customerType, spec, context.agentId || "penny"]
+        ["custom", packageName, customerId, customerType, spec, context.agentId || "penny"]
       );
       const id = (rows[0] as Record<string, unknown>).id;
 
-      return `Package created: "${packageName}" (id: ${id}) from template "${template.label}" — stage=DRAFT\nDeliverables: ${template.deliverables.map((d) => d.label).join(", ")}`;
+      const labels = deliverables.map((d) => d.label).join(", ") || "(none — add via customize-package)";
+      return `Package created: "${packageName}" (id: ${id}) template=custom — stage=DRAFT\nDeliverables: ${labels}`;
     }
 
     // ─── customize-package ───────────────────────────────────────

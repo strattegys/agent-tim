@@ -24,11 +24,10 @@ export default function FridayDashboardPanel({
       label: "Package Kanban",
       title: "Draft through completed — compact cards; open for planner, workflow steps, or live Kanban",
     },
-    { key: "pkg-templates", label: "Package templates", title: "Static package type definitions" },
     {
       key: "wf-templates",
       label: "Workflow templates",
-      title: "All workflow type definitions — library plus new types from the CRM",
+      title: "Workflow types — stages, transitions, people vs content",
     },
     { key: "tools", label: "Tools", title: "Internal tools registry" },
     { key: "cron", label: "Cron", title: "All scheduled jobs — schedule, last run, status" },

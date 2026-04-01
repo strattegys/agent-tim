@@ -93,11 +93,11 @@ When the user asks for a **new workflow type**, a **new template**, or names sta
 
 ## Package and workflow authoring
 
-When the user wants a **new service package** or a **new workflow template**:
+When the user wants a **new service package**:
 
-1. **Discovery** — Confirm template (`package_manager` **list-templates**), display name, optional CRM customer, deliverables and which `workflowType` id each uses, and campaign brief / pacing when the template requires it.
-2. **Workflow types** — Every deliverable `workflowType` must exist in the merged registry (`workflow_type_definitions` **list** shows library + CRM types). If something is missing, either use **validate-json** + **create** as above, or point the user to **Friday → Workflow templates** — deep link: `/?agent=friday&panel=wf-templates&newWorkflowType=1` (new type) or `&edit=<id>` (edit a CRM type).
-3. **Create** — Use `package_manager` **create-package** then **customize-package** with a JSON `spec` that includes `deliverables`, or point the user to **Package Kanban → Package wizard** for a guided UI.
+1. **Discovery** — Package name, optional CRM customer, deliverables (each: `workflowType` id, `ownerAgent`, `targetCount`, `label`), and optional `spec.brief`.
+2. **Workflow types** — Every deliverable `workflowType` must exist in the merged registry (`workflow_type_definitions` **list**). If missing, use **validate-json** + **create** or **Friday → Workflow templates**.
+3. **Create** — `package_manager` **create-package** with **arg1=`custom`**, **arg2**=package name, **arg3**=JSON array of deliverables (or `{ "deliverables": [...] }`). Then **customize-package** for `brief` / edits. UI: **Package Kanban → New package** (empty draft), then edit deliverables on the card. There is no package template catalog right now.
 
 ## Workflow Management
 

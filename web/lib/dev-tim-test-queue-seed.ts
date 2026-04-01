@@ -184,7 +184,6 @@ export async function runDevTimTestQueueSeed(opts: { force?: boolean }): Promise
       }
 
       const pkgSpec = {
-        templateId: "vibe-coding-outreach",
         deliverables: [
           {
             workflowType: "warm-outreach",
@@ -198,7 +197,7 @@ export async function runDevTimTestQueueSeed(opts: { force?: boolean }): Promise
 
       await run(
         `INSERT INTO "_package" (id, "templateId", name, "customerId", "customerType", spec, stage, "createdBy", "createdAt", "updatedAt")
-         VALUES ($1::uuid, 'vibe-coding-outreach', $2, NULL, 'person', $3::jsonb, 'ACTIVE', 'penny', NOW(), NOW())
+         VALUES ($1::uuid, 'custom', $2, NULL, 'person', $3::jsonb, 'ACTIVE', 'penny', NOW(), NOW())
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            spec = EXCLUDED.spec,

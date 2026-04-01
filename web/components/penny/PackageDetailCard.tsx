@@ -12,6 +12,7 @@ import { getAgentSpec } from "@/lib/agent-registry";
 import AgentAvatar from "../AgentAvatar";
 import ArtifactViewer from "../shared/ArtifactViewer";
 import CampaignSpecModal from "./CampaignSpecModal";
+import PackageWorkflowsEditorModal from "./PackageWorkflowsEditorModal";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
   person: "people",
@@ -41,9 +42,19 @@ interface PackageDetailCardProps {
   initialCollapsed?: boolean;
   /** After PATCH (rename, etc.) refresh the planner list */
   onPackageMutate?: () => void;
+  /**
+   * When true, hide in-card workflow editor UI (header buttons, modal, inner CTA) — e.g. Package Kanban
+   * overlay provides **Add workflows** in its own chrome.
+   */
+  suppressWorkflowEditor?: boolean;
 }
 
-export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMutate }: PackageDetailCardProps) {
+export default function PackageDetailCard({
+  pkg,
+  initialCollapsed,
+  onPackageMutate,
+  suppressWorkflowEditor = false,
+}: PackageDetailCardProps) {
   const [wfLookup, setWfLookup] = useState<Record<string, WorkflowTypeSpec>>(() => ({ ...WORKFLOW_TYPES }));
   useEffect(() => {
     let cancel = false;
@@ -155,10 +166,12 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
   // Workflow ID by type: { workflowType: workflowId }
   const [workflowIds, setWorkflowIds] = useState<Record<string, string>>({});
 
-  // Use template deliverables as the authoritative source (order, indices, blockedBy all reference template positions)
-  // Fall back to stored spec deliverables only if no template exists
+  // Stored spec wins when it has deliverables (custom packages); else catalog template (system / legacy ids).
+  const specDeliverables = Array.isArray(pkg.spec?.deliverables) ? pkg.spec.deliverables : [];
   const template = PACKAGE_TEMPLATES[pkg.templateId];
-  const deliverables = template?.deliverables || pkg.spec?.deliverables || [];
+  const templateDeliverables = Array.isArray(template?.deliverables) ? template.deliverables : [];
+  const deliverables =
+    specDeliverables.length > 0 ? specDeliverables : templateDeliverables;
   const showPackageBrief = Boolean(template?.showPackageBrief);
 
   const initialBrief = (() => {
@@ -171,6 +184,11 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
   })();
   const [briefText, setBriefText] = useState(initialBrief);
   const [specModalOpen, setSpecModalOpen] = useState(false);
+  const [workflowEditorOpen, setWorkflowEditorOpen] = useState(false);
+
+  const editableSpecDeliverables: PackageDeliverable[] = Array.isArray(pkg.spec?.deliverables)
+    ? (pkg.spec.deliverables as PackageDeliverable[]).map((d) => ({ ...d }))
+    : [];
 
   useEffect(() => {
     setBriefText(initialBrief);
@@ -500,6 +518,16 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
         <div className="flex items-center gap-1.5 shrink-0">
           {pkgStage === "DRAFT" && (
             <>
+              {pkg.templateId === "custom" && !suppressWorkflowEditor && (
+                <button
+                  type="button"
+                  onClick={() => setWorkflowEditorOpen(true)}
+                  className={btnBase}
+                  title="Define which workflow types and targets belong in this package"
+                >
+                  {editableSpecDeliverables.length === 0 ? "Add workflows" : "Edit workflows"}
+                </button>
+              )}
               <label
                 className="flex items-center gap-1 text-[9px] text-[var(--text-tertiary)] cursor-pointer select-none"
                 title="Only for Draft / Testing. Unchecked = real Ghost spec + article (Anthropic). Checked = template placeholders. Active packages always use real APIs."
@@ -576,6 +604,33 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
       {/* Collapsible body */}
       {!isCollapsed && (
       <>
+
+      {/* Custom draft: empty spec — prompt to add workflows */}
+      {pkg.templateId === "custom" &&
+        pkgStage === "DRAFT" &&
+        deliverables.length === 0 && (
+          <div className="border-t border-[var(--border-color)] px-4 py-6 text-center space-y-2">
+            <p className="text-[11px] text-[var(--text-secondary)]">
+              No workflows yet. Add at least one deliverable before testing.
+              {suppressWorkflowEditor ? (
+                <>
+                  {" "}
+                  Use <strong className="text-[var(--text-primary)]">Add workflows</strong> in the overlay
+                  header above.
+                </>
+              ) : null}
+            </p>
+            {!suppressWorkflowEditor ? (
+              <button
+                type="button"
+                onClick={() => setWorkflowEditorOpen(true)}
+                className="text-[11px] px-3 py-1.5 rounded-lg bg-[#9B59B6] text-white font-semibold hover:opacity-90"
+              >
+                Add workflows
+              </button>
+            ) : null}
+          </div>
+        )}
 
       {/* Deliverables */}
       {deliverables.length > 0 && (
@@ -685,6 +740,21 @@ export default function PackageDetailCard({ pkg, initialCollapsed, onPackageMuta
           onSave={(text) => setBriefText(text)}
         />
       )}
+
+      {!suppressWorkflowEditor ? (
+        <PackageWorkflowsEditorModal
+          open={workflowEditorOpen}
+          onClose={() => setWorkflowEditorOpen(false)}
+          packageId={pkg.id}
+          packageSpec={pkg.spec}
+          initialDeliverables={editableSpecDeliverables}
+          title={editableSpecDeliverables.length === 0 ? "Add workflows" : "Edit workflows"}
+          onSaved={() => {
+            setWorkflowEditorOpen(false);
+            onPackageMutate?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

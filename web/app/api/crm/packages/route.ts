@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { DEFAULT_WARM_OUTREACH_DISCOVERY } from "@/lib/warm-outreach-discovery";
 import { PACKAGE_TEMPLATES, type PackageDeliverable } from "@/lib/package-types";
 import type { WorkflowTypeSpec } from "@/lib/workflow-types";
 import {
@@ -373,29 +372,20 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { templateId, name: nameInput, customerId, customerType, spec } = body;
 
-    if (!templateId) {
+    if (!templateId || String(templateId).trim() !== "custom") {
       return NextResponse.json(
-        { error: "templateId is required" },
+        {
+          error:
+            'Use templateId "custom" only. Pass spec.deliverables (array, may be empty); add workflows via PATCH or planner, then activate.',
+        },
         { status: 400 }
       );
     }
 
     const { PACKAGE_TEMPLATES } = await import("@/lib/package-types");
-    const template = PACKAGE_TEMPLATES[templateId];
+    const template = PACKAGE_TEMPLATES.custom;
     if (!template) {
-      return NextResponse.json(
-        { error: `Unknown template: ${templateId}` },
-        { status: 400 }
-      );
-    }
-    if (template.hideFromPlanner) {
-      return NextResponse.json(
-        {
-          error:
-            "This template is system infrastructure (Tim LinkedIn inboxes). It is created automatically, not via POST.",
-        },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Server misconfiguration: custom template missing" }, { status: 500 });
     }
 
     const name =
@@ -403,34 +393,13 @@ export async function POST(req: NextRequest) {
         ? nameInput.trim()
         : template.label;
 
-    const baseSpec =
+    const bodySpec =
       spec && typeof spec === "object" && !Array.isArray(spec)
         ? { ...spec }
-        : { deliverables: template.deliverables };
-
-    let pkgSpec: Record<string, unknown> = baseSpec;
-    if (templateId === "vibe-coding-outreach") {
-      const briefRaw = pkgSpec.brief;
-      const briefStr = typeof briefRaw === "string" ? briefRaw.trim() : "";
-      if (!briefStr) {
-        const { TIM_WARM_OUTREACH_PACKAGE_BRIEF } = await import(
-          "@/lib/package-spec-briefs/tim-warm-outreach-package-brief"
-        );
-        pkgSpec = { ...pkgSpec, brief: TIM_WARM_OUTREACH_PACKAGE_BRIEF };
-      }
-      const existingCadence =
-        pkgSpec.warmOutreachDiscovery && typeof pkgSpec.warmOutreachDiscovery === "object"
-          ? (pkgSpec.warmOutreachDiscovery as Record<string, unknown>)
-          : {};
-      pkgSpec = {
-        ...pkgSpec,
-        warmOutreachDiscovery: {
-          ...DEFAULT_WARM_OUTREACH_DISCOVERY,
-          pacedDaily: true,
-          ...existingCadence,
-        },
-      };
-    }
+        : {};
+    const rawDels = bodySpec.deliverables;
+    const deliverables = Array.isArray(rawDels) ? rawDels : [];
+    const pkgSpec: Record<string, unknown> = { ...bodySpec, deliverables };
 
     let rows: Record<string, unknown>[];
     try {
@@ -509,10 +478,21 @@ export async function PATCH(req: NextRequest) {
       params.push(stage.toUpperCase());
       sets.push(`stage = $${params.length}`);
     }
-    if (spec) {
-      // Merge spec fields into existing spec (preserves deliverables when updating brief, etc.)
-      params.push(JSON.stringify(spec));
-      sets.push(`spec = COALESCE(spec, '{}'::jsonb) || $${params.length}::jsonb`);
+    if (spec && typeof spec === "object" && !Array.isArray(spec)) {
+      // Read–merge–write in app code so `deliverables` (and other keys) always persist reliably.
+      // SQL `jsonb || jsonb` and the dev-store COALESCE merge shim both mishandle some shapes.
+      const prevRows = (await query(
+        `SELECT spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+        [id]
+      )) as { spec: unknown }[];
+      if (prevRows.length === 0) {
+        return NextResponse.json({ error: "Package not found" }, { status: 404 });
+      }
+      const current = parseJsonObject(prevRows[0].spec) || {};
+      const incoming = spec as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...current, ...incoming };
+      params.push(JSON.stringify(merged));
+      sets.push(`spec = $${params.length}::jsonb`);
     }
     if (nameTrimmed != null) {
       params.push(nameTrimmed);

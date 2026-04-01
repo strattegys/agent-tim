@@ -106,7 +106,7 @@ function fridayTabFromSearchParams(agent: string | null, panel: string | null): 
   if (panel === "tools") return "tools";
   if (panel === "goals") return "goals";
   if (panel === "cron") return "cron";
-  if (panel === "pkg-templates" || panel === "package-templates") return "pkg-templates";
+  if (panel === "pkg-templates" || panel === "package-templates") return "package-kanban";
   if (panel === "wf-templates" || panel === "workflow-templates") return "wf-templates";
   if (panel === "package-kanban") return "package-kanban";
   if (panel === "planner") return "package-kanban";
@@ -128,8 +128,6 @@ function fridayDashboardTabToPanelParam(tab: FridayDashboardTab): string {
   switch (tab) {
     case "package-kanban":
       return "tasks";
-    case "pkg-templates":
-      return "pkg-templates";
     case "wf-templates":
       return "wf-templates";
     case "tools":

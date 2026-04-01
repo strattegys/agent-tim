@@ -123,9 +123,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Use template deliverables as the authoritative source
-    const template = PACKAGE_TEMPLATES[spec?.templateId || pkg.templateId || ""] || Object.values(PACKAGE_TEMPLATES)[0];
-    const deliverables = template?.deliverables || spec?.deliverables || [];
+    // Prefer deliverables on the package row; fall back to catalog template (system / legacy ids only).
+    const specDeliverables = Array.isArray(spec?.deliverables) ? spec.deliverables : [];
+    const tmpl = PACKAGE_TEMPLATES[String(spec?.templateId || pkg.templateId || "")];
+    const templateDeliverables = Array.isArray(tmpl?.deliverables) ? tmpl.deliverables : [];
+    const deliverables =
+      specDeliverables.length > 0 ? specDeliverables : templateDeliverables;
 
     if (deliverables.length === 0) {
       return NextResponse.json({ error: "Package has no deliverables" }, { status: 400 });

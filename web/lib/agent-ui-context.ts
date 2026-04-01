@@ -17,11 +17,10 @@ export type AgentUiRightPanel =
   | "marni-work"
   | "agent-knowledge";
 
-/** Friday work panel — flat top-level tabs (goals first, then package kanban / templates / tools / cron). */
+/** Friday work panel — flat top-level tabs (goals, package kanban, workflow templates, tools, cron). */
 export type FridayDashboardTab =
   | "goals"
   | "package-kanban"
-  | "pkg-templates"
   | "wf-templates"
   | "tools"
   | "cron";
@@ -131,8 +130,6 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
       label = "Goals (workflow throughput vs targets)";
     } else if (tab === "package-kanban") {
       label = "Package Kanban (draft → completed; details in overlay)";
-    } else if (tab === "pkg-templates") {
-      label = "Package templates";
     } else if (tab === "wf-templates") {
       label = "Workflow templates";
     } else if (tab === "tools") {

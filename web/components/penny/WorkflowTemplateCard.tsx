@@ -15,7 +15,7 @@ const ITEM_TYPE_COLORS: Record<string, string> = {
 
 interface WorkflowTemplateCardProps {
   template: WorkflowTypeSpec;
-  /** e.g. "New type" for CRM-defined types */
+  /** Optional small label chip (omit when only item type matters) */
   badge?: string;
   footer?: ReactNode;
 }

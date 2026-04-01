@@ -12,6 +12,38 @@ function isInsideLinuxDocker(): boolean {
 
 const USE_DEV_STORE = !process.env.CRM_DB_PASSWORD;
 
+/** After ECONNREFUSED on tunnel/loopback, match `check-crm-db.mjs` and use Tailscale IP:5432. */
+type CrmRouteMode = "primary" | "tailscale-direct";
+let crmRouteMode: CrmRouteMode = "primary";
+
+function shouldOfferCrmTailscaleFallback(): boolean {
+  if (process.env.CRM_DB_NO_TAILSCALE_FALLBACK === "1") return false;
+  const raw = (process.env.CRM_DB_HOST || "127.0.0.1").trim().toLowerCase();
+  if (raw === "crm-db") return false;
+  if (raw === "127.0.0.1" || raw === "localhost" || raw === "::1") return true;
+  if (raw.includes("host.docker.internal")) return true;
+  return false;
+}
+
+function isCrmConnRefused(e: unknown): boolean {
+  const c = (e as { code?: string })?.code;
+  if (c === "ECONNREFUSED") return true;
+  const msg = e instanceof Error ? e.message : String(e);
+  return /ECONNREFUSED/i.test(msg);
+}
+
+function activateCrmTailscaleRoute(): void {
+  if (crmRouteMode !== "primary" || !shouldOfferCrmTailscaleFallback()) return;
+  const ts = (process.env.CRM_DB_TAILSCALE_HOST || "100.74.54.12").trim();
+  if (!ts) return;
+  console.warn(
+    `[db] CRM connection refused on primary (tunnel/loopback). Retrying via Tailscale ${ts}:5432. ` +
+      `To make this explicit, set CRM_DB_HOST=${ts} and CRM_DB_PORT=5432 in web/.env.local.`
+  );
+  crmRouteMode = "tailscale-direct";
+  _pool = null;
+}
+
 // Skip during `next build` / `npm run build` — .env is not loaded in the Docker build stage.
 if (
   process.env.NODE_ENV === "production" &&
@@ -44,6 +76,29 @@ function crmPoolOptions(): {
     process.env.CRM_DB_KEEPALIVE_DELAY_MS || "10000",
     10
   );
+
+  if (crmRouteMode === "tailscale-direct") {
+    const ts = (process.env.CRM_DB_TAILSCALE_HOST || "100.74.54.12").trim();
+    return {
+      host: ts,
+      port: 5432,
+      database: process.env.CRM_DB_NAME || "default",
+      user: process.env.CRM_DB_USER || "postgres",
+      password: process.env.CRM_DB_PASSWORD,
+      max: Number.isFinite(max) && max > 0 ? max : 5,
+      connectionTimeoutMillis:
+        Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
+          ? connectionTimeoutMillis
+          : 30000,
+      keepAlive: process.env.CRM_DB_KEEPALIVE === "0" ? false : true,
+      keepAliveInitialDelayMillis:
+        Number.isFinite(keepAliveInitialDelayMillis) && keepAliveInitialDelayMillis >= 0
+          ? keepAliveInitialDelayMillis
+          : 10000,
+      idleTimeoutMillis: parseInt(process.env.CRM_DB_IDLE_TIMEOUT_MS || "30000", 10) || 30000,
+    };
+  }
+
   let host = (process.env.CRM_DB_HOST || "127.0.0.1").trim();
   const h = host.toLowerCase();
 
@@ -220,12 +275,23 @@ function isTransientCrmConnectionError(e: unknown): boolean {
   return false;
 }
 
+async function connectCrmClient(): Promise<import("pg").PoolClient> {
+  try {
+    return await getPool().connect();
+  } catch (e) {
+    if (isCrmConnRefused(e) && crmRouteMode === "primary") {
+      activateCrmTailscaleRoute();
+      return getPool().connect();
+    }
+    throw e;
+  }
+}
+
 async function runPooledQuery<T extends Record<string, unknown>>(
   sql: string,
   params?: unknown[]
 ): Promise<T[]> {
-  const pool = getPool();
-  const client = await pool.connect();
+  const client = await connectCrmClient();
   try {
     await client.query(`SET search_path TO "${SCHEMA}", public`);
     const result = await client.query(sql, params);
@@ -279,8 +345,7 @@ export async function transaction<T>(
 ): Promise<T> {
   if (USE_DEV_STORE) return devTransaction(fn);
 
-  const pool = getPool();
-  const client = await pool.connect();
+  const client = await connectCrmClient();
   try {
     await client.query(`SET search_path TO "${SCHEMA}", public`);
     await client.query("BEGIN");

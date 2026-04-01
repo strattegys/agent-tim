@@ -336,6 +336,208 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     },
   },
 
+  // ─── LinkedIn: connection accepted → opener + follow-up (Tim) ────────────
+
+  "linkedin-opener-sequence": {
+    id: "linkedin-opener-sequence",
+    label: "LinkedIn Opener Sequence",
+    itemType: "person",
+    description:
+      "After a connection accepts: draft and send the opening LinkedIn DM, optional follow-up if there is " +
+      "no reply (~3 days), then complete the sequence. When they reply, handle the thread in **Reply to Close** " +
+      "(same or another package deliverable).",
+    defaultBoard: {
+      stages: [
+        {
+          key: "DRAFT_OPENER",
+          label: "Draft Message",
+          color: "#D4A017",
+          instructions:
+            "Draft the first LinkedIn message after the connection is accepted. Personal, value-first, " +
+            "aligned to the package brief (e.g. agent team / collaboration angle).",
+          requiresHuman: true,
+          humanAction: "Review Tim’s draft and send when ready.",
+        },
+        {
+          key: "SENT_OPENER",
+          label: "Send Message",
+          color: "#D85A30",
+          instructions:
+            "First message sent. If they reply, wrap this opener row and work them in **Reply to Close**. " +
+            "If no reply after ~3 business days, move to Follow Up.",
+        },
+        {
+          key: "FOLLOW_UP",
+          label: "Follow Up",
+          color: "#2563EB",
+          instructions:
+            "Draft one light nudge — no wall of text. Then send. If they reply during this step, complete " +
+            "the opener and switch to **Reply to Close**.",
+          requiresHuman: true,
+          humanAction: "Review follow-up; send or skip to Completed if the situation changed.",
+        },
+        {
+          key: "COMPLETED",
+          label: "Completed",
+          color: "#555",
+          instructions:
+            "Opener sequence finished: replied (continue elsewhere), follow-up sent, or stopped. Log outcome in CRM.",
+        },
+      ],
+      transitions: {
+        DRAFT_OPENER: ["SENT_OPENER"],
+        SENT_OPENER: ["FOLLOW_UP", "COMPLETED"],
+        FOLLOW_UP: ["COMPLETED"],
+        COMPLETED: [],
+      },
+    },
+  },
+
+  // ─── LinkedIn: after opener reply → qualify outcome (Tim) ───────────────
+
+  /**
+   * Use when someone **replies** to a connection-accept / opener sequence (not the same board as the
+   * opener itself). Keeps “conversation work” separate from “how did this end.”
+   */
+  "reply-to-close": {
+    id: "reply-to-close",
+    label: "Reply to Close",
+    itemType: "person",
+    description:
+      "Inbound reply handling after a LinkedIn opener sequence. Tim continues the thread until you " +
+      "choose a resting outcome: **Converted** (clear commercial progress) or **Keep in touch** " +
+      "(long-cycle nurture — hand off to the Keep in Touch workflow type).",
+    defaultBoard: {
+      stages: [
+        {
+          key: "REPLIED",
+          label: "Replied",
+          color: "#16A34A",
+          instructions:
+            "The contact replied to your opener (or first follow-up). Capture what they said, tone, " +
+            "and intent. Move to Reply Draft when Tim should respond; you can also jump straight to " +
+            "**Converted** or **Keep in touch** if the thread already resolved in one message.",
+        },
+        {
+          key: "REPLY_DRAFT",
+          label: "Reply Draft",
+          color: "#D4A017",
+          instructions:
+            "Tim drafts the next LinkedIn message: answer questions, handle objections, or move toward " +
+            "a call — still conversational, not a hard close unless they asked for it.",
+          requiresHuman: true,
+          humanAction:
+            "Review Tim’s draft. Send when ready, or reject for a redraft. When the conversation is " +
+            "ready to land, advance toward **Converted** or **Keep in touch**.",
+        },
+        {
+          key: "REPLY_SENT",
+          label: "Reply Sent",
+          color: "#D85A30",
+          instructions:
+            "Message sent. If they write again, return to Reply Draft. When you are done with the " +
+            "thread, move to **Converted** (won / meeting / clear next step) or **Keep in touch** " +
+            "(nurture queue).",
+        },
+        {
+          key: "CONVERTED",
+          label: "Converted",
+          color: "#15803d",
+          instructions:
+            "Terminal: commercial forward motion — e.g. meeting booked, proposal sent, verbal yes, or " +
+            "handed to a real sales process. Log outcome in CRM notes.",
+        },
+        {
+          key: "KIT_ENROLLED",
+          label: "Keep in touch",
+          color: "#6366f1",
+          instructions:
+            "Terminal for this workflow: not a fit for a hard close now, but worth periodic check-ins. " +
+            "Create or move the person onto an active **Keep in Touch** workflow (same CRM person) and " +
+            "note why they landed here.",
+        },
+      ],
+      transitions: {
+        REPLIED: ["REPLY_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        REPLY_DRAFT: ["REPLY_SENT", "CONVERTED", "KIT_ENROLLED"],
+        REPLY_SENT: ["REPLY_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        CONVERTED: [],
+        KIT_ENROLLED: [],
+      },
+    },
+  },
+
+  // ─── LinkedIn: long-cycle nurture (Tim) ─────────────────────────────────
+
+  "keep-in-touch": {
+    id: "keep-in-touch",
+    label: "Keep in Touch",
+    itemType: "person",
+    description:
+      "Low-pressure relationship maintenance: touch every few months with something useful or human, " +
+      "not a sales blast. Default cadence is guidance only — set the next date in CRM notes or artifacts.",
+    defaultBoard: {
+      stages: [
+        {
+          key: "ENROLLED",
+          label: "Enrolled",
+          color: "#6b8a9e",
+          instructions:
+            "Person entered nurture (e.g. from **Reply to Close → Keep in touch**). Set the first " +
+            "**next nudge** date (typically 60–120 days). No message required in this stage.",
+        },
+        {
+          key: "DUE",
+          label: "Nudge due",
+          color: "#D4A017",
+          instructions:
+            "Time for a light check-in: industry note, article they’d care about, or genuine “thinking of you.” " +
+            "Skip a cycle if they’re mid-conversation elsewhere.",
+        },
+        {
+          key: "DRAFT",
+          label: "Draft",
+          color: "#2563EB",
+          instructions:
+            "Tim drafts a short, non-pushy LinkedIn DM. No pitch deck; one clear human reason to write.",
+          requiresHuman: true,
+          humanAction:
+            "Review and send via Tim. After send, move to **Sent**.",
+        },
+        {
+          key: "SENT",
+          label: "Sent",
+          color: "#D85A30",
+          instructions:
+            "Touch sent. Log what you sent. Schedule the **next** nudge (e.g. +90 days) and move to **Between touches**.",
+        },
+        {
+          key: "COOLING",
+          label: "Between touches",
+          color: "#64748b",
+          instructions:
+            "Waiting until the next due date. When it’s time again, move to **Nudge due**. If they " +
+            "reply actively, you may pause this workflow or move them to **Reply to Close**.",
+        },
+        {
+          key: "ENDED",
+          label: "Ended",
+          color: "#555",
+          instructions:
+            "Nurture stopped: unsubscribed, cold lead, converted elsewhere, or you chose to stop touching base.",
+        },
+      ],
+      transitions: {
+        ENROLLED: ["DUE", "ENDED"],
+        DUE: ["DRAFT", "COOLING", "ENDED"],
+        DRAFT: ["SENT", "ENDED"],
+        SENT: ["COOLING"],
+        COOLING: ["DUE", "ENDED"],
+        ENDED: [],
+      },
+    },
+  },
+
   // ─── LinkedIn General Inbox (Tim) — unmatched webhook events ─────────────
 
   "linkedin-general-inbox": {

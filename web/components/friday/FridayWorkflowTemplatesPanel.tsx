@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import WorkflowTemplateCard from "@/components/penny/WorkflowTemplateCard";
 import type { StageSpec, WorkflowThroughputGoalSpec, WorkflowTypeSpec } from "@/lib/workflow-types";
 import { validateDefaultBoard } from "@/lib/workflow-type-definition-validate";
@@ -458,24 +457,8 @@ export default function FridayWorkflowTemplatesPanel() {
     return [...builtins, ...customs];
   }, [rows]);
 
-  const deleteCustom = async (id: string) => {
-    if (!confirm(`Delete workflow type "${id}"? Packages using it may fail on activate.`)) return;
-    const r = await fetch(`/api/crm/workflow-type-definitions/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      credentials: "include",
-    });
-    if (!r.ok) {
-      const d = (await r.json().catch(() => ({}))) as { error?: string };
-      alert(d.error || "Delete failed");
-      return;
-    }
-    void load();
-  };
-
-  const deepLinkNew = "/?agent=friday&panel=wf-templates&newWorkflowType=1";
-
   return (
-    <div className="flex-1 overflow-y-auto p-3 space-y-4">
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-[var(--bg-primary)]">
       {editor ? (
         <WorkflowTypeEditorModal
           mode={editor.mode}
@@ -485,80 +468,34 @@ export default function FridayWorkflowTemplatesPanel() {
         />
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] text-[var(--text-secondary)] max-w-xl leading-relaxed">
-          All workflow types are the same kind of definition; seven ship with the product, and any
-          additional ones you add are tagged <span className="font-medium text-[var(--text-primary)]">New type</span>{" "}
-          (stored in the CRM). Ids must stay unique.{" "}
-          <Link href={deepLinkNew} className="text-[var(--text-primary)] underline font-medium">
-            Open “new type” via URL
-          </Link>
-          .
-        </p>
+      <div className="shrink-0 px-2 py-1.5 border-b border-[var(--border-color)] flex items-center justify-between gap-2 bg-[var(--bg-secondary)]/40">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+          Workflow templates
+        </h3>
         <button
           type="button"
           onClick={() => setEditor({ mode: "new", spec: null })}
-          className="text-[10px] font-semibold px-2.5 py-1.5 rounded-md bg-[#9B59B6] text-white"
+          className="text-[10px] font-semibold px-2.5 py-1 rounded-md bg-[#E67E22] text-white hover:opacity-90 transition-opacity"
         >
-          New type
+          New workflow type
         </button>
       </div>
 
-      {loading ? (
-        <p className="text-sm text-[var(--text-tertiary)] py-8 text-center">Loading…</p>
-      ) : error ? (
-        <p className="text-sm text-red-400/90 py-4">{error}</p>
-      ) : sortedRows.length === 0 ? (
-        <p className="text-[11px] text-[var(--text-tertiary)] py-6">No workflow types loaded.</p>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {sortedRows.map((tmpl) => (
-            <WorkflowTemplateCard
-              key={tmpl.id}
-              template={tmpl}
-              badge={tmpl.source === "custom" ? "New type" : undefined}
-              footer={
-                tmpl.source === "custom" ? (
-                  <div className="flex flex-wrap gap-2 mt-auto pt-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditor({
-                          mode: "edit",
-                          spec: {
-                            id: tmpl.id,
-                            label: tmpl.label,
-                            itemType: tmpl.itemType,
-                            description: tmpl.description,
-                            defaultBoard: tmpl.defaultBoard,
-                            throughputGoal: tmpl.throughputGoal,
-                          },
-                        })
-                      }
-                      className="text-[10px] font-medium px-2 py-1 rounded border border-[var(--border-color)]"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void deleteCustom(tmpl.id)}
-                      className="text-[10px] font-medium px-2 py-1 rounded border border-red-500/40 text-red-400/90"
-                    >
-                      Delete
-                    </button>
-                    <Link
-                      href={`/?agent=friday&panel=wf-templates&edit=${encodeURIComponent(tmpl.id)}`}
-                      className="text-[10px] font-medium px-2 py-1 rounded border border-[var(--border-color)] text-[var(--text-secondary)]"
-                    >
-                      Link
-                    </Link>
-                  </div>
-                ) : undefined
-              }
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex-1 overflow-y-auto p-3 min-h-0">
+        {loading ? (
+          <p className="text-sm text-[var(--text-tertiary)] py-8 text-center">Loading…</p>
+        ) : error ? (
+          <p className="text-sm text-red-400/90 py-4">{error}</p>
+        ) : sortedRows.length === 0 ? (
+          <p className="text-[11px] text-[var(--text-tertiary)] py-6">No workflow types loaded.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {sortedRows.map((tmpl) => (
+              <WorkflowTemplateCard key={tmpl.id} template={tmpl} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

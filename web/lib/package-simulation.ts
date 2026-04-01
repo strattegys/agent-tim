@@ -111,8 +111,8 @@ export async function runPackageSimulateDay(
     rtcNurtureClosed: 0,
   };
 
-  const pkgRows = await query<{ id: string; stage: string; spec: unknown }>(
-    `SELECT id, stage, spec FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
+  const pkgRows = await query<{ id: string; stage: string; spec: unknown; templateId: string }>(
+    `SELECT id, stage, spec, "templateId" AS "templateId" FROM "_package" WHERE id = $1 AND "deletedAt" IS NULL`,
     [packageId]
   );
   if (pkgRows.length === 0) {
@@ -126,7 +126,9 @@ export async function runPackageSimulateDay(
   const rawSpec =
     typeof pkgRows[0].spec === "string" ? JSON.parse(pkgRows[0].spec) : pkgRows[0].spec;
   const specDeliverables = Array.isArray(rawSpec?.deliverables) ? rawSpec.deliverables : [];
-  const tmpl = PACKAGE_TEMPLATES[String(rawSpec?.templateId || "")];
+  const rowTemplateId = String(pkgRows[0].templateId || "").trim();
+  const tmpl =
+    PACKAGE_TEMPLATES[String(rawSpec?.templateId || rowTemplateId || "")];
   const templateDeliverables = Array.isArray(tmpl?.deliverables) ? tmpl.deliverables : [];
   const deliverables =
     specDeliverables.length > 0 ? specDeliverables : templateDeliverables;

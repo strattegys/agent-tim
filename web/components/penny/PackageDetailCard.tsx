@@ -86,6 +86,8 @@ export default function PackageDetailCard({
 
   const [simulateModalOpen, setSimulateModalOpen] = useState(false);
   const [simBusy, setSimBusy] = useState(false);
+  const [simulateError, setSimulateError] = useState<string | null>(null);
+  const [progressKick, setProgressKick] = useState(0);
   const [simReplyPct, setSimReplyPct] = useState(25);
   const [simRtcPct, setSimRtcPct] = useState(10);
   const [simSeed, setSimSeed] = useState("");
@@ -222,6 +224,8 @@ export default function PackageDetailCard({
     deliverables.some((d) => d.workflowType === "linkedin-opener-sequence");
 
   const runSimulateDay = useCallback(async () => {
+    setSimulateError(null);
+    setSimulateModalOpen(false);
     setSimBusy(true);
     try {
       const trimmed = simSeed.trim();
@@ -241,15 +245,23 @@ export default function PackageDetailCard({
         credentials: "include",
         body: JSON.stringify(body),
       });
-      const data = (await res.json().catch(() => ({}))) as {
+      const rawText = await res.text();
+      let data: {
         error?: string;
         log?: string[];
         cohort?: PackageSimulateCohort;
         seed?: number;
-      };
+      } = {};
+      try {
+        data = rawText ? (JSON.parse(rawText) as typeof data) : {};
+      } catch {
+        data = { error: rawText.slice(0, 200) || `Invalid response (${res.status})` };
+      }
       if (!res.ok) {
+        const msg = data.error || `Request failed (${res.status})`;
+        setSimulateError(msg);
         setSimLog((prev) => [
-          `[${new Date().toLocaleTimeString()}] Simulate failed: ${data.error || res.status}`,
+          `[${new Date().toLocaleTimeString()}] Simulate failed: ${msg}`,
           ...prev,
         ]);
         return;
@@ -265,16 +277,18 @@ export default function PackageDetailCard({
         ...(cohortLine ? [cohortLine] : []),
         ...prev,
       ]);
-      setSimulateModalOpen(false);
       panelBus.emit("package_manager");
       panelBus.emit("dashboard_sync");
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSimulateError(msg);
       setSimLog((prev) => [
-        `[${new Date().toLocaleTimeString()}] Simulate error: ${e instanceof Error ? e.message : String(e)}`,
+        `[${new Date().toLocaleTimeString()}] Simulate error: ${msg}`,
         ...prev,
       ]);
     } finally {
       setSimBusy(false);
+      setProgressKick((k) => k + 1);
     }
   }, [pkg.id, simReplyPct, simRtcPct, simSeed, setSimLog]);
 
@@ -361,7 +375,7 @@ export default function PackageDetailCard({
     const ms = tabVisible ? 5000 : 20_000;
     const interval = setInterval(fetchProgress, ms);
     return () => clearInterval(interval);
-  }, [pkgStage, pkg.id, tabVisible]);
+  }, [pkgStage, pkg.id, tabVisible, progressKick]);
 
   // Move to Testing mode (no tasks created yet)
   const appendActivationLog = useCallback((data: { activationLog?: string[] }) => {
@@ -643,11 +657,15 @@ export default function PackageDetailCard({
               {canSimulateDay ? (
                 <button
                   type="button"
-                  onClick={() => setSimulateModalOpen(true)}
+                  disabled={simBusy}
+                  onClick={() => {
+                    setSimulateError(null);
+                    setSimulateModalOpen(true);
+                  }}
                   className={btnBase}
                   title="Run one compressed day: synthetic people tagged for reset; opener + reply-to-close probabilities"
                 >
-                  Simulate
+                  {simBusy ? "Simulating…" : "Simulate"}
                 </button>
               ) : null}
               <button onClick={handleReset} className={btnBase}>
@@ -689,6 +707,19 @@ export default function PackageDetailCard({
           ) : null}
         </div>
       </div>
+
+      {(simBusy || simulateError) && (
+        <div className="px-3 py-1.5 border-b border-[var(--border-color)] text-[10px] leading-snug space-y-0.5">
+          {simBusy ? (
+            <p className="text-[var(--text-secondary)]">Running package simulation… counts update when it finishes.</p>
+          ) : null}
+          {simulateError ? (
+            <p className="text-red-400/95" role="alert">
+              Simulation failed: {simulateError}
+            </p>
+          ) : null}
+        </div>
+      )}
 
       {showPackageBrief && (
         <div className="px-3 py-1.5 border-b border-[var(--border-color)] flex items-center justify-between gap-2 bg-[var(--bg-primary)]/40">

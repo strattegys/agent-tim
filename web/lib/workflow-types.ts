@@ -29,8 +29,33 @@ export interface StageSpec {
 export type WorkflowThroughputMetric =
   /** `MESSAGED` artifacts named `LinkedIn DM sent` (first-touch sends only). */
   | "warm_outreach_dm_sent"
+  /**
+   * Distinct CRM persons with a new `linkedin-opener-sequence` workflow item today
+   * (excludes package placeholder rows — see throughput API).
+   */
+  | "linkedin_opener_new_people"
+  /** @deprecated Prefer `linkedin_opener_new_people` for Goals; kept for legacy custom definitions. */
+  | "linkedin_opener_dm_sent"
+  /**
+   * Distinct persons with a new `reply-to-close` workflow item today (excludes placeholder persons).
+   */
+  | "reply_to_close_threads_started"
   /** `PUBLISHED` artifacts named `Published Article Record` (content pipeline). */
   | "content_article_published";
+
+/**
+ * Reply-to-close: counted on the Goals tab as **throughput only** (no target — volume follows opener results).
+ * Not attached to `WORKFLOW_TYPES["reply-to-close"].throughputGoal` so it never appears as a goal card.
+ */
+export const REPLY_TO_CLOSE_THROUGHPUT_MEASURE = {
+  workflowTypeId: "reply-to-close",
+  workflowLabel: "Reply to Close",
+  ownerLabel: "Tim",
+  period: "day" as const,
+  metric: "reply_to_close_threads_started" as WorkflowThroughputMetric,
+  metricLabel:
+    "New threads today (distinct contacts). Driven by LinkedIn opener replies — no separate daily target.",
+} as const;
 
 export interface WorkflowThroughputGoalSpec {
   period: "day" | "week";
@@ -64,6 +89,11 @@ export interface WorkflowTypeSpec {
    * has a clear CRM signal (artifacts / stages); keep in sync with the throughput API SQL.
    */
   throughputGoal?: WorkflowThroughputGoalSpec;
+  /**
+   * Shown under the description on workflow template cards (e.g. how many times a loop runs).
+   * Omit for types that are fully explained by `description` alone.
+   */
+  pipelineHint?: string;
 }
 
 export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
@@ -336,77 +366,102 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
     },
   },
 
-  // ─── LinkedIn: connection accepted → opener + follow-up (Tim) ────────────
+  // ─── LinkedIn: connection accepted → draft/send ×3, then Replied or Completed (Tim) ─
 
   "linkedin-opener-sequence": {
     id: "linkedin-opener-sequence",
     label: "LinkedIn Opener Sequence",
     itemType: "person",
     description:
-      "After a connection accepts: draft and send the opening LinkedIn DM, optional follow-up if there is " +
-      "no reply (~3 days), then complete the sequence. When they reply, handle the thread in **Reply to Close** " +
-      "(same or another package deliverable).",
+      "After a connection accepts: repeat **Message Draft (3)** → **Send message** up to **three** times (opener + two " +
+      "nudges if no reply, ~3 business days apart). **When they reply:** move this row to **Replied** on the opener sequence " +
+      "and **leave it there**—that is the correct resting place here. Your **actual LinkedIn replies** run on **Reply to Close**: " +
+      "add the same person on that workflow at **Replied**; the app opens **Reply Draft** there and notifies Tim. Move this " +
+      "opener row to **Completed** only when you are done with it on this board (e.g. Reply to Close is in motion), not as the " +
+      "first step when they reply. **Completed** without a conversation = three sends with no reply (or you stop early). " +
+      "Friday’s **Goals** target is **new targets** you start on this sequence per day, not sends.",
+    pipelineHint:
+      "Between **Message Draft (3)** and **Send message**, the ↻ connector means you may loop until three sends. " +
+      "After a real reply: **Replied** stays the stage on this opener row; reply work happens on **Reply to Close**.",
     defaultBoard: {
       stages: [
         {
-          key: "DRAFT_OPENER",
-          label: "Draft Message",
+          key: "DRAFT_MESSAGE",
+          label: "Message Draft (3)",
           color: "#D4A017",
           instructions:
-            "Draft the first LinkedIn message after the connection is accepted. Personal, value-first, " +
-            "aligned to the package brief (e.g. agent team / collaboration angle).",
+            "Tim drafts the next LinkedIn DM in the sequence. You may land here up to three times: (1) opener " +
+            "after connect, (2) first nudge if no reply, (3) second nudge. Personal, value-first, aligned to the " +
+            "package brief. After you send, the item moves to **Send message**.",
           requiresHuman: true,
-          humanAction: "Review Tim’s draft and send when ready.",
+          humanAction: "Review Tim’s draft for this send in the 3-message sequence; send via LinkedIn when ready.",
         },
         {
-          key: "SENT_OPENER",
-          label: "Send Message",
+          key: "SENT_MESSAGE",
+          label: "Send message",
           color: "#D85A30",
           instructions:
-            "First message sent. If they reply, wrap this opener row and work them in **Reply to Close**. " +
-            "If no reply after ~3 business days, move to Follow Up.",
+            "That DM is out. If they **replied**, move this row to **Replied** and **keep it there** on the opener " +
+            "sequence—do not treat **Completed** as the next step just because they wrote back. Add the same person on " +
+            "**Reply to Close** at **Replied** so Tim gets **Reply Draft** there; that is where you run the conversation. " +
+            "If **no reply** and you have sent **fewer than three** DMs, wait ~3 business days then move back to " +
+            "**Message Draft (3)**. If you have sent **three** DMs with no reply, move to **Completed**.",
         },
         {
-          key: "FOLLOW_UP",
-          label: "Follow Up",
-          color: "#2563EB",
+          key: "REPLIED",
+          label: "Replied",
+          color: "#16A34A",
           instructions:
-            "Draft one light nudge — no wall of text. Then send. If they reply during this step, complete " +
-            "the opener and switch to **Reply to Close**.",
-          requiresHuman: true,
-          humanAction: "Review follow-up; send or skip to Completed if the situation changed.",
+            "They replied to an opener-sequence message. **Stay on Replied** on this row—that marks the outcome on the " +
+            "opener board. Log what they said in CRM. **On Reply to Close:** add the same person at **Replied**; that " +
+            "workflow row moves to **Reply Draft** and Tim is notified—your replies happen there, not by rushing this " +
+            "opener row to **Completed** first. Move this opener row to **Completed** only when you are finished tracking " +
+            "it here (e.g. Reply to Close is live and you want to close the opener row).",
         },
         {
           key: "COMPLETED",
           label: "Completed",
           color: "#555",
           instructions:
-            "Opener sequence finished: replied (continue elsewhere), follow-up sent, or stopped. Log outcome in CRM.",
+            "This opener row is closed: **three** sends with no reply, you stopped early, or you are done with this row " +
+            "after a reply (the live thread lives on **Reply to Close**). Log outcome in CRM.",
         },
       ],
       transitions: {
-        DRAFT_OPENER: ["SENT_OPENER"],
-        SENT_OPENER: ["FOLLOW_UP", "COMPLETED"],
-        FOLLOW_UP: ["COMPLETED"],
+        DRAFT_MESSAGE: ["SENT_MESSAGE"],
+        SENT_MESSAGE: ["DRAFT_MESSAGE", "REPLIED", "COMPLETED"],
+        REPLIED: ["COMPLETED"],
         COMPLETED: [],
       },
+    },
+    throughputGoal: {
+      period: "day",
+      target: 5,
+      metric: "linkedin_opener_new_people",
+      ownerLabel: "Tim",
+      metricLabel: "LinkedIn opener — new targets started on this sequence today (distinct contacts)",
     },
   },
 
   // ─── LinkedIn: after opener reply → qualify outcome (Tim) ───────────────
 
   /**
-   * Use when someone **replies** to a connection-accept / opener sequence (not the same board as the
-   * opener itself). Keeps “conversation work” separate from “how did this end.”
+   * Use when someone **replies** during **LinkedIn Opener Sequence** while their opener item sits on **Replied**.
+   * Conversation work (**Reply Draft** onward) runs here, not on the opener board.
    */
   "reply-to-close": {
     id: "reply-to-close",
     label: "Reply to Close",
     itemType: "person",
     description:
-      "Inbound reply handling after a LinkedIn opener sequence. Tim continues the thread until you " +
-      "choose a resting outcome: **Converted** (clear commercial progress) or **Keep in touch** " +
-      "(long-cycle nurture — hand off to the Keep in Touch workflow type).",
+      "After an opener reply: **Reply Draft → Send** (Unipile gate), then **wait ~3 days** for them. If they answer, " +
+      "return to **Reply Draft** and keep the conversation going. If it stays quiet, **Follow-up 1** → send → **wait ~7 days**. " +
+      "If still quiet, **Follow-up 2** → send; if there is still no meaningful reply, move to **Keep in touch**. " +
+      "Attach at **Replied** — the app opens **Reply Draft** automatically. Throughput is measured in Friday Goals " +
+      "(new threads per day) but there is no goal here — volume follows the LinkedIn opener sequence.",
+    pipelineHint:
+      "Land on **Replied** → auto **Reply Draft**. After each outbound send the board moves to a **waiting** step with a due date " +
+      "(~3d after a normal reply, ~7d after follow-up 1, ~7d after follow-up 2). **Converted** or **Keep in touch** end the row.",
     defaultBoard: {
       stages: [
         {
@@ -414,30 +469,100 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
           label: "Replied",
           color: "#16A34A",
           instructions:
-            "The contact replied to your opener (or first follow-up). Capture what they said, tone, " +
-            "and intent. Move to Reply Draft when Tim should respond; you can also jump straight to " +
-            "**Converted** or **Keep in touch** if the thread already resolved in one message.",
+            "Entry point: the contact replied to your opener (or you are re-opening the thread). The system opens **Reply Draft** " +
+            "automatically and notifies Tim.",
         },
         {
           key: "REPLY_DRAFT",
           label: "Reply Draft",
           color: "#D4A017",
           instructions:
-            "Tim drafts the next LinkedIn message: answer questions, handle objections, or move toward " +
-            "a call — still conversational, not a hard close unless they asked for it.",
+            "Tim drafts the next LinkedIn message (main reply or answer after they wrote again). Conversational, match their energy.",
           requiresHuman: true,
           humanAction:
-            "Review Tim’s draft. Send when ready, or reject for a redraft. When the conversation is " +
-            "ready to land, advance toward **Converted** or **Keep in touch**.",
+            "Review Tim’s draft; **Send It Now** in chat + Submit. Or advance to **Converted** / **Keep in touch** if the thread is done.",
         },
         {
           key: "REPLY_SENT",
           label: "Reply Sent",
           color: "#D85A30",
           instructions:
-            "Message sent. If they write again, return to Reply Draft. When you are done with the " +
-            "thread, move to **Converted** (won / meeting / clear next step) or **Keep in touch** " +
-            "(nurture queue).",
+            "Outbound just went out. On Submit, the app moves you to **Waiting for reply (~3d)** with a due date — nothing to do " +
+            "until then unless they reply early (then jump to **Reply Draft**).",
+          requiresHuman: true,
+          humanAction:
+            "Brief stop — the queue advances to **Waiting for reply (~3d)** with a due date right after submit.",
+        },
+        {
+          key: "AWAITING_THEIR_REPLY",
+          label: "Waiting for reply (~3d)",
+          color: "#64748b",
+          instructions:
+            "Hold ~3 calendar days after your last send. If they message you, move to **Reply Draft**. If the window passes with no " +
+            "reply, move to **Follow-up 1 draft**. You can jump to **Converted** early if the deal is done.",
+          requiresHuman: true,
+          humanAction:
+            "No send here — watch LinkedIn / CRM. When due, either they replied → **Reply Draft**, or start **Follow-up 1 draft**, or **Converted**.",
+        },
+        {
+          key: "FOLLOW_UP_ONE_DRAFT",
+          label: "Follow-up 1 draft",
+          color: "#CA8A04",
+          instructions:
+            "First gentle bump after silence (~3+ days). Short, human, one new angle — not a wall of text.",
+          requiresHuman: true,
+          humanAction: "Review Tim’s follow-up; same send gate as **Reply Draft**.",
+        },
+        {
+          key: "FOLLOW_UP_ONE_SENT",
+          label: "Follow-up 1 sent",
+          color: "#EA580C",
+          instructions:
+            "Follow-up 1 is out. On Submit, the app sets **Waiting (~7d)** before a second follow-up is appropriate.",
+          requiresHuman: true,
+          humanAction:
+            "Brief stop — the queue advances to **Waiting (~7d)** with a due date right after submit.",
+        },
+        {
+          key: "AWAITING_AFTER_FOLLOW_UP_ONE",
+          label: "Waiting (~7d)",
+          color: "#475569",
+          instructions:
+            "Hold ~7 calendar days after follow-up 1. If they reply → **Reply Draft**. If still quiet → **Follow-up 2 draft**. " +
+            "Or **Converted** if the thread moved forward outside LinkedIn.",
+          requiresHuman: true,
+          humanAction:
+            "No send — monitor the thread. When due: **Reply Draft** if they engaged, else **Follow-up 2 draft**, or **Converted**.",
+        },
+        {
+          key: "FOLLOW_UP_TWO_DRAFT",
+          label: "Follow-up 2 draft",
+          color: "#B45309",
+          instructions:
+            "Last structured nudge before nurture. Zero pressure, door open — then either they reply or you park them in **Keep in touch**.",
+          requiresHuman: true,
+          humanAction: "Review and send, or move to **Keep in touch** if you are done trying.",
+        },
+        {
+          key: "FOLLOW_UP_TWO_SENT",
+          label: "Follow-up 2 sent",
+          color: "#C2410C",
+          instructions:
+            "Second follow-up is out. On Submit, the app sets **Waiting (final ~7d)** with a due date — one last window if they reply.",
+          requiresHuman: true,
+          humanAction:
+            "Brief stop — the queue advances to **Waiting (final ~7d)** with a due date right after submit.",
+        },
+        {
+          key: "AWAITING_AFTER_FOLLOW_UP_TWO",
+          label: "Waiting (final ~7d)",
+          color: "#334155",
+          instructions:
+            "Last structured wait after follow-up 2. If they reply on LinkedIn → **Reply Draft**. If the window passes with no " +
+            "meaningful reply → **Keep in touch**. Or **Converted** if the deal advanced elsewhere.",
+          requiresHuman: true,
+          humanAction:
+            "No send — monitor the thread. When due: **Reply Draft** if they engaged, else **Keep in touch**, or **Converted**.",
         },
         {
           key: "CONVERTED",
@@ -452,15 +577,20 @@ export const WORKFLOW_TYPES: Record<string, WorkflowTypeSpec> = {
           label: "Keep in touch",
           color: "#6366f1",
           instructions:
-            "Terminal for this workflow: not a fit for a hard close now, but worth periodic check-ins. " +
-            "Create or move the person onto an active **Keep in Touch** workflow (same CRM person) and " +
-            "note why they landed here.",
+            "Terminal: no hard close yet, worth periodic check-ins. Create or move the person onto **Keep in Touch** (same CRM person).",
         },
       ],
       transitions: {
         REPLIED: ["REPLY_DRAFT", "CONVERTED", "KIT_ENROLLED"],
         REPLY_DRAFT: ["REPLY_SENT", "CONVERTED", "KIT_ENROLLED"],
-        REPLY_SENT: ["REPLY_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        REPLY_SENT: ["AWAITING_THEIR_REPLY", "REPLY_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        AWAITING_THEIR_REPLY: ["REPLY_DRAFT", "FOLLOW_UP_ONE_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        FOLLOW_UP_ONE_DRAFT: ["FOLLOW_UP_ONE_SENT", "CONVERTED", "KIT_ENROLLED"],
+        FOLLOW_UP_ONE_SENT: ["AWAITING_AFTER_FOLLOW_UP_ONE", "REPLY_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        AWAITING_AFTER_FOLLOW_UP_ONE: ["REPLY_DRAFT", "FOLLOW_UP_TWO_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        FOLLOW_UP_TWO_DRAFT: ["FOLLOW_UP_TWO_SENT", "CONVERTED", "KIT_ENROLLED"],
+        FOLLOW_UP_TWO_SENT: ["AWAITING_AFTER_FOLLOW_UP_TWO", "REPLY_DRAFT", "CONVERTED", "KIT_ENROLLED"],
+        AWAITING_AFTER_FOLLOW_UP_TWO: ["REPLY_DRAFT", "KIT_ENROLLED", "CONVERTED"],
         CONVERTED: [],
         KIT_ENROLLED: [],
       },

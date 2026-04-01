@@ -6,6 +6,7 @@ import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 import { pushWorkflowObservabilityEvent } from "@/lib/workflow-observability-buffer";
 import { attachPersonToWorkflow } from "@/lib/attach-person-to-workflow";
+import { promoteReplyToCloseFromReplied } from "@/lib/reply-to-close-promote";
 
 interface PersonRow {
   [key: string]: unknown;
@@ -221,6 +222,8 @@ export async function POST(request: NextRequest) {
       sourceId: String(sourceId),
       closedIntakeItemId: attached.closedIntakeItemId ?? undefined,
     });
+    await promoteReplyToCloseFromReplied(attached.id);
+
     return NextResponse.json({
       id: attached.id,
       closedIntakeItemId: attached.closedIntakeItemId,
@@ -262,6 +265,7 @@ export async function PATCH(request: NextRequest) {
     );
     if (stage !== undefined) {
       await syncHumanTaskOpenForItem(String(id));
+      await promoteReplyToCloseFromReplied(String(id));
     }
     pushWorkflowObservabilityEvent("workflow_item_patch", {
       itemId: String(id),

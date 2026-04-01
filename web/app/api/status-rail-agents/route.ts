@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { AGENT_REGISTRY } from "@/lib/agent-registry";
-import { getCronJobs } from "@/lib/cron";
+import { getCronJobs, serverCronsAllowed } from "@/lib/cron";
 import { checkMemoryHealth, type MemoryHealthResult } from "@/lib/memory-health";
 import type { StatusRailAgentRow, StatusRailHeartbeat } from "@/lib/status-rail-agents-types";
 
@@ -93,12 +93,17 @@ export async function GET() {
   );
   const memoryMap = new Map(memoryResults.map((r) => [r.id, r]));
 
+  const cronsOn = serverCronsAllowed();
+
   for (const spec of specs) {
     const hbJob = getCronJobs(spec.id).find((j) => j.id === `heartbeat-${spec.id}`);
     let heartbeat: StatusRailHeartbeat = "none";
     let heartbeatDetail = "No heartbeat job for this agent";
 
-    if (hbJob) {
+    if (!cronsOn) {
+      heartbeat = "skipped";
+      heartbeatDetail = "Crons run on hosted server only (not this laptop build)";
+    } else if (hbJob) {
       if (!hbJob.enabled) {
         heartbeat = "skipped";
         heartbeatDetail = "Heartbeat job disabled";

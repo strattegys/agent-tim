@@ -12,6 +12,7 @@ import {
   countPendingUnipileWebhookInbox,
   drainUnipileWebhookInbox,
 } from "@/lib/unipile-webhook-inbox";
+import { isLinkedInAutomationDisabled } from "@/lib/linkedin-automation-gate";
 
 export type LinkedInInboundCatchupResult = {
   ok: boolean;
@@ -58,6 +59,20 @@ export async function runLinkedInInboundCatchupCron(): Promise<LinkedInInboundCa
     };
   }
 
+  if (isLinkedInAutomationDisabled()) {
+    return {
+      ok: true,
+      skipped: "LINKEDIN_AUTOMATION_DISABLED",
+      webhookInboxProcessed: 0,
+      webhookInboxFailed: 0,
+      staleReleased: 0,
+      orphanRowsSample: 0,
+      replayed: 0,
+      inboundCandidates: 0,
+      chatsListed: 0,
+    };
+  }
+
   const crmOk = canUnipileReplayWriteToCrm();
   if (!crmOk.ok) {
     return {
@@ -76,14 +91,10 @@ export async function runLinkedInInboundCatchupCron(): Promise<LinkedInInboundCa
   let webhookPendingStart = 0;
   let webhookInboxProcessed = 0;
   let webhookInboxFailed = 0;
-  try {
-    webhookPendingStart = await countPendingUnipileWebhookInbox();
-    const inboxDrain = await drainUnipileWebhookInbox(100);
-    webhookInboxProcessed = inboxDrain.processed;
-    webhookInboxFailed = inboxDrain.failed;
-  } catch (e) {
-    console.warn("[linkedin-inbound-catchup] webhook inbox drain:", e);
-  }
+  webhookPendingStart = await countPendingUnipileWebhookInbox();
+  const inboxDrain = await drainUnipileWebhookInbox(100);
+  webhookInboxProcessed = inboxDrain.processed;
+  webhookInboxFailed = inboxDrain.failed;
 
   let orphanSample = 0;
   try {

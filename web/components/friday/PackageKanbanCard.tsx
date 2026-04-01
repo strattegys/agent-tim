@@ -60,7 +60,7 @@ export default function PackageKanbanCard({ pkg, onOpen }: PackageKanbanCardProp
             <span className="shrink-0">
               {pkg.workflowCount} wf{pkg.workflowCount !== 1 ? "s" : ""}
             </span>
-            {pkg.itemCount != null ? (
+            {pkg.itemCount != null && pkg.itemCount > 0 ? (
               <>
                 <span className="shrink-0">·</span>
                 <span className="shrink-0">

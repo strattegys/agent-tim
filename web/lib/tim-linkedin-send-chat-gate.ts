@@ -78,11 +78,16 @@ async function updateGate(
   }
 }
 
-/** After a new/edited MESSAGE_DRAFT or REPLY_DRAFT markdown — posts to Tim chat and resets approval. */
+/** After a new/edited LinkedIn draft markdown — posts to Tim chat and resets approval. */
 export async function notifyTimLinkedInDraftPendingSend(args: {
   itemId: string;
   workflowName: string;
-  stage: "MESSAGE_DRAFT" | "REPLY_DRAFT";
+  stage:
+    | "MESSAGE_DRAFT"
+    | "REPLY_DRAFT"
+    | "DRAFT_MESSAGE"
+    | "FOLLOW_UP_ONE_DRAFT"
+    | "FOLLOW_UP_TWO_DRAFT";
   markdownContent: string;
 }): Promise<void> {
   if (gateDisabledEnv()) return;
@@ -101,7 +106,16 @@ export async function notifyTimLinkedInDraftPendingSend(args: {
   });
   if (!ok) return;
 
-  const stageLabel = args.stage === "MESSAGE_DRAFT" ? "Message draft" : "Reply draft";
+  const stageLabel =
+    args.stage === "MESSAGE_DRAFT"
+      ? "Message draft"
+      : args.stage === "REPLY_DRAFT"
+        ? "Reply draft"
+        : args.stage === "FOLLOW_UP_ONE_DRAFT"
+          ? "Follow-up 1 draft"
+          : args.stage === "FOLLOW_UP_TWO_DRAFT"
+            ? "Follow-up 2 draft"
+            : "Opener DM draft";
   const text = [
     `**LinkedIn — draft ready (needs your go-ahead)**`,
     ``,
@@ -221,14 +235,21 @@ export function userMessageIsSendItNow(message: string): boolean {
   return /^\s*send\s+it\s+now\s*\.?\s*$/i.test(message.trim());
 }
 
-/** After UI or tool updates MESSAGE_DRAFT / REPLY_DRAFT markdown — re-post exact body to Tim chat if warm-outreach. */
+/** After UI or tool updates draft markdown — re-post exact body to Tim chat (warm-outreach or linkedin-opener-sequence). */
 export async function maybeNotifyTimAfterLinkedInDraftEdit(args: {
   workflowItemId: string;
   stage: string;
   markdownContent: string;
 }): Promise<void> {
   const st = args.stage.trim().toUpperCase();
-  if (st !== "MESSAGE_DRAFT" && st !== "REPLY_DRAFT") return;
+  if (
+    st !== "MESSAGE_DRAFT" &&
+    st !== "REPLY_DRAFT" &&
+    st !== "DRAFT_MESSAGE" &&
+    st !== "FOLLOW_UP_ONE_DRAFT" &&
+    st !== "FOLLOW_UP_TWO_DRAFT"
+  )
+    return;
 
   const rows = await query<{
     spec: unknown;
@@ -260,12 +281,38 @@ export async function maybeNotifyTimAfterLinkedInDraftEdit(args: {
       },
       customMap
     ) ?? "";
-  if (wfTypeId !== "warm-outreach") return;
+  if (st === "DRAFT_MESSAGE") {
+    if (wfTypeId !== "linkedin-opener-sequence") return;
+  } else if (
+    st === "REPLY_DRAFT" ||
+    st === "FOLLOW_UP_ONE_DRAFT" ||
+    st === "FOLLOW_UP_TWO_DRAFT"
+  ) {
+    if (wfTypeId !== "warm-outreach" && wfTypeId !== "reply-to-close") return;
+  } else if (wfTypeId !== "warm-outreach") {
+    return;
+  }
+
+  const notifyStage:
+    | "MESSAGE_DRAFT"
+    | "REPLY_DRAFT"
+    | "DRAFT_MESSAGE"
+    | "FOLLOW_UP_ONE_DRAFT"
+    | "FOLLOW_UP_TWO_DRAFT" =
+    st === "REPLY_DRAFT"
+      ? "REPLY_DRAFT"
+      : st === "DRAFT_MESSAGE"
+        ? "DRAFT_MESSAGE"
+        : st === "FOLLOW_UP_ONE_DRAFT"
+          ? "FOLLOW_UP_ONE_DRAFT"
+          : st === "FOLLOW_UP_TWO_DRAFT"
+            ? "FOLLOW_UP_TWO_DRAFT"
+            : "MESSAGE_DRAFT";
 
   await notifyTimLinkedInDraftPendingSend({
     itemId: args.workflowItemId,
     workflowName: r.name || "Workflow",
-    stage: st as "MESSAGE_DRAFT" | "REPLY_DRAFT",
+    stage: notifyStage,
     markdownContent: args.markdownContent,
   });
 }

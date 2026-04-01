@@ -17,8 +17,22 @@ export type WorkflowThroughputRow = {
   minExpectedByNow: number;
 };
 
+/** Count-only row (no target / pace) — e.g. reply-to-close, driven by another workflow. */
+export type WorkflowThroughputMeasureRow = {
+  workflowTypeId: string;
+  workflowLabel: string;
+  ownerLabel: string;
+  metricLabel: string;
+  period: "day" | "week";
+  actual: number;
+  windowStart: string;
+  windowEnd: string;
+};
+
 export type WorkflowThroughputPayload = {
   timezone: string;
   items: WorkflowThroughputRow[];
+  /** Throughput counts without a goal target */
+  measures?: WorkflowThroughputMeasureRow[];
   note?: string;
 };

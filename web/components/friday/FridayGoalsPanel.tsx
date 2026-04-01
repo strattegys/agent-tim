@@ -1,9 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import useSWR from "swr";
 import { useDocumentVisible } from "@/lib/use-document-visible";
-import type { ThroughputGoalStatus, WorkflowThroughputPayload } from "@/lib/workflow-throughput-types";
+import type {
+  ThroughputGoalStatus,
+  WorkflowThroughputMeasureRow,
+  WorkflowThroughputPayload,
+} from "@/lib/workflow-throughput-types";
 
 function statusStyles(status: ThroughputGoalStatus): {
   border: string;
@@ -109,9 +112,8 @@ export default function FridayGoalsPanel() {
         <div>
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">Workflow goals</h2>
           <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5 max-w-xl">
-            Progress vs throughput targets from each workflow type in{" "}
-            <code className="text-[10px]">workflow-types.ts</code>. Period boundaries use{" "}
-            {data?.timezone ?? "America/New_York"}.
+            Goals: daily/weekly targets from the merged registry. Measured throughput (second section): counts with
+            no target (Reply to Close follows LinkedIn opener volume). Period: {data?.timezone ?? "America/New_York"}.
           </p>
         </div>
         <button
@@ -129,6 +131,9 @@ export default function FridayGoalsPanel() {
         <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
       ) : null}
 
+      {(data?.items ?? []).length > 0 ? (
+        <h3 className="text-xs font-semibold text-[var(--text-primary)]">Goals (targets)</h3>
+      ) : null}
       <div className="grid gap-3 sm:grid-cols-1 lg:grid-cols-2">
         {(data?.items ?? []).map((row) => {
           const pct = row.target > 0 ? Math.min(100, (row.actual / row.target) * 100) : 0;
@@ -188,7 +193,41 @@ export default function FridayGoalsPanel() {
         })}
       </div>
 
-      {data?.items?.length === 0 && !loading ? (
+      {(data?.measures ?? []).length > 0 ? (
+        <div className={`space-y-2 ${(data?.items ?? []).length > 0 ? "mt-4" : ""}`}>
+          <h3 className="text-xs font-semibold text-[var(--text-primary)]">Measured throughput (no target)</h3>
+          <div className="grid gap-3 sm:grid-cols-1 lg:grid-cols-2">
+            {(data?.measures ?? []).map((row: WorkflowThroughputMeasureRow) => (
+              <article
+                key={row.workflowTypeId}
+                className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3 shadow-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-[var(--text-primary)]">{row.workflowLabel}</p>
+                    <p className="text-[10px] text-[var(--text-tertiary)] mt-0.5">
+                      {row.ownerLabel} · {row.period === "day" ? "Today’s count" : "This week’s count"} · no goal
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-secondary)]">
+                    Measured
+                  </span>
+                </div>
+                <p className="text-[11px] text-[var(--text-secondary)] mt-2 leading-snug">{row.metricLabel}</p>
+                <div className="mt-3">
+                  <span className="text-2xl font-semibold tabular-nums text-[var(--text-primary)]">{row.actual}</span>
+                  <span className="text-sm text-[var(--text-tertiary)] ml-1">in window</span>
+                </div>
+                <div className="mt-2 text-[10px] text-[var(--text-tertiary)]">
+                  Window: {formatWindow(row.windowStart)} → {formatWindow(row.windowEnd)}
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {data?.items?.length === 0 && !(data?.measures?.length) && !loading ? (
         <p className="text-xs text-[var(--text-tertiary)]">
           No workflow types define <code className="text-[10px]">throughputGoal</code> yet. Add one in{" "}
           <code className="text-[10px]">workflow-types.ts</code>.

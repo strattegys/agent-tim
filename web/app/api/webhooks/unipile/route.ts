@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { handleUnipileWebhook } from "../../../../lib/linkedin-webhook";
+import { isLinkedInAutomationDisabled } from "../../../../lib/linkedin-automation-gate";
 import {
   enqueueUnipileWebhookPayload,
   flushUnipileWebhookInboxAfterEnqueue,
@@ -23,6 +24,15 @@ export async function POST(req: Request) {
     payload = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  if (isLinkedInAutomationDisabled()) {
+    return NextResponse.json({
+      received: true,
+      automationDisabled: true,
+      message:
+        "LINKEDIN_AUTOMATION_DISABLED is set — webhooks are not queued or processed. Remove it and restart to resume.",
+    });
   }
 
   // Persist first (when enabled + table exists) so a crash after 200 still leaves work in CRM DB.

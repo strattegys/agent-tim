@@ -492,8 +492,11 @@ export async function POST(req: NextRequest) {
         content: `# Contact replied\n\n**Their LinkedIn message** (captured when this thread opened):\n\n${inbound}\n\n---\n\nYou’re in **conversation mode** — Tim drafts replies until you **End Sequence**. Open **Reply draft** for the next send.\n\n---\n*Transition artifact*`,
       };
     }
-    if (wfTypeId === "warm-outreach" && action === "approve") {
-      if (item.stage === "MESSAGE_DRAFT" && targetStage === "MESSAGED") {
+    if (
+      (wfTypeId === "warm-outreach" || wfTypeId === "reply-to-close") &&
+      action === "approve"
+    ) {
+      if (wfTypeId === "warm-outreach" && item.stage === "MESSAGE_DRAFT" && targetStage === "MESSAGED") {
         const draftRows = await query<{ content: string }>(
           `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'MESSAGE_DRAFT' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
           [itemId]
@@ -506,9 +509,38 @@ export async function POST(req: NextRequest) {
         }
         logs.push(logTs("LinkedIn: MESSAGE_DRAFT approved — attempting Unipile send before MESSAGED artifact"));
         artifactOverrides.MESSAGED = await tryWarmOutreachSendOnApprove(itemId, "MESSAGE_DRAFT", logs);
-      } else if (item.stage === "REPLY_DRAFT" && targetStage === "REPLY_SENT") {
+      } else if (
+        (item.stage === "REPLY_DRAFT" && targetStage === "REPLY_SENT") ||
+        (item.stage === "FOLLOW_UP_ONE_DRAFT" && targetStage === "FOLLOW_UP_ONE_SENT") ||
+        (item.stage === "FOLLOW_UP_TWO_DRAFT" && targetStage === "FOLLOW_UP_TWO_SENT")
+      ) {
+        const draftStage = item.stage;
         const draftRows = await query<{ content: string }>(
-          `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'REPLY_DRAFT' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+          `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
+          [itemId, draftStage]
+        );
+        const plainForGate = extractPlainDmFromDraftMarkdown(draftRows[0]?.content || "");
+        const { assertLinkedInSendChatGateAllowsSend } = await import("@/lib/tim-linkedin-send-chat-gate");
+        const gate = await assertLinkedInSendChatGateAllowsSend(itemId, plainForGate);
+        if (!gate.ok) {
+          return NextResponse.json({ ok: false, error: gate.error }, { status: 400 });
+        }
+        logs.push(
+          logTs(
+            `LinkedIn: ${draftStage} approved — attempting Unipile send before ${targetStage} artifact`
+          )
+        );
+        artifactOverrides[targetStage] = await tryWarmOutreachSendOnApprove(
+          itemId,
+          draftStage as "REPLY_DRAFT" | "FOLLOW_UP_ONE_DRAFT" | "FOLLOW_UP_TWO_DRAFT",
+          logs
+        );
+      }
+    }
+    if (wfTypeId === "linkedin-opener-sequence" && action === "approve") {
+      if (item.stage === "DRAFT_MESSAGE" && targetStage === "SENT_MESSAGE") {
+        const draftRows = await query<{ content: string }>(
+          `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = 'DRAFT_MESSAGE' AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
           [itemId]
         );
         const plainForGate = extractPlainDmFromDraftMarkdown(draftRows[0]?.content || "");
@@ -517,8 +549,8 @@ export async function POST(req: NextRequest) {
         if (!gate.ok) {
           return NextResponse.json({ ok: false, error: gate.error }, { status: 400 });
         }
-        logs.push(logTs("LinkedIn: REPLY_DRAFT approved — attempting Unipile send before REPLY_SENT artifact"));
-        artifactOverrides.REPLY_SENT = await tryWarmOutreachSendOnApprove(itemId, "REPLY_DRAFT", logs);
+        logs.push(logTs("LinkedIn: DRAFT_MESSAGE approved — attempting Unipile send before SENT_MESSAGE artifact"));
+        artifactOverrides.SENT_MESSAGE = await tryWarmOutreachSendOnApprove(itemId, "DRAFT_MESSAGE", logs);
       }
     }
 
@@ -658,6 +690,56 @@ export async function POST(req: NextRequest) {
       await generateStageArtifact(itemId, item.workflowId, "REPLY_DRAFT", wfType, wf.name, useFakeData, {});
       finalStage = "REPLY_DRAFT";
       autoAdvances.push("REPLY_SENT → REPLY_DRAFT");
+    }
+
+    // 7c3. Reply to close: after outbound sends, timed wait columns with dueDate (separate from warm’s reply loop).
+    if (wfTypeId === "reply-to-close" && action === "approve" && wfType) {
+      const {
+        REPLY_CLOSE_DAYS_AFTER_OUR_SEND,
+        REPLY_CLOSE_DAYS_AFTER_FIRST_FOLLOWUP,
+        REPLY_CLOSE_DAYS_AFTER_SECOND_FOLLOWUP,
+      } = await import("@/lib/reply-to-close-cadence");
+      if (finalStage === "REPLY_SENT" && stageAtResolve === "REPLY_DRAFT") {
+        const due = new Date();
+        due.setDate(due.getDate() + REPLY_CLOSE_DAYS_AFTER_OUR_SEND);
+        await query(
+          `UPDATE "_workflow_item" SET stage = 'AWAITING_THEIR_REPLY', "dueDate" = $1::timestamptz, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+          [due.toISOString(), itemId]
+        );
+        await generateStageArtifact(
+          itemId,
+          item.workflowId,
+          "AWAITING_THEIR_REPLY",
+          wfType,
+          wf.name,
+          useFakeData,
+          {}
+        );
+        finalStage = "AWAITING_THEIR_REPLY";
+        autoAdvances.push(
+          `reply-to-close: REPLY_SENT → AWAITING_THEIR_REPLY (+${REPLY_CLOSE_DAYS_AFTER_OUR_SEND}d)`
+        );
+      } else if (finalStage === "FOLLOW_UP_ONE_SENT" && stageAtResolve === "FOLLOW_UP_ONE_DRAFT") {
+        const due = new Date();
+        due.setDate(due.getDate() + REPLY_CLOSE_DAYS_AFTER_FIRST_FOLLOWUP);
+        await query(
+          `UPDATE "_workflow_item" SET stage = 'AWAITING_AFTER_FOLLOW_UP_ONE', "dueDate" = $1::timestamptz, "updatedAt" = NOW() WHERE id = $2 AND "deletedAt" IS NULL`,
+          [due.toISOString(), itemId]
+        );
+        await generateStageArtifact(
+          itemId,
+          item.workflowId,
+          "AWAITING_AFTER_FOLLOW_UP_ONE",
+          wfType,
+          wf.name,
+          useFakeData,
+          {}
+        );
+        finalStage = "AWAITING_AFTER_FOLLOW_UP_ONE";
+        autoAdvances.push(
+          `reply-to-close: FOLLOW_UP_ONE_SENT → AWAITING_AFTER_FOLLOW_UP_ONE (+${REPLY_CLOSE_DAYS_AFTER_FIRST_FOLLOWUP}d)`
+        );
+      }
     }
 
     // 7c2. Warm outreach: REPLIED → REPLY_DRAFT (transient stage; board has no requiresHuman on REPLIED so the
@@ -1134,11 +1216,55 @@ function warmSendDedupKey(itemId: string, plain: string): string {
   return `${itemId}|${norm}`;
 }
 
+function linkedInSendArtifactNames(
+  fromStage: "MESSAGE_DRAFT" | "REPLY_DRAFT" | "DRAFT_MESSAGE" | "FOLLOW_UP_ONE_DRAFT" | "FOLLOW_UP_TWO_DRAFT"
+) {
+  if (fromStage === "FOLLOW_UP_ONE_DRAFT") {
+    return {
+      dup: "LinkedIn follow-up 1 — duplicate suppressed",
+      notSent: "LinkedIn follow-up 1 — not sent",
+      ok: "LinkedIn follow-up 1 sent",
+    } as const;
+  }
+  if (fromStage === "FOLLOW_UP_TWO_DRAFT") {
+    return {
+      dup: "LinkedIn follow-up 2 — duplicate suppressed",
+      notSent: "LinkedIn follow-up 2 — not sent",
+      ok: "LinkedIn follow-up 2 sent",
+    } as const;
+  }
+  if (fromStage === "REPLY_DRAFT") {
+    return {
+      dup: "LinkedIn reply — duplicate suppressed",
+      notSent: "LinkedIn reply — not sent",
+      ok: "LinkedIn reply sent",
+    } as const;
+  }
+  if (fromStage === "DRAFT_MESSAGE") {
+    return {
+      dup: "LinkedIn opener DM — duplicate suppressed",
+      notSent: "LinkedIn opener DM — not sent",
+      ok: "LinkedIn opener DM sent",
+    } as const;
+  }
+  return {
+    dup: "LinkedIn DM — duplicate suppressed",
+    notSent: "LinkedIn DM — not sent",
+    ok: "LinkedIn DM sent",
+  } as const;
+}
+
 async function tryWarmOutreachSendOnApprove(
   itemId: string,
-  fromStage: "MESSAGE_DRAFT" | "REPLY_DRAFT",
+  fromStage:
+    | "MESSAGE_DRAFT"
+    | "REPLY_DRAFT"
+    | "DRAFT_MESSAGE"
+    | "FOLLOW_UP_ONE_DRAFT"
+    | "FOLLOW_UP_TWO_DRAFT",
   logs: string[]
 ): Promise<{ name: string; content: string }> {
+  const names = linkedInSendArtifactNames(fromStage);
   const draftRows = await query<{ content: string }>(
     `SELECT content FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL ORDER BY "createdAt" DESC LIMIT 1`,
     [itemId, fromStage]
@@ -1156,7 +1282,7 @@ async function tryWarmOutreachSendOnApprove(
       )
     );
     return {
-      name: fromStage === "MESSAGE_DRAFT" ? "LinkedIn DM — duplicate suppressed" : "LinkedIn reply — duplicate suppressed",
+      name: names.dup,
       content: `# Send not repeated\n\nA matching send was already attempted for this item within the last 20 seconds (duplicate request protection).\n\n**Draft:**\n\n\`\`\`\n${plain}\n\`\`\`\n\n---\n*If you need to resend, wait 20s or change the message text slightly.*`,
     };
   }
@@ -1180,7 +1306,7 @@ async function tryWarmOutreachSendOnApprove(
       )
     );
     return {
-      name: fromStage === "MESSAGE_DRAFT" ? "LinkedIn DM — not sent" : "LinkedIn reply — not sent",
+      name: names.notSent,
       content: `# Not sent\n\n**Reason:** No LinkedIn recipient could be resolved.\n\nAdd **linkedinLinkPrimaryLinkUrl** on the person in Twenty, or paste a \`linkedin.com/in/…\` URL or **ACoA…** provider id in Govind's contact notes.\n\n**Draft (copy/paste in LinkedIn):**\n\n\`\`\`\n${plain || "(empty)"}\n\`\`\`\n\n---\n*Unipile was not called.*`,
     };
   }
@@ -1212,7 +1338,7 @@ async function tryWarmOutreachSendOnApprove(
         ? JSON.stringify(result.body, null, 2).slice(0, 1800)
         : String(result.body).slice(0, 1800);
     return {
-      name: fromStage === "MESSAGE_DRAFT" ? "LinkedIn DM sent" : "LinkedIn reply sent",
+      name: names.ok,
       content: `# Sent via Unipile\n\n**Channel:** LinkedIn DM\n**Recipient identifier:** \`${recipient}\`\n**HTTP:** ${result.httpStatus}\n\n**API response (excerpt):**\n\`\`\`json\n${bodyStr}\n\`\`\`\n\n---\n*Confirm delivery in LinkedIn if needed.*`,
     };
   }
@@ -1429,8 +1555,11 @@ async function generateStageArtifact(
   const customArtifact = artifactOverrides[stage];
   if (customArtifact) {
     const allowMultiple =
-      ["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLY_SENT"].includes(stage) ||
-      (wfType?.id === "warm-outreach" && (stage === "MESSAGED" || stage === "REPLY_SENT"));
+      ["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLY_SENT", "FOLLOW_UP_ONE_DRAFT", "FOLLOW_UP_TWO_DRAFT"].includes(
+        stage
+      ) ||
+      (wfType?.id === "warm-outreach" && (stage === "MESSAGED" || stage === "REPLY_SENT")) ||
+      (wfType?.id === "linkedin-opener-sequence" && (stage === "DRAFT_MESSAGE" || stage === "SENT_MESSAGE"));
     if (!allowMultiple) {
       const existing = await query(
         `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
@@ -1444,14 +1573,23 @@ async function generateStageArtifact(
       [itemId, workflowId, stage, customArtifact.name, "markdown", customArtifact.content]
     );
     if (
-      wfType?.id === "warm-outreach" &&
-      (stage === "MESSAGE_DRAFT" || stage === "REPLY_DRAFT")
+      (wfType?.id === "warm-outreach" && (stage === "MESSAGE_DRAFT" || stage === "REPLY_DRAFT")) ||
+      (wfType?.id === "reply-to-close" &&
+        (stage === "REPLY_DRAFT" ||
+          stage === "FOLLOW_UP_ONE_DRAFT" ||
+          stage === "FOLLOW_UP_TWO_DRAFT")) ||
+      (wfType?.id === "linkedin-opener-sequence" && stage === "DRAFT_MESSAGE")
     ) {
       const { notifyTimLinkedInDraftPendingSend } = await import("@/lib/tim-linkedin-send-chat-gate");
       void notifyTimLinkedInDraftPendingSend({
         itemId,
         workflowName,
-        stage: stage as "MESSAGE_DRAFT" | "REPLY_DRAFT",
+        stage: stage as
+          | "MESSAGE_DRAFT"
+          | "REPLY_DRAFT"
+          | "DRAFT_MESSAGE"
+          | "FOLLOW_UP_ONE_DRAFT"
+          | "FOLLOW_UP_TWO_DRAFT",
         markdownContent: customArtifact.content,
       }).catch((e) => console.error("[generateStageArtifact custom notify]", e));
     }
@@ -1794,6 +1932,14 @@ ${synthesis}${crmSection}`;
       name: "Outreach Message Draft",
       content: `# Outreach Message — Ready for Review\n\nHi Sarah,\n\nI noticed your recent post about scaling demand gen without scaling headcount — really resonated with some challenges we've been exploring too.\n\nWe just published some research on how B2B companies are using influencer partnerships to drive pipeline more efficiently. Given your experience at CloudScale, I think you'd find the data on peer-driven buying decisions particularly interesting.\n\nHere's the piece if you're curious: [link]\n\nWould love to hear your perspective on this.\n\nBest,\nGovind\n\n---\n*Message drafted by Tim — personalized using Scout's enrichment data*\n*Message 1 of 3 in sequence*`,
     },
+    DRAFT_MESSAGE: {
+      name: "LinkedIn opener — draft",
+      content: `# LinkedIn opener — ready to review\n\nHi [Name],\n\nShort, personal opener after they accepted your connection — aligned to the package brief (simulated).\n\n---\n*Tim — connection-accept DM sequence; approve to send via LinkedIn*`,
+    },
+    SENT_MESSAGE: {
+      name: "LinkedIn opener — send row",
+      content: `# Send message\n\nAfter a real Unipile send, the artifact is replaced with **LinkedIn opener DM sent** for Goals counting.\n\n---\n*Placeholder when no send was recorded*`,
+    },
     RESEARCHING: {
       name: "Warm contact enrichment",
       content: `# Warm contact — enrichment report\n\n## Profile\n- **Name:** [From Govind's notes + LinkedIn]\n- **Title / company:** …\n- **LinkedIn activity:** Recent posts, themes\n- **Mutual connections:** …\n\n## Conversation starters\n- …\n\n## Recommended angle\nFriend-to-friend, casual, direct — reference shared history; soft mention of vibe coding / agent buildout; no buzzwords, no pricing, no strattegys.com links in DM.\n\n---\n*Simulated research — Tim uses fetch-profile + web_search in production*`,
@@ -1813,6 +1959,34 @@ ${synthesis}${crmSection}`;
     REPLY_SENT: {
       name: "Reply sent",
       content: `# Reply status\n\n**Channel:** LinkedIn DM\n**Status:** Not sent via API from this step\n\nReplies send through Unipile when you **Approve** a reply draft. If you see this text, no Unipile call was recorded for this transition.\n\n---\n*Tim*`,
+    },
+    AWAITING_THEIR_REPLY: {
+      name: "Waiting for their reply",
+      content: `# Waiting (~3 days)\n\nHold before a structured follow-up. If they write on LinkedIn, move the row to **Reply Draft**. If the window passes with no reply, move to **Follow-up 1 draft**.\n\n---\n*Reply to Close*`,
+    },
+    FOLLOW_UP_ONE_DRAFT: {
+      name: "Follow-up 1 — draft",
+      content: `# Follow-up 1 — ready for review\n\nShort bump after ~3+ days of silence — one new angle, low pressure.\n\n---\n*Tim — approve to send via LinkedIn*`,
+    },
+    FOLLOW_UP_ONE_SENT: {
+      name: "Follow-up 1 sent",
+      content: `# Follow-up 1 status\n\n**Channel:** LinkedIn DM\n**Status:** Not sent via API from this step\n\n---\n*Reply to Close*`,
+    },
+    AWAITING_AFTER_FOLLOW_UP_ONE: {
+      name: "Waiting after follow-up 1",
+      content: `# Waiting (~7 days)\n\nHold after follow-up 1. If they reply → **Reply Draft**. If still quiet → **Follow-up 2 draft**.\n\n---\n*Reply to Close*`,
+    },
+    FOLLOW_UP_TWO_DRAFT: {
+      name: "Follow-up 2 — draft",
+      content: `# Follow-up 2 — ready for review\n\nLast nudge before **Keep in touch**. Door open, zero guilt.\n\n---\n*Tim — approve to send via LinkedIn*`,
+    },
+    FOLLOW_UP_TWO_SENT: {
+      name: "Follow-up 2 sent",
+      content: `# Follow-up 2 status\n\n**Channel:** LinkedIn DM\n**Status:** Not sent via API from this step\n\n---\n*Reply to Close*`,
+    },
+    AWAITING_AFTER_FOLLOW_UP_TWO: {
+      name: "Waiting after follow-up 2",
+      content: `# Waiting (final ~7 days)\n\nLast window after follow-up 2. If they write on LinkedIn → **Reply Draft**. If silence when due → **Keep in touch**.\n\n---\n*Reply to Close*`,
     },
     ENDED: {
       name: "Sequence summary",
@@ -1836,10 +2010,17 @@ ${synthesis}${crmSection}`;
   if (!artifact) return;
 
   // Check if artifact already exists for this item+stage (allow multiples for cycling stages like MESSAGE_DRAFT)
-  const ALLOW_MULTIPLE_STAGES = new Set(["MESSAGE_DRAFT", "REPLY_DRAFT", "REPLY_SENT"]);
+  const ALLOW_MULTIPLE_STAGES = new Set([
+    "MESSAGE_DRAFT",
+    "REPLY_DRAFT",
+    "REPLY_SENT",
+    "FOLLOW_UP_ONE_DRAFT",
+    "FOLLOW_UP_TWO_DRAFT",
+  ]);
   const allowMultipleArtifact =
     ALLOW_MULTIPLE_STAGES.has(stage) ||
-    (wfType?.id === "warm-outreach" && (stage === "MESSAGED" || stage === "REPLY_SENT"));
+    (wfType?.id === "warm-outreach" && (stage === "MESSAGED" || stage === "REPLY_SENT")) ||
+    (wfType?.id === "linkedin-opener-sequence" && (stage === "DRAFT_MESSAGE" || stage === "SENT_MESSAGE"));
   if (!allowMultipleArtifact) {
     const existing = await query(
       `SELECT id FROM "_artifact" WHERE "workflowItemId" = $1 AND stage = $2 AND "deletedAt" IS NULL`,
@@ -1854,14 +2035,21 @@ ${synthesis}${crmSection}`;
     [itemId, workflowId, stage, artifact.name, "markdown", artifact.content]
   );
   if (
-    wfType?.id === "warm-outreach" &&
-    (stage === "MESSAGE_DRAFT" || stage === "REPLY_DRAFT")
+    (wfType?.id === "warm-outreach" && (stage === "MESSAGE_DRAFT" || stage === "REPLY_DRAFT")) ||
+    (wfType?.id === "reply-to-close" &&
+      (stage === "REPLY_DRAFT" || stage === "FOLLOW_UP_ONE_DRAFT" || stage === "FOLLOW_UP_TWO_DRAFT")) ||
+    (wfType?.id === "linkedin-opener-sequence" && stage === "DRAFT_MESSAGE")
   ) {
     const { notifyTimLinkedInDraftPendingSend } = await import("@/lib/tim-linkedin-send-chat-gate");
     void notifyTimLinkedInDraftPendingSend({
       itemId,
       workflowName,
-      stage: stage as "MESSAGE_DRAFT" | "REPLY_DRAFT",
+      stage: stage as
+        | "MESSAGE_DRAFT"
+        | "REPLY_DRAFT"
+        | "DRAFT_MESSAGE"
+        | "FOLLOW_UP_ONE_DRAFT"
+        | "FOLLOW_UP_TWO_DRAFT",
       markdownContent: artifact.content,
     }).catch((e) => console.error("[generateStageArtifact ARTIFACT_MAP notify]", e));
   }

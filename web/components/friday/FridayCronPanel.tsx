@@ -1,21 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import useSWR from "swr";
-import { useDocumentVisible } from "@/lib/use-document-visible";
+import { useCronStatus, type CronStatusJob } from "@/lib/use-cron-status";
 
-interface CronJob {
-  id: string;
-  name: string;
-  schedule: string;
-  description: string;
-  logFile: string | null;
-  agentId: string;
-  enabled: boolean;
-  timeZone: string | null;
-  lastRun: string | null;
-  lastResult: string | null;
-}
+type CronJob = CronStatusJob;
 
 const AGENT_COLORS: Record<string, string> = {
   friday: "#9B59B6",
@@ -63,24 +51,12 @@ function formatLastRun(iso: string | null): string {
 }
 
 export default function FridayCronPanel() {
-  const visible = useDocumentVisible();
   const [filter, setFilter] = useState<string>("all");
 
-  const { data, error: swrError, isLoading: loading, mutate: refresh } = useSWR<{ jobs: CronJob[] }>(
-    "/api/cron-status",
-    async (url: string) => {
-      const r = await fetch(url, { credentials: "include", cache: "no-store" });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      return r.json() as Promise<{ jobs: CronJob[] }>;
-    },
-    {
-      refreshInterval: visible ? 30_000 : 0,
-      revalidateOnFocus: true,
-      dedupingInterval: 10_000,
-    },
-  );
+  const { data, error: swrError, isLoading: loading, mutate: refresh } = useCronStatus(true);
 
   const jobs = data?.jobs ?? [];
+  const serverCronsActive = data?.serverCronsActive !== false;
   const error = swrError ? (swrError instanceof Error ? swrError.message : "Network error") : null;
 
   const agentIds = [...new Set(jobs.map((j) => j.agentId))].sort();
@@ -97,8 +73,14 @@ export default function FridayCronPanel() {
         <div>
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">Cron Hub</h2>
           <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5 max-w-xl">
-            All scheduled jobs across the system. {enabledCount} active
-            {errorCount > 0 ? `, ${errorCount} with errors` : ""}.
+            {serverCronsActive ? (
+              <>
+                All scheduled jobs across the system. {enabledCount} active
+                {errorCount > 0 ? `, ${errorCount} with errors` : ""}.
+              </>
+            ) : (
+              <>This laptop build does not run server crons — see the note below.</>
+            )}
           </p>
         </div>
         <button
@@ -143,6 +125,19 @@ export default function FridayCronPanel() {
           );
         })}
       </div>
+
+      {!serverCronsActive && !loading ? (
+        <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-[11px] text-[var(--text-secondary)]">
+          <p className="font-semibold text-[var(--text-primary)]">Hosted server only</p>
+          <p className="mt-1">
+            {data?.serverCronsNote ||
+              "Background crons (LinkedIn inbox, catch-up, discovery, heartbeats) do not run on LOCALDEV, LOCALPROD, or next dev. They run on the DigitalOcean Command Central deployment. This machine still uses the CRM for the UI when configured."}
+          </p>
+          <p className="mt-1 text-[var(--text-tertiary)]">
+            Local override (not for production): <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code>
+          </p>
+        </div>
+      ) : null}
 
       {/* Loading / error */}
       {loading && !data ? (
@@ -218,7 +213,7 @@ export default function FridayCronPanel() {
         })}
       </div>
 
-      {filtered.length === 0 && !loading ? (
+      {filtered.length === 0 && !loading && serverCronsActive ? (
         <p className="text-xs text-[var(--text-tertiary)]">
           {filter === "all" ? "No cron jobs registered." : `No jobs for "${filter}".`}
         </p>

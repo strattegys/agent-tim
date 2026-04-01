@@ -55,6 +55,7 @@ import {
   SESSION_HISTORY_FOCUS_TIM_WORK_ITEM,
 } from "@/lib/chat-stream-options";
 import { formatAgentUiContext, type FridayDashboardTab } from "@/lib/agent-ui-context";
+import { useCronStatus, cronJobsWithErrors } from "@/lib/use-cron-status";
 import type { DashboardNotification, DashboardSyncResponse } from "@/lib/dashboard-sync-types";
 import Link from "next/link";
 
@@ -462,6 +463,13 @@ export default function CommandCentralClient() {
   const [fridayDashboardTab, setFridayDashboardTab] = useState<FridayDashboardTab>(() =>
     fridayTabFromSearchParams(searchParams.get("agent"), searchParams.get("panel"))
   );
+
+  const { data: fridayCronData } = useCronStatus(activeAgent === "friday");
+  const fridayCronErrorJobs = useMemo(
+    () => cronJobsWithErrors(fridayCronData?.jobs),
+    [fridayCronData?.jobs]
+  );
+  const fridayCronErrorCount = fridayCronErrorJobs.length;
 
   const toggleDevLayout = useCallback(() => {
     const basePath = pathname || "/";
@@ -1621,22 +1629,36 @@ export default function CommandCentralClient() {
               </button>
             )}
             {activeAgent === "friday" && (
-              <button
-                onClick={() => setRightPanel("dashboard")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
-                  rightPanel === "dashboard"
-                    ? "text-[var(--accent-green)]"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                }`}
-                title="Friday — goals, package kanban, templates & tools"
-              >
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
-                  <rect x="14" y="14" width="7" height="7" rx="1" />
-                </svg>
-              </button>
+              <span className="relative inline-flex">
+                <button
+                  onClick={() => setRightPanel("dashboard")}
+                  className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                    rightPanel === "dashboard"
+                      ? "text-[var(--accent-green)]"
+                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  }`}
+                  title={
+                    fridayCronErrorCount > 0
+                      ? `Friday work — ${fridayCronErrorCount} cron job(s) last run failed (open panel → Cron tab)`
+                      : "Friday — goals, package kanban, templates & tools"
+                  }
+                >
+                  <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1" />
+                    <rect x="14" y="3" width="7" height="7" rx="1" />
+                    <rect x="3" y="14" width="7" height="7" rx="1" />
+                    <rect x="14" y="14" width="7" height="7" rx="1" />
+                  </svg>
+                </button>
+                {fridayCronErrorCount > 0 ? (
+                  <span
+                    className="absolute top-0 right-0 min-w-[10px] h-2.5 px-0.5 rounded-full bg-red-500 ring-2 ring-[var(--bg-secondary)] flex items-center justify-center text-[7px] font-bold text-white leading-none"
+                    aria-label={`${fridayCronErrorCount} cron job errors`}
+                  >
+                    {fridayCronErrorCount > 9 ? "9+" : fridayCronErrorCount}
+                  </span>
+                ) : null}
+              </span>
             )}
             {activeAgent === "tim" && (
               <button

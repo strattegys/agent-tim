@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+import { PACKAGE_SIMULATION_JOB_TITLE } from "@/lib/package-simulation";
 
 /**
  * POST /api/crm/packages/reset
@@ -27,6 +28,20 @@ export async function POST(req: NextRequest) {
 
     const workflowIds = wfRows.map((w: any) => w.id);
     const boardIds = wfRows.map((w: any) => w.boardId).filter(Boolean);
+
+    // Soft-delete CRM persons created only for package simulation (tagged job title)
+    await query(
+      `UPDATE person p
+       SET "deletedAt" = NOW(), "updatedAt" = NOW()
+       FROM "_workflow_item" wi
+       INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
+       WHERE w."packageId" = $1
+         AND wi."sourceType" = 'person'
+         AND wi."sourceId"::text = p.id::text
+         AND p."jobTitle" = $2
+         AND p."deletedAt" IS NULL`,
+      [packageId, PACKAGE_SIMULATION_JOB_TITLE]
+    );
 
     // 2. Delete artifacts for these workflows
     for (const wfId of workflowIds) {

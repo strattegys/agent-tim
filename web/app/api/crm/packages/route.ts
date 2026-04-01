@@ -13,6 +13,7 @@ import {
 } from "@/lib/workflow-spec";
 import { stripUseFakeDataWhenPackageNotInTesting } from "@/lib/package-use-fake-data";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
+import { softDeletePackage } from "@/lib/package-delete";
 
 /**
  * Packages API — CRUD for service packages.
@@ -23,6 +24,7 @@ import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
  *      includeWorkflowBreakdown=true → per-workflow pipeline stages + item counts per stage (Friday cards)
  * POST {templateId, name, customerId?, customerType?, spec?} — Create package
  * PATCH {id, stage?, spec?, name?} — Update package
+ * DELETE { id } — Soft-delete Draft/Testing package (not system templates)
  */
 
 interface WorkflowBreakdownStage {
@@ -524,6 +526,30 @@ export async function PATCH(req: NextRequest) {
     console.error("[packages] PATCH error:", error);
     return NextResponse.json(
       { error: "Failed to update package" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json().catch(() => ({}));
+    const id = typeof body.id === "string" ? body.id.trim() : "";
+    if (!id) {
+      return NextResponse.json({ error: "id is required" }, { status: 400 });
+    }
+
+    const result = await softDeletePackage(id);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error }, { status: result.status });
+    }
+
+    notifyDashboardSyncChange();
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error("[packages] DELETE error:", error);
+    return NextResponse.json(
+      { error: "Failed to delete package" },
       { status: 500 }
     );
   }

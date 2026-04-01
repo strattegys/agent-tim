@@ -38,6 +38,9 @@ import {
   initialInboundNameFromWebhookPayload,
   resolveInboundSenderDisplayName,
 } from "./linkedin-inbound-unipile-sender";
+import { isLinkedInAutomationDisabled } from "./linkedin-automation-gate";
+
+let warnedAutomationDisabled = false;
 
 const TOOL_SCRIPTS_PATH = process.env.TOOL_SCRIPTS_PATH || "/root/.nanobot/tools";
 const LINKEDIN_TOOL = join(TOOL_SCRIPTS_PATH, "linkedin.sh");
@@ -87,6 +90,16 @@ function clipInboundPreview(s: string, max = 500): string {
 export async function handleUnipileWebhook(
   payload: UnipileWebhookPayload
 ): Promise<void> {
+  if (isLinkedInAutomationDisabled()) {
+    if (!warnedAutomationDisabled) {
+      warnedAutomationDisabled = true;
+      console.warn(
+        "[linkedin-webhook] LINKEDIN_AUTOMATION_DISABLED — ignoring Unipile payloads until env is cleared and process restarted."
+      );
+    }
+    return;
+  }
+
   const event = payload.event;
 
   if (event === "new_relation") {

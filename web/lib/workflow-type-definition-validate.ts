@@ -95,11 +95,17 @@ export function validateThroughputGoal(raw: unknown): ValidationResult {
   if (period !== "day" && period !== "week") {
     return { ok: false, errors: ['throughputGoal.period must be "day" or "week".'] };
   }
-  if (metric !== "warm_outreach_dm_sent" && metric !== "content_article_published") {
+  if (
+    metric !== "warm_outreach_dm_sent" &&
+    metric !== "linkedin_opener_dm_sent" &&
+    metric !== "linkedin_opener_new_people" &&
+    metric !== "reply_to_close_threads_started" &&
+    metric !== "content_article_published"
+  ) {
     return {
       ok: false,
       errors: [
-        "throughputGoal.metric must be warm_outreach_dm_sent or content_article_published.",
+        "throughputGoal.metric must be one of: warm_outreach_dm_sent, linkedin_opener_dm_sent, linkedin_opener_new_people, reply_to_close_threads_started, content_article_published.",
       ],
     };
   }

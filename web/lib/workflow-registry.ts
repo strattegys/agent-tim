@@ -209,13 +209,16 @@ export async function workflowTypesWithThroughputGoalsMerged(): Promise<
   Array<{ id: string; label: string; throughputGoal: WorkflowThroughputGoalSpec }>
 > {
   const builtins = workflowTypesWithThroughputGoals();
+  const builtinGoalIds = new Set(builtins.map((b) => b.id));
   const customMap = await loadCustomWorkflowTypeMap();
+  /** Custom `throughputGoal` is ignored when the same id already has a built-in goal (code is source of truth). */
   const extra = [...customMap.values()]
-    .filter((w) => w.throughputGoal)
+    .filter((w) => w.throughputGoal && !builtinGoalIds.has(w.id))
     .map((w) => ({
       id: w.id,
       label: w.label,
       throughputGoal: w.throughputGoal!,
     }));
-  return [...builtins, ...extra];
+  /** Reply-to-close never has a throughput *target* (opener-driven); still measured via API `measures`. */
+  return [...builtins, ...extra].filter((row) => row.id !== "reply-to-close");
 }

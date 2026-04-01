@@ -85,6 +85,24 @@ function timHumanStagesCountForWorkflow(wf: FridayWorkflowBreakdown): number {
   return n;
 }
 
+/** Legacy package lines like "10 messages per day" → opener daily target wording (reply-to-close uses throughput only). */
+function displayVolumeLabelForWorkflow(
+  workflowType: string,
+  volumeLabel: string,
+  itemType: "person" | "content"
+): string {
+  const raw = volumeLabel.trim();
+  if (!raw || itemType !== "person") return raw;
+  if (workflowType === "reply-to-close") return "";
+
+  const numFromDigits = raw.match(/\b(\d+)\s*messages?\b/i)?.[1];
+  if (workflowType === "linkedin-opener-sequence") {
+    if (numFromDigits) return `Up to ${numFromDigits} new targets daily`;
+    if (/\bfive\b/i.test(raw) && /\bmessage/i.test(raw)) return `Up to 5 new targets daily`;
+  }
+  return raw;
+}
+
 /** One workflow’s pipeline strip (used inside package queue cards). */
 export function FridayWorkflowPipelineBlock({
   wf,
@@ -100,18 +118,34 @@ export function FridayWorkflowPipelineBlock({
   const ownerId = (wf.ownerAgent || "tim").toLowerCase();
   const agentSpec = getAgentSpec(ownerId);
   const itemType = wf.itemType ?? "person";
-  const vol = typeof wf.volumeLabel === "string" ? wf.volumeLabel.trim() : "";
+  const wfType = wf.workflowType || "";
+  const vol =
+    typeof wf.volumeLabel === "string"
+      ? displayVolumeLabelForWorkflow(wfType, wf.volumeLabel, itemType)
+      : "";
   const cap = wf.targetCount > 0 ? wf.targetCount : null;
   const flightNoun =
-    itemType === "content" ? (cap === 1 ? "article" : "articles") : cap === 1 ? "contact" : "contacts";
+    itemType === "content"
+      ? cap === 1
+        ? "article"
+        : "articles"
+      : wfType === "linkedin-opener-sequence"
+        ? cap === 1
+          ? "target"
+          : "targets"
+        : cap === 1
+          ? "contact"
+          : "contacts";
   const goalLine =
-    vol && cap
-      ? `${vol} · up to ${cap} ${flightNoun} in flight`
-      : vol
-        ? vol
-        : cap
-          ? `Up to ${cap} ${flightNoun} in flight`
-          : null;
+    wfType === "reply-to-close"
+      ? "Throughput measured in Goals — no target (follows opener)."
+      : vol && cap
+        ? `${vol} · up to ${cap} ${flightNoun} in flight`
+        : vol
+          ? vol
+          : cap
+            ? `Up to ${cap} ${flightNoun} in flight`
+            : null;
   const pipelineNoun =
     itemType === "content"
       ? wf.totalItems === 1

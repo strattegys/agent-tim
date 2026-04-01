@@ -16,6 +16,8 @@ const USE_DEV_STORE = !process.env.CRM_DB_PASSWORD;
 type CrmRouteMode = "primary" | "tailscale-direct";
 let crmRouteMode: CrmRouteMode = "primary";
 
+let warnedDockerLoopbackCrm = false;
+
 function shouldOfferCrmTailscaleFallback(): boolean {
   if (process.env.CRM_DB_NO_TAILSCALE_FALLBACK === "1") return false;
   const raw = (process.env.CRM_DB_HOST || "127.0.0.1").trim().toLowerCase();
@@ -100,7 +102,7 @@ function crmPoolOptions(): {
   }
 
   let host = (process.env.CRM_DB_HOST || "127.0.0.1").trim();
-  const h = host.toLowerCase();
+  let h = host.toLowerCase();
 
   if (h === "crm-db" && !isInsideLinuxDocker()) {
     host = "127.0.0.1";
@@ -123,6 +125,24 @@ function crmPoolOptions(): {
           : 10000,
       idleTimeoutMillis: parseInt(process.env.CRM_DB_IDLE_TIMEOUT_MS || "30000", 10) || 30000,
     };
+  }
+
+  if (
+    isInsideLinuxDocker() &&
+    (h === "127.0.0.1" || h === "localhost" || h === "::1") &&
+    process.env.CRM_DB_DOCKER_ALLOW_LOOPBACK !== "1"
+  ) {
+    if (!warnedDockerLoopbackCrm) {
+      warnedDockerLoopbackCrm = true;
+      console.warn(
+        "[db] CRM_DB_HOST was loopback inside Linux Docker (container loopback ≠ your PC). " +
+          "Remapping to host.docker.internal so host Postgres/tunnels (e.g. :5433) work. " +
+          "For droplet CRM use compose CRM_DB_HOST=100.x (Tailscale) or CC_LOCALPROD_CRM_* — see COMMAND-CENTRAL/README.md. " +
+          "Set CRM_DB_DOCKER_ALLOW_LOOPBACK=1 to keep loopback and silence this."
+      );
+    }
+    host = "host.docker.internal";
+    h = host.toLowerCase();
   }
 
   const defaultPort =
@@ -303,6 +323,11 @@ async function runPooledQuery<T extends Record<string, unknown>>(
 
 const CRM_TRANSIENT_MAX_RETRIES = 3;
 const CRM_TRANSIENT_BASE_DELAY_MS = 500;
+
+/** True when CRM `query()` uses `.dev-store` JSON (no `CRM_DB_PASSWORD`). */
+export function crmUsesJsonDevStore(): boolean {
+  return !process.env.CRM_DB_PASSWORD?.trim();
+}
 
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(
   sql: string,

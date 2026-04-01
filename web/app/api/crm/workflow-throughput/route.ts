@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import type { ThroughputGoalStatus, WorkflowThroughputRow } from "@/lib/workflow-throughput-types";
-import type { WorkflowThroughputGoalSpec, WorkflowThroughputMetric } from "@/lib/workflow-types";
+import type {
+  ThroughputGoalStatus,
+  WorkflowThroughputMeasureRow,
+  WorkflowThroughputRow,
+} from "@/lib/workflow-throughput-types";
+import {
+  REPLY_TO_CLOSE_THROUGHPUT_MEASURE,
+  type WorkflowThroughputGoalSpec,
+  type WorkflowThroughputMetric,
+} from "@/lib/workflow-types";
 import { workflowTypesWithThroughputGoalsMerged } from "@/lib/workflow-registry";
+import { WARM_OUTREACH_PLACEHOLDER_JOB_TITLE } from "@/lib/warm-outreach-researching-guard";
 
 const DEFAULT_TZ = "America/New_York";
 
@@ -102,6 +111,57 @@ async function countMetric(
     };
   }
 
+  if (metric === "linkedin_opener_dm_sent") {
+    const [countRow, winRow] = await Promise.all([
+      query<{ c: string }>(
+        `SELECT COUNT(*)::text AS c
+         FROM "_artifact" a
+         INNER JOIN "_workflow" w ON w.id = a."workflowId" AND w."deletedAt" IS NULL
+         WHERE a."deletedAt" IS NULL
+           AND ${WF_TYPE_SQL}
+           AND UPPER(TRIM(a.stage)) = 'SENT_MESSAGE'
+           AND TRIM(a.name) = 'LinkedIn opener DM sent'
+           AND a."createdAt" >= (date_trunc('day', timezone($1::text, now())) AT TIME ZONE $1::text)
+           AND a."createdAt" < (date_trunc('day', timezone($1::text, now())) AT TIME ZONE $1::text) + INTERVAL '1 day'`,
+        [tz, workflowTypeId]
+      ),
+      query<{ ws: string; we: string; er: string }>(DAY_WINDOW_SQL, [tz]),
+    ]);
+    const w = winRow[0];
+    return {
+      actual: parseInt(countRow[0]?.c || "0", 10),
+      windowStart: w?.ws ?? "",
+      windowEnd: w?.we ?? "",
+      elapsedRatio: parseFloat(w?.er || "0"),
+    };
+  }
+
+  if (metric === "linkedin_opener_new_people" || metric === "reply_to_close_threads_started") {
+    const [countRow, winRow] = await Promise.all([
+      query<{ c: string }>(
+        `SELECT COUNT(DISTINCT wi."sourceId")::text AS c
+         FROM "_workflow_item" wi
+         INNER JOIN "_workflow" w ON w.id = wi."workflowId" AND w."deletedAt" IS NULL
+         INNER JOIN person p ON p.id = wi."sourceId" AND p."deletedAt" IS NULL
+         WHERE wi."deletedAt" IS NULL
+           AND wi."sourceType" = 'person'
+           AND ${WF_TYPE_SQL}
+           AND TRIM(COALESCE(p."jobTitle", '')) <> $3
+           AND wi."createdAt" >= (date_trunc('day', timezone($1::text, now())) AT TIME ZONE $1::text)
+           AND wi."createdAt" < (date_trunc('day', timezone($1::text, now())) AT TIME ZONE $1::text) + INTERVAL '1 day'`,
+        [tz, workflowTypeId, WARM_OUTREACH_PLACEHOLDER_JOB_TITLE]
+      ),
+      query<{ ws: string; we: string; er: string }>(DAY_WINDOW_SQL, [tz]),
+    ]);
+    const w = winRow[0];
+    return {
+      actual: parseInt(countRow[0]?.c || "0", 10),
+      windowStart: w?.ws ?? "",
+      windowEnd: w?.we ?? "",
+      elapsedRatio: parseFloat(w?.er || "0"),
+    };
+  }
+
   const [countRow, winRow] = await Promise.all([
     query<{ c: string }>(
       `SELECT COUNT(*)::text AS c
@@ -150,6 +210,21 @@ async function rowForGoal(
   };
 }
 
+async function rowForReplyToCloseMeasure(tz: string): Promise<WorkflowThroughputMeasureRow> {
+  const s = REPLY_TO_CLOSE_THROUGHPUT_MEASURE;
+  const { actual, windowStart, windowEnd } = await countMetric(s.metric, s.workflowTypeId, tz);
+  return {
+    workflowTypeId: s.workflowTypeId,
+    workflowLabel: s.workflowLabel,
+    ownerLabel: s.ownerLabel,
+    metricLabel: s.metricLabel,
+    period: s.period,
+    actual,
+    windowStart,
+    windowEnd,
+  };
+}
+
 /**
  * GET /api/crm/workflow-throughput
  *
@@ -164,11 +239,13 @@ export async function GET(req: NextRequest) {
     for (const d of defs) {
       items.push(await rowForGoal(d.id, d.label, d.throughputGoal, tz));
     }
+    const measures: WorkflowThroughputMeasureRow[] = [await rowForReplyToCloseMeasure(tz)];
     return NextResponse.json({
       timezone: tz,
       items,
+      measures,
       note:
-        "Counts use CRM artifacts: warm outreach = MESSAGED + name 'LinkedIn DM sent'; content = PUBLISHED + 'Published Article Record'.",
+        "Goals rows = targets from the registry. measures = reply-to-close only: same distinct-contact count, no target (volume follows opener). Warm outreach = MESSAGED + 'LinkedIn DM sent'; opener Goals = new workflow items today; legacy linkedin_opener_dm_sent = SENT_MESSAGE + 'LinkedIn opener DM sent'; content = PUBLISHED + 'Published Article Record'.",
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

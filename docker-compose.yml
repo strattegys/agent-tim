@@ -72,6 +72,10 @@ services:
       # laptop dev) does not break production cookies/redirects. Keep in sync with Caddyfile server_name.
       - AUTH_URL=https://stratt-central.b2bcontentartist.com
       - NEXTAUTH_URL=https://stratt-central.b2bcontentartist.com
+      # Hosted droplet only: clear laptop runtime labels / cron kill-switch if they appear in web/.env.local (BWS).
+      # Server crons (LinkedIn, discovery, heartbeats) require no LOCALDEV|LOCALPROD label and no CC_DISABLE_SERVER_CRON=1.
+      - NEXT_PUBLIC_CC_RUNTIME_LABEL=
+      - CC_DISABLE_SERVER_CRON=
       # Always reach Postgres on the compose network (overrides CRM_DB_HOST in .env.local for production).
       - CRM_DB_HOST=crm-db
       - CRM_DB_PORT=5432

@@ -52,6 +52,13 @@ export async function GET() {
       description: "Dangerous: replay may write to non-local CRM. Set only for intentional staging.",
       on: envTruthy("UNIPILE_REPLAY_ALLOW_REMOTE_CRM"),
     },
+    {
+      key: "unipile_pipeline_health",
+      label: "GET /api/dev/unipile-pipeline-health",
+      description:
+        "CRM target, Unipile env, webhook inbox row counts, and whether LinkedIn catch-up replay is allowed (Tailscale CRM blocks replay unless UNIPILE_REPLAY_ALLOW_REMOTE_CRM=1).",
+      on: true,
+    },
   ];
 
   return NextResponse.json({ toggles, readOnly });

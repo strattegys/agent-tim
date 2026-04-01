@@ -32,8 +32,12 @@ function Test-TcpOpen([string]$Hostname, [int]$Port, [int]$TimeoutMs = 5000) {
   }
 }
 
-$crmHost = if ($env:CRM_LOCALPROD_DB_HOST) { $env:CRM_LOCALPROD_DB_HOST.Trim() } else { "100.74.54.12" }
-$crmPort = if ($env:CRM_LOCALPROD_DB_PORT) { [int]$env:CRM_LOCALPROD_DB_PORT } else { 5432 }
+$crmHost = if ($env:CC_LOCALPROD_CRM_HOST) { $env:CC_LOCALPROD_CRM_HOST.Trim() }
+  elseif ($env:CRM_LOCALPROD_DB_HOST) { $env:CRM_LOCALPROD_DB_HOST.Trim() }
+  else { "100.74.54.12" }
+$crmPort = if ($env:CC_LOCALPROD_CRM_PORT) { [int]$env:CC_LOCALPROD_CRM_PORT }
+  elseif ($env:CRM_LOCALPROD_DB_PORT) { [int]$env:CRM_LOCALPROD_DB_PORT }
+  else { 5432 }
 $usingTailscale = ($crmHost -match '^100\.')
 
 if ($usingTailscale) {

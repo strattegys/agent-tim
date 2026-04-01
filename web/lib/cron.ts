@@ -10,13 +10,28 @@ import {
   drainUnipileWebhookInbox,
   isUnipileWebhookInboxEnabled,
 } from "./unipile-webhook-inbox";
+import { isLinkedInAutomationDisabled } from "./linkedin-automation-gate";
+import { getLocalRuntimeLabel } from "./app-brand";
 
 /**
  * In-App Cron Scheduler
  *
  * Data-driven from the Agent Registry. Jobs are registered on server startup
  * via GET /api/health (client CronWarmup), /api/chat/stream, and optionally other API routes. Live status: /api/cron-status.
+ *
+ * **Hosted production only:** scheduled jobs that touch CRM / Unipile / discovery do not run on
+ * LOCALDEV, LOCALPROD, or `next dev` — only on the DigitalOcean-deployed app (no local runtime label,
+ * NODE_ENV=production). Laptop stacks still use the DB for UI/API; they do not run background crons.
  */
+
+/** True only on the hosted droplet stack (or when CC_FORCE_SERVER_CRON=1). */
+export function serverCronsAllowed(): boolean {
+  if (process.env.CC_FORCE_SERVER_CRON?.trim() === "1") return true;
+  if (process.env.CC_DISABLE_SERVER_CRON?.trim() === "1") return false;
+  if (getLocalRuntimeLabel() !== null) return false;
+  if (process.env.NODE_ENV === "development") return false;
+  return true;
+}
 
 export interface CronJobConfig {
   id: string;
@@ -268,6 +283,17 @@ function createHeartbeatHandler(
 /** Initialize all cron jobs. Idempotent; called from server layout and chat stream API (not instrumentation — Edge-safe). */
 export function initCronJobs(): void {
   if (initialized) return;
+
+  if (!serverCronsAllowed()) {
+    initialized = true;
+    globalForCron.__cronInitialized = true;
+    console.log(
+      "[cron] Skipped — server crons run on the hosted DigitalOcean app only (not LOCALDEV/LOCALPROD or next dev). " +
+        "UI still uses your configured CRM. Override: CC_FORCE_SERVER_CRON=1."
+    );
+    return;
+  }
+
   initialized = true;
   globalForCron.__cronInitialized = true;
 
@@ -344,6 +370,7 @@ export function initCronJobs(): void {
       enabled: true,
     },
     async () => {
+      if (isLinkedInAutomationDisabled()) return;
       if (
         process.env.UNIPILE_WEBHOOK_INBOX_DRAIN_CRON?.trim() === "0" ||
         process.env.UNIPILE_WEBHOOK_INBOX_DRAIN_CRON?.trim().toLowerCase() === "false"
@@ -372,8 +399,12 @@ export function initCronJobs(): void {
       enabled: true,
     },
     async () => {
+      if (isLinkedInAutomationDisabled()) return;
       const { runLinkedInInboundCatchupCron } = await import("./linkedin-inbound-catchup");
-      await runLinkedInInboundCatchupCron();
+      const r = await runLinkedInInboundCatchupCron();
+      if (!r.ok) {
+        throw new Error(r.replayError || "LinkedIn inbound catch-up failed");
+      }
     }
   );
 

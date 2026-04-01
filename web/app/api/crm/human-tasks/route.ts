@@ -50,8 +50,18 @@ const MESSAGING_ITEM_STAGES_LIST = [
   "AWAITING_CONTACT",
   "MESSAGE_DRAFT",
   "MESSAGED",
+  "DRAFT_MESSAGE",
+  "SENT_MESSAGE",
+  "REPLIED",
   "REPLY_DRAFT",
   "REPLY_SENT",
+  "AWAITING_THEIR_REPLY",
+  "FOLLOW_UP_ONE_DRAFT",
+  "FOLLOW_UP_ONE_SENT",
+  "AWAITING_AFTER_FOLLOW_UP_ONE",
+  "FOLLOW_UP_TWO_DRAFT",
+  "FOLLOW_UP_TWO_SENT",
+  "AWAITING_AFTER_FOLLOW_UP_TWO",
   "LINKEDIN_INBOUND",
   "CONNECTION_ACCEPTED",
 ] as const;
@@ -547,6 +557,35 @@ function warmMessagedWaitingHumanCopy(dueDate: string | null): string {
   const inWords =
     dayRound === 1 ? "in about 1 day" : `in about ${dayRound} days`;
   return `Waiting — next **message draft** is scheduled for **${dateStr}** (${inWords}). Nothing to submit now. If they reply first, click **Replied**. You can start the follow-up early with **Start follow-up early**.`;
+}
+
+function replyToCloseWaitingHumanCopy(stageKey: string, dueDate: string | null): string {
+  let dueLine = "";
+  if (dueDate && String(dueDate).trim()) {
+    try {
+      const d = new Date(dueDate);
+      const dateStr = d.toLocaleString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      dueLine = `Due **${dateStr}**. `;
+    } catch {
+      dueLine = "";
+    }
+  }
+  if (stageKey === "AWAITING_THEIR_REPLY") {
+    return `${dueLine}No submit — if they write on LinkedIn, move to **Reply Draft**; if silence, move to **Follow-up 1 draft** (or **Converted**).`;
+  }
+  if (stageKey === "AWAITING_AFTER_FOLLOW_UP_ONE") {
+    return `${dueLine}No submit — if they reply, **Reply Draft**; if still quiet, **Follow-up 2 draft** or **Converted**.`;
+  }
+  if (stageKey === "AWAITING_AFTER_FOLLOW_UP_TWO") {
+    return `${dueLine}No submit — if they reply, **Reply Draft**; if still quiet, **Keep in touch** or **Converted**.`;
+  }
+  return `${dueLine}Check LinkedIn / CRM for the next move per the board.`;
 }
 
 /** Tim messaging queue default page size (newest first). Raise if ops often have >N active human tasks. */
@@ -1061,6 +1100,24 @@ export async function GET(req: NextRequest) {
         stageInfo = {
           stageLabel: "Messaged — waiting",
           humanAction: warmMessagedWaitingHumanCopy(item.dueDate),
+        };
+      }
+
+      const waitingReplyToClose =
+        workflowTypeId === "reply-to-close" &&
+        (stageKey === "AWAITING_THEIR_REPLY" ||
+          stageKey === "AWAITING_AFTER_FOLLOW_UP_ONE" ||
+          stageKey === "AWAITING_AFTER_FOLLOW_UP_TWO");
+      if (waitingReplyToClose) {
+        const rtcWaitLabel =
+          stageKey === "AWAITING_THEIR_REPLY"
+            ? "Reply to Close — waiting (~3d)"
+            : stageKey === "AWAITING_AFTER_FOLLOW_UP_ONE"
+              ? "Reply to Close — waiting (~7d)"
+              : "Reply to Close — final wait (~7d)";
+        stageInfo = {
+          stageLabel: rtcWaitLabel,
+          humanAction: replyToCloseWaitingHumanCopy(stageKey, item.dueDate),
         };
       }
 

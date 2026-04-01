@@ -8,6 +8,7 @@ import {
   getCrmDataPlatformConnectionLabel,
 } from "@/lib/db";
 import { normalizeUnipileDsn } from "@/lib/unipile-profile";
+import { isLinkedInAutomationDisabled } from "@/lib/linkedin-automation-gate";
 
 export const runtime = "nodejs";
 
@@ -287,6 +288,14 @@ async function probeDataPlatform(): Promise<ProbeResult> {
 async function probeUnipile(): Promise<ProbeResult> {
   const id = "unipile";
   const label = "Unipile (LinkedIn)";
+  if (isLinkedInAutomationDisabled()) {
+    return {
+      id,
+      label,
+      status: "skipped",
+      detail: "LINKEDIN_AUTOMATION_DISABLED — webhooks + LinkedIn crons paused",
+    };
+  }
   const apiKey = process.env.UNIPILE_API_KEY?.trim();
   const dsn = normalizeUnipileDsn(process.env.UNIPILE_DSN);
   const accountId = process.env.UNIPILE_ACCOUNT_ID?.trim();

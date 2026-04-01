@@ -8,10 +8,7 @@ import { createTask } from "@/lib/tasks";
 import { syncHumanTaskOpenForItem } from "@/lib/workflow-item-human-task";
 import { WARM_OUTREACH_PLACEHOLDER_JOB_TITLE } from "@/lib/warm-outreach-researching-guard";
 import { WARM_DISCOVERY_SOURCE_TYPE } from "@/lib/warm-discovery-item";
-import {
-  packageStageDisallowsFakeData,
-  stripUseFakeDataFromPackageSpec,
-} from "@/lib/package-use-fake-data";
+import { stripUseFakeDataFromPackageSpec } from "@/lib/package-use-fake-data";
 import { notifyDashboardSyncChange } from "@/lib/dashboard-sync-hub";
 import { pushWorkflowObservabilityEvent } from "@/lib/workflow-observability-buffer";
 
@@ -21,9 +18,7 @@ import { pushWorkflowObservabilityEvent } from "@/lib/workflow-observability-buf
  * Activates a package: creates workflows + boards + initial items
  * for each deliverable in the package spec.
  *
- * Body: { packageId: string, targetStage?, skipTasks?, useFakeData? }
- * useFakeData: only written to package spec when sent as a boolean (Start Test / Activate from Penny).
- * Omitting it preserves the existing spec flag so Activate does not force fake LLM artifacts.
+ * Body: { packageId: string, targetStage?, skipTasks? }
  *
  * Steps:
  * 1. Load the package and its spec.deliverables
@@ -61,14 +56,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Package not found" }, { status: 404 });
     }
 
+    await stripUseFakeDataFromPackageSpec(packageId);
+
     const pkg = pkgRows[0];
 
     // skipTasks: just move stage, don't create workflows/tasks
     if (skipTasks) {
       await query(`UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`, [targetStage, packageId]);
-      if (packageStageDisallowsFakeData(targetStage)) {
-        await stripUseFakeDataFromPackageSpec(packageId);
-      }
       const activationLog = [
         `[${new Date().toISOString()}] Testing mode: stage → ${targetStage}, no workflows created (skipTasks)`,
       ];
@@ -82,15 +76,6 @@ export async function POST(req: NextRequest) {
 
     const spec =
       typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : { ...pkg.spec };
-
-    // Persist useFakeData only when Penny sends it — avoids Activate overwriting with "true" by default
-    if (useFakeDataBody !== undefined) {
-      spec.useFakeData = useFakeDataBody;
-      await query(
-        `UPDATE "_package" SET spec = $1, "updatedAt" = NOW() WHERE id = $2`,
-        [JSON.stringify(spec), packageId]
-      );
-    }
 
     // If workflows already exist (re-activation from PENDING_APPROVAL → ACTIVE), just update stage
     const existingWfs = await query<{ id: string; name: string; ownerAgent: string }>(
@@ -266,9 +251,6 @@ export async function POST(req: NextRequest) {
       `UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`,
       [targetStage, packageId]
     );
-    if (packageStageDisallowsFakeData(targetStage)) {
-      await stripUseFakeDataFromPackageSpec(packageId);
-    }
 
     // 6. Trigger the first task for each deliverable's owner agent
     if (targetStage === "PENDING_APPROVAL" || targetStage === "ACTIVE") {

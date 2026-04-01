@@ -8,9 +8,11 @@
 # its Tailscale address via tools/expose-crm-db-tailscale.sh). Requires Tailscale running on
 # your PC and the expose script applied on the server (deploy-web.yml does this automatically).
 #
-# **Fallback (bridge/tunnel):** If Docker cannot reach the Tailscale IP (rare routing issue or
-# Tailscale down), set CRM_LOCALPROD_DB_HOST=host.docker.internal and CRM_LOCALPROD_DB_PORT=5433,
-# then run scripts/localprod-crm-tunnel.ps1 (SSH) or the Tailscale TCP bridge before starting.
+# **Fallback (bridge/tunnel):** If Docker cannot reach the Tailscale IP, set in **shell** or
+# COMMAND-CENTRAL/.env (not web/.env.local): CC_LOCALPROD_CRM_HOST=host.docker.internal CC_LOCALPROD_CRM_PORT=5433
+# — `docker compose --env-file web/.env.local` uses that file for interpolation; putting
+# CRM_LOCALPROD_DB_HOST=127.0.0.1 in web/.env.local (meant for host npm tools) wrongly injects it into the container.
+# Then run scripts/localprod-crm-tunnel.ps1 before starting.
 #
 # The bundled **crm-db** service from docker-compose.yml is **not started** here: we assign it profile
 # `bundled-crm-postgres` so only `web` + `caddy` run. No local Postgres container, no stub — you are
@@ -41,10 +43,10 @@ services:
       NEXTAUTH_URL: http://localhost:3001
       # Friday → Observation Post + /api/dev/observability* (NODE_ENV=production in this stack)
       OBSERVATION_POST_API: "1"
-      # Direct Tailscale: container routes to the CC droplet's Tailscale IP (no bridge/tunnel needed).
-      # Override with CRM_LOCALPROD_DB_HOST / CRM_LOCALPROD_DB_PORT for bridge fallback.
-      CRM_DB_HOST: ${CRM_LOCALPROD_DB_HOST:-100.74.54.12}
-      CRM_DB_PORT: ${CRM_LOCALPROD_DB_PORT:-5432}
+      # Direct Tailscale: droplet CRM on tailnet. Prefer CC_LOCALPROD_CRM_* (shell / repo .env) so
+      # web/.env.local is safe to pass as compose --env-file without 127.0.0.1 tunnel hints.
+      CRM_DB_HOST: ${CC_LOCALPROD_CRM_HOST:-${CRM_LOCALPROD_DB_HOST:-100.74.54.12}}
+      CRM_DB_PORT: ${CC_LOCALPROD_CRM_PORT:-${CRM_LOCALPROD_DB_PORT:-5432}}
     # CRM is on the droplet via Tailscale — clear base `depends_on: crm-db` (merge would keep it otherwise).
     depends_on: !reset []
 

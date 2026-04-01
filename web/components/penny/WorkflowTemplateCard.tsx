@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, type ReactNode, useMemo } from "react";
 import type { WorkflowTypeSpec } from "@/lib/workflow-types";
+import { stageConnectorsAreLoopBack } from "@/lib/workflow-board-pipeline-visual";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
   person: "People",
@@ -23,6 +24,10 @@ interface WorkflowTemplateCardProps {
 export default function WorkflowTemplateCard({ template, badge, footer }: WorkflowTemplateCardProps) {
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
   const stages = template.defaultBoard.stages;
+  const connectorsLoop = useMemo(
+    () => stageConnectorsAreLoopBack(stages, template.defaultBoard.transitions),
+    [stages, template.defaultBoard.transitions]
+  );
 
   const typeColor = ITEM_TYPE_COLORS[template.itemType] || "#6b7280";
 
@@ -51,16 +56,23 @@ export default function WorkflowTemplateCard({ template, badge, footer }: Workfl
       </div>
 
       {/* Description */}
-      <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed line-clamp-2">
+      <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed whitespace-pre-line">
         {template.description}
       </p>
 
+      {template.pipelineHint ? (
+        <p className="text-[10px] text-[var(--text-tertiary)] leading-relaxed border border-[var(--border-color)]/80 rounded-lg px-2 py-1.5 bg-[var(--bg-primary)]/50">
+          {template.pipelineHint}
+        </p>
+      ) : null}
+
       {footer ? <div className="flex flex-wrap gap-2 items-center">{footer}</div> : null}
 
-      {/* Stage pipeline — clickable */}
+      {/* Stage pipeline — clickable (↻ = loop back like package deliverable visualizer) */}
       <div className="flex flex-wrap gap-1.5 items-center">
         {stages.map((s, i) => {
           const isExpanded = expandedStage === s.key;
+          const showLoopConnector = i < connectorsLoop.length && connectorsLoop[i];
           return (
             <div key={s.key} className="flex items-center gap-1">
               <button
@@ -80,20 +92,39 @@ export default function WorkflowTemplateCard({ template, badge, footer }: Workfl
                 )}
                 {s.label}
               </button>
-              {i < stages.length - 1 && (
-                <svg
-                  width="10"
-                  height="10"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="var(--text-tertiary)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
-              )}
+              {i < stages.length - 1 &&
+                (showLoopConnector ? (
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--text-tertiary)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="shrink-0 opacity-85"
+                    aria-label="Loop: this stage pair may repeat (see description)"
+                  >
+                    <path d="M17 2l4 4-4 4" />
+                    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                    <path d="M7 22l-4-4 4-4" />
+                    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="var(--text-tertiary)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
+                ))}
             </div>
           );
         })}

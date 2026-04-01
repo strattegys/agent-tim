@@ -184,3 +184,9 @@ export function getPackageTemplate(
 export const PLANNER_PACKAGE_TEMPLATES: PackageTemplateSpec[] = Object.values(
   PACKAGE_TEMPLATES
 ).filter((t) => !t.hideFromPlanner);
+
+/** `templateId` values that must not be user-deleted (system / infrastructure packages). */
+export const PACKAGE_DELETE_BLOCKED_TEMPLATE_IDS: ReadonlySet<string> = new Set([
+  "linkedin-general-inbox-package",
+  "linkedin-connection-intake-package",
+]);

@@ -12,7 +12,8 @@ interface PackageWorkflowsEditorModalProps {
   /** Full spec merge — we preserve brief and other keys */
   packageSpec: unknown;
   initialDeliverables: PackageDeliverable[];
-  onSaved: () => void;
+  /** Called with the saved rows so parents can optimistically update lists (e.g. SWR) before revalidate. */
+  onSaved: (deliverables: PackageDeliverable[]) => void;
   title?: string;
 }
 
@@ -77,7 +78,7 @@ export default function PackageWorkflowsEditorModal({
         setError(data.error || `Save failed (${r.status})`);
         return;
       }
-      onSaved();
+      onSaved(deliverables.map((d) => ({ ...d })));
       onClose();
     } finally {
       setSaving(false);
@@ -87,10 +88,12 @@ export default function PackageWorkflowsEditorModal({
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      onClose();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [open, onClose]);
 
   if (!open) return null;

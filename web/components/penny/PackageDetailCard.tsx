@@ -4,7 +4,10 @@ import { useState, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { WORKFLOW_TYPES, type StageSpec, type WorkflowTypeSpec } from "@/lib/workflow-types";
 import type { PackageSpec, PackageDeliverable } from "@/lib/package-types";
-import { PACKAGE_TEMPLATES } from "@/lib/package-types";
+import {
+  PACKAGE_DELETE_BLOCKED_TEMPLATE_IDS,
+  PACKAGE_TEMPLATES,
+} from "@/lib/package-types";
 import { TIM_WARM_OUTREACH_PACKAGE_BRIEF } from "@/lib/package-spec-briefs/tim-warm-outreach-package-brief";
 import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
@@ -13,6 +16,7 @@ import AgentAvatar from "../AgentAvatar";
 import ArtifactViewer from "../shared/ArtifactViewer";
 import CampaignSpecModal from "./CampaignSpecModal";
 import PackageWorkflowsEditorModal from "./PackageWorkflowsEditorModal";
+import { stageConnectorsAreLoopBack } from "@/lib/workflow-board-pipeline-visual";
 
 const ITEM_TYPE_LABELS: Record<string, string> = {
   person: "people",
@@ -35,25 +39,25 @@ interface PackageRow {
 
 interface PackageDetailCardProps {
   pkg: PackageRow;
-  /**
-   * When true (Package Planner Draft column), card starts collapsed regardless of pkg.stage quirks.
-   * When omitted, falls back to: collapsed iff stage is DRAFT.
-   */
-  initialCollapsed?: boolean;
   /** After PATCH (rename, etc.) refresh the planner list */
   onPackageMutate?: () => void;
   /**
-   * When true, hide in-card workflow editor UI (header buttons, modal, inner CTA) — e.g. Package Kanban
-   * overlay provides **Add workflows** in its own chrome.
+   * When set (e.g. Friday package kanban), called after workflow editor save instead of only
+   * `onPackageMutate` — use for optimistic list updates.
    */
-  suppressWorkflowEditor?: boolean;
+  onWorkflowsSaved?: (deliverables: PackageDeliverable[]) => void;
+  /** After successful delete (e.g. close kanban overlay). */
+  onDeleted?: () => void;
+  /** When set (e.g. package kanban overlay), show Close in the header action row. */
+  onDismiss?: () => void;
 }
 
 export default function PackageDetailCard({
   pkg,
-  initialCollapsed,
   onPackageMutate,
-  suppressWorkflowEditor = false,
+  onWorkflowsSaved,
+  onDeleted,
+  onDismiss,
 }: PackageDetailCardProps) {
   const [wfLookup, setWfLookup] = useState<Record<string, WorkflowTypeSpec>>(() => ({ ...WORKFLOW_TYPES }));
   useEffect(() => {
@@ -72,18 +76,11 @@ export default function PackageDetailCard({
     };
   }, []);
 
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (typeof initialCollapsed === "boolean") return initialCollapsed;
-    const stage = String(pkg.stage ?? "")
-      .trim()
-      .toUpperCase();
-    return stage === "DRAFT";
-  });
-  const [useFakeData, setUseFakeData] = useState(() => {
-    // Read from package spec if available (persisted by activate route), default unchecked
-    const spec = typeof pkg.spec === "string" ? JSON.parse(pkg.spec) : pkg.spec;
-    return spec?.useFakeData ?? false;
-  });
+  const [simulateModalOpen, setSimulateModalOpen] = useState(false);
+  const [simBusy, setSimBusy] = useState(false);
+  const [simReplyPct, setSimReplyPct] = useState(25);
+  const [simRtcPct, setSimRtcPct] = useState(10);
+  const [simSeed, setSimSeed] = useState("");
   const [expandedStage, setExpandedStage] = useState<string | null>(null);
   const [pkgStage, setPkgStage] = useState(
     // Use stored stage, fallback to checking workflow count
@@ -110,7 +107,43 @@ export default function PackageDetailCard({
   const [nameDraft, setNameDraft] = useState(pkg.name);
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [deletingPackage, setDeletingPackage] = useState(false);
   const tabVisible = useDocumentVisible();
+
+  const canDeletePackage =
+    (pkgStage === "DRAFT" || pkgStage === "PENDING_APPROVAL") &&
+    !PACKAGE_DELETE_BLOCKED_TEMPLATE_IDS.has(pkg.templateId);
+
+  const handleDeletePackage = useCallback(async () => {
+    const num =
+      pkg.packageNumber != null && !Number.isNaN(pkg.packageNumber) ? `#${pkg.packageNumber} ` : "";
+    if (
+      !confirm(
+        `Delete package ${num}${pkg.name}? It will disappear from the kanban (soft-delete). This cannot be undone from the UI.`
+      )
+    ) {
+      return;
+    }
+    setDeletingPackage(true);
+    try {
+      const r = await fetch("/api/crm/packages", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id: pkg.id }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      if (!r.ok) {
+        window.alert(data.error || `Delete failed (${r.status})`);
+        return;
+      }
+      panelBus.emit("package_manager");
+      onDeleted?.();
+      onPackageMutate?.();
+    } finally {
+      setDeletingPackage(false);
+    }
+  }, [onDeleted, onPackageMutate, pkg.id, pkg.name, pkg.packageNumber]);
 
   useEffect(() => {
     setNameDraft(pkg.name);
@@ -173,6 +206,69 @@ export default function PackageDetailCard({
   const deliverables =
     specDeliverables.length > 0 ? specDeliverables : templateDeliverables;
   const showPackageBrief = Boolean(template?.showPackageBrief);
+  const displayWorkflowCount = Math.max(pkg.workflowCount, deliverables.length);
+
+  const canSimulateDay =
+    pkgStage === "PENDING_APPROVAL" &&
+    displayWorkflowCount > 0 &&
+    deliverables.some((d) => d.workflowType === "linkedin-opener-sequence");
+
+  const runSimulateDay = useCallback(async () => {
+    setSimBusy(true);
+    try {
+      const trimmed = simSeed.trim();
+      const parsedSeed = trimmed === "" ? undefined : Number.parseInt(trimmed, 10);
+      const body: Record<string, unknown> = {
+        packageId: pkg.id,
+        mode: "day",
+        replyRate: Math.min(1, Math.max(0, simReplyPct / 100)),
+        replyToCloseConversionRate: Math.min(1, Math.max(0, simRtcPct / 100)),
+      };
+      if (parsedSeed !== undefined && Number.isFinite(parsedSeed)) {
+        body.seed = parsedSeed;
+      }
+      const res = await fetch("/api/crm/packages/simulate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        log?: string[];
+        cohort?: PackageSimulateCohort;
+        seed?: number;
+      };
+      if (!res.ok) {
+        setSimLog((prev) => [
+          `[${new Date().toLocaleTimeString()}] Simulate failed: ${data.error || res.status}`,
+          ...prev,
+        ]);
+        return;
+      }
+      const cohort = data.cohort;
+      const cohortLine =
+        cohort != null
+          ? `Summary: intake ${cohort.intake}, opener replied ${cohort.openerReplied}, opener completed (no reply) ${cohort.openerCompletedNoReply}, RTC converted ${cohort.rtcConverted}, RTC nurture ${cohort.rtcNurtureClosed} (seed ${data.seed ?? "?"})`
+          : "";
+      setSimLog((prev) => [
+        `[${new Date().toLocaleTimeString()}] Simulate one compressed day`,
+        ...(data.log && data.log.length ? data.log : ["(no log lines)"]),
+        ...(cohortLine ? [cohortLine] : []),
+        ...prev,
+      ]);
+      setSimulateModalOpen(false);
+      panelBus.emit("package_manager");
+      panelBus.emit("dashboard_sync");
+    } catch (e) {
+      setSimLog((prev) => [
+        `[${new Date().toLocaleTimeString()}] Simulate error: ${e instanceof Error ? e.message : String(e)}`,
+        ...prev,
+      ]);
+    } finally {
+      setSimBusy(false);
+    }
+  }, [pkg.id, simReplyPct, simRtcPct, simSeed, setSimLog]);
 
   const initialBrief = (() => {
     try {
@@ -431,25 +527,10 @@ export default function PackageDetailCard({
       {/* Header */}
       <div className="px-3 py-2 flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1 flex items-start gap-1.5">
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="min-w-0 flex items-center gap-1.5 text-left hover:opacity-80 transition-opacity flex-1"
-          >
-            <svg
-              width="10"
-              height="10"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="var(--text-tertiary)"
-              strokeWidth="2"
-              strokeLinecap="round"
-              className={`shrink-0 transition-transform mt-0.5 ${isCollapsed ? "-rotate-90" : ""}`}
-            >
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
+          <div className="min-w-0 flex items-start gap-1.5 text-left flex-1">
             <div className="min-w-0 flex-1">
               {renamingPackage ? (
-                <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
+                <div className="space-y-1">
                   <input
                     value={nameDraft}
                     onChange={(e) => setNameDraft(e.target.value)}
@@ -497,7 +578,7 @@ export default function PackageDetailCard({
                 </>
               )}
             </div>
-          </button>
+          </div>
           {!renamingPackage && (
             <button
               type="button"
@@ -515,10 +596,10 @@ export default function PackageDetailCard({
             </button>
           )}
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0 min-w-0 max-w-[min(100%,520px)]">
           {pkgStage === "DRAFT" && (
             <>
-              {pkg.templateId === "custom" && !suppressWorkflowEditor && (
+              {pkg.templateId === "custom" && (
                 <button
                   type="button"
                   onClick={() => setWorkflowEditorOpen(true)}
@@ -543,6 +624,17 @@ export default function PackageDetailCard({
               <button onClick={handleTest} className={btnWarm}>
                 Test
               </button>
+              {canDeletePackage ? (
+                <button
+                  type="button"
+                  disabled={deletingPackage}
+                  onClick={() => void handleDeletePackage()}
+                  className="text-[10px] px-2 py-1 rounded-md border border-red-500/40 text-red-400/95 hover:bg-red-500/10 font-medium disabled:opacity-40"
+                  title="Remove this package from the planner"
+                >
+                  {deletingPackage ? "…" : "Delete"}
+                </button>
+              ) : null}
             </>
           )}
           {pkgStage === "PENDING_APPROVAL" && (
@@ -571,6 +663,17 @@ export default function PackageDetailCard({
               <button onClick={handleBackToDraft} className={btnBase}>
                 Draft
               </button>
+              {canDeletePackage ? (
+                <button
+                  type="button"
+                  disabled={deletingPackage}
+                  onClick={() => void handleDeletePackage()}
+                  className="text-[10px] px-2 py-1 rounded-md border border-red-500/40 text-red-400/95 hover:bg-red-500/10 font-medium disabled:opacity-40"
+                  title="Remove this package from the planner"
+                >
+                  {deletingPackage ? "…" : "Delete"}
+                </button>
+              ) : null}
             </>
           )}
           {pkgStage === "ACTIVE" && (
@@ -578,6 +681,16 @@ export default function PackageDetailCard({
               Reset
             </button>
           )}
+          {onDismiss ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              className={btnBase}
+              title="Close"
+            >
+              Close
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -601,10 +714,6 @@ export default function PackageDetailCard({
         </div>
       )}
 
-      {/* Collapsible body */}
-      {!isCollapsed && (
-      <>
-
       {/* Custom draft: empty spec — prompt to add workflows */}
       {pkg.templateId === "custom" &&
         pkgStage === "DRAFT" &&
@@ -612,23 +721,14 @@ export default function PackageDetailCard({
           <div className="border-t border-[var(--border-color)] px-4 py-6 text-center space-y-2">
             <p className="text-[11px] text-[var(--text-secondary)]">
               No workflows yet. Add at least one deliverable before testing.
-              {suppressWorkflowEditor ? (
-                <>
-                  {" "}
-                  Use <strong className="text-[var(--text-primary)]">Add workflows</strong> in the overlay
-                  header above.
-                </>
-              ) : null}
             </p>
-            {!suppressWorkflowEditor ? (
-              <button
-                type="button"
-                onClick={() => setWorkflowEditorOpen(true)}
-                className="text-[11px] px-3 py-1.5 rounded-lg bg-[#9B59B6] text-white font-semibold hover:opacity-90"
-              >
-                Add workflows
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => setWorkflowEditorOpen(true)}
+              className="text-[11px] px-3 py-1.5 rounded-lg bg-[#9B59B6] text-white font-semibold hover:opacity-90"
+            >
+              Add workflows
+            </button>
           </div>
         )}
 
@@ -649,6 +749,7 @@ export default function PackageDetailCard({
                 agent={d.ownerAgent}
                 volume={d.targetCount}
                 volumeLabel={d.volumeLabel}
+                deliverableWorkflowType={d.workflowType}
                 itemType={wfType?.itemType || "content"}
                 itemTypeLabel={itemTypeLabel}
                 stages={stages}
@@ -700,18 +801,17 @@ export default function PackageDetailCard({
       )}
 
       {/* Footer */}
-      {(pkg.customerId || pkg.workflowCount > 0) && (
+      {(pkg.customerId || displayWorkflowCount > 0) && (
         <div className="border-t border-[var(--border-color)] px-3 py-1.5 flex items-center gap-3 text-[10px] text-[var(--text-tertiary)]">
           {pkg.customerId && (
             <span>Customer: {pkg.customerId.slice(0, 8)}...</span>
           )}
-          {pkg.workflowCount > 0 && (
-            <span>{pkg.workflowCount} workflows</span>
+          {displayWorkflowCount > 0 && (
+            <span>
+              {displayWorkflowCount} workflow{displayWorkflowCount !== 1 ? "s" : ""}
+            </span>
           )}
         </div>
-      )}
-
-      </>
       )}
 
 
@@ -741,20 +841,22 @@ export default function PackageDetailCard({
         />
       )}
 
-      {!suppressWorkflowEditor ? (
-        <PackageWorkflowsEditorModal
-          open={workflowEditorOpen}
-          onClose={() => setWorkflowEditorOpen(false)}
-          packageId={pkg.id}
-          packageSpec={pkg.spec}
-          initialDeliverables={editableSpecDeliverables}
-          title={editableSpecDeliverables.length === 0 ? "Add workflows" : "Edit workflows"}
-          onSaved={() => {
-            setWorkflowEditorOpen(false);
+      <PackageWorkflowsEditorModal
+        open={workflowEditorOpen}
+        onClose={() => setWorkflowEditorOpen(false)}
+        packageId={pkg.id}
+        packageSpec={pkg.spec}
+        initialDeliverables={editableSpecDeliverables}
+        title={editableSpecDeliverables.length === 0 ? "Add workflows" : "Edit workflows"}
+        onSaved={(deliverables) => {
+          setWorkflowEditorOpen(false);
+          if (onWorkflowsSaved) {
+            onWorkflowsSaved(deliverables);
+          } else {
             onPackageMutate?.();
-          }}
-        />
-      ) : null}
+          }
+        }}
+      />
     </div>
   );
 }
@@ -782,6 +884,8 @@ interface DeliverableRowProps {
   pacing?: { batchSize: number; interval: string; bufferPercent?: number };
   onInspect: () => void | Promise<void>;
   workflowTypesById: Record<string, WorkflowTypeSpec>;
+  /** Package deliverable workflow id (for volume copy, e.g. opener vs reply-to-close) */
+  deliverableWorkflowType?: string;
 }
 
 function DeliverableRow({
@@ -804,6 +908,7 @@ function DeliverableRow({
   pacing,
   onInspect,
   workflowTypesById,
+  deliverableWorkflowType,
 }: DeliverableRowProps) {
   const agentColor = getAgentSpec(agent).color;
   const totalInPipeline = volumeInfo?.totalItems || 0;
@@ -814,14 +919,20 @@ function DeliverableRow({
 
   // Build volume display string
   let volumeDisplay = "";
-  if (volumeLabel && volumeLabel.trim()) {
+  if (deliverableWorkflowType === "reply-to-close") {
+    volumeDisplay =
+      "Throughput measured in Friday Goals — no daily target (volume follows LinkedIn opener).";
+  } else if (volumeLabel && volumeLabel.trim()) {
     volumeDisplay = volumeLabel.trim();
   } else if (isContinuous) {
     // Scout: just "5 per day"
     volumeDisplay = pacing ? `${pacing.batchSize} ${intervalLabel}` : "continuous";
   } else if (itemType === "person" && volume > 0) {
-    // Tim: "20 messages" — person workflows show the output goal only
-    volumeDisplay = `${volume} messages`;
+    if (deliverableWorkflowType === "linkedin-opener-sequence") {
+      volumeDisplay = `Up to ${volume} new targets daily`;
+    } else {
+      volumeDisplay = `${volume} messages`;
+    }
   } else if (pacing && volume > 1) {
     // Marni posts: "3 posts · 1 per week"
     volumeDisplay = `${volume} ${itemTypeLabel} · ${pacing.batchSize} ${intervalLabel}`;
@@ -959,20 +1070,9 @@ function DeliverableRow({
 
       {/* Stage pipeline */}
       {(() => {
-        // Detect cycles: find stages that transition back to an earlier stage
         const wfType = workflowTypesById[allDeliverables[deliverableIndex]?.workflowType];
         const transitions = wfType?.defaultBoard?.transitions || {};
-        const cycles: Array<{ fromIdx: number; toIdx: number }> = [];
-        stages.forEach((s, i) => {
-          const targets = transitions[s.key] || [];
-          targets.forEach((t: string) => {
-            const targetIdx = stages.findIndex(st => st.key === t);
-            if (targetIdx >= 0 && targetIdx < i) {
-              cycles.push({ fromIdx: i, toIdx: targetIdx });
-            }
-          });
-        });
-        const cycleArrowAfter = new Set(cycles.map(c => c.toIdx));
+        const connectorsLoop = stageConnectorsAreLoopBack(stages, transitions);
 
         return (
           <div className="flex flex-wrap gap-1.5 items-center">
@@ -981,7 +1081,7 @@ function DeliverableRow({
               const isExpanded = expandedStage === fullKey;
               const hasNote = stageNotes?.[s.key];
               const count = stageCounts[s.key] || 0;
-              const showCycleArrow = cycleArrowAfter.has(i);
+              const showLoopConnector = i < connectorsLoop.length && connectorsLoop[i];
 
               return (
                 <div key={s.key} className="flex items-center gap-0.5">
@@ -1009,7 +1109,7 @@ function DeliverableRow({
                     )}
                   </button>
                   {i < stages.length - 1 && (
-                    showCycleArrow ? (
+                    showLoopConnector ? (
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M17 2l4 4-4 4" />
                         <path d="M3 11V9a4 4 0 0 1 4-4h14" />

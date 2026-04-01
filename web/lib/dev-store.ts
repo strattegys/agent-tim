@@ -741,3 +741,86 @@ function extractConditions(sql: string, params: unknown[]): Array<{ col: string;
 
   return conditions;
 }
+
+// ─── Package soft-delete (JSON dev-store) ─────────────────────────
+
+export function getPackageByIdDevStore(packageId: string): Row | undefined {
+  const pid = String(packageId);
+  return loadTable("packages").find((r) => !r.deletedAt && String(r.id) === pid);
+}
+
+/** Soft-delete package + workflows/items/artifacts/boards for `.dev-store` mode. */
+export async function softDeletePackageCascadeDevStore(packageId: string): Promise<boolean> {
+  const pid = String(packageId);
+  if (!getPackageByIdDevStore(pid)) return false;
+
+  const t = now();
+  const workflows = loadTable("workflows");
+  const wfIds = new Set<string>();
+  const boardIds = new Set<string>();
+  for (const w of workflows) {
+    if (w.deletedAt) continue;
+    if (String(w.packageId) !== pid) continue;
+    wfIds.add(String(w.id));
+    if (w.boardId) boardIds.add(String(w.boardId));
+  }
+
+  if (wfIds.size > 0) {
+    const items = loadTable("workflow_items");
+    const wiIds: string[] = [];
+    let iChanged = false;
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (it.deletedAt) continue;
+      if (!wfIds.has(String(it.workflowId))) continue;
+      wiIds.push(String(it.id));
+      items[i] = { ...it, deletedAt: t, updatedAt: t, humanTaskOpen: false };
+      iChanged = true;
+    }
+    if (iChanged) saveTable("workflow_items", items);
+
+    if (wiIds.length > 0) {
+      const wiSet = new Set(wiIds);
+      const arts = loadTable("artifacts");
+      let aChanged = false;
+      for (let i = 0; i < arts.length; i++) {
+        const a = arts[i];
+        if (a.deletedAt) continue;
+        if (!wiSet.has(String(a.workflowItemId))) continue;
+        arts[i] = { ...a, deletedAt: t, updatedAt: t };
+        aChanged = true;
+      }
+      if (aChanged) saveTable("artifacts", arts);
+    }
+
+    let wChanged = false;
+    for (let i = 0; i < workflows.length; i++) {
+      const w = workflows[i];
+      if (w.deletedAt) continue;
+      if (String(w.packageId) !== pid) continue;
+      workflows[i] = { ...w, deletedAt: t, updatedAt: t };
+      wChanged = true;
+    }
+    if (wChanged) saveTable("workflows", workflows);
+  }
+
+  if (boardIds.size > 0) {
+    const boards = loadTable("boards");
+    let bChanged = false;
+    for (let i = 0; i < boards.length; i++) {
+      const b = boards[i];
+      if (b.deletedAt) continue;
+      if (!boardIds.has(String(b.id))) continue;
+      boards[i] = { ...b, deletedAt: t, updatedAt: t };
+      bChanged = true;
+    }
+    if (bChanged) saveTable("boards", boards);
+  }
+
+  const pkgs = loadTable("packages");
+  const pIdx = pkgs.findIndex((p) => String(p.id) === pid && !p.deletedAt);
+  if (pIdx < 0) return false;
+  pkgs[pIdx] = { ...pkgs[pIdx], deletedAt: t, updatedAt: t };
+  saveTable("packages", pkgs);
+  return true;
+}

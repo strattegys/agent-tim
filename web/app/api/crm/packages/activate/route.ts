@@ -84,9 +84,6 @@ export async function POST(req: NextRequest) {
     );
     if (existingWfs.length > 0) {
       await query(`UPDATE "_package" SET stage = $1, "updatedAt" = NOW() WHERE id = $2`, [targetStage, packageId]);
-      if (packageStageDisallowsFakeData(targetStage)) {
-        await stripUseFakeDataFromPackageSpec(packageId);
-      }
       const activationLog = [
         `[${new Date().toISOString()}] Re-activate: ${existingWfs.length} existing workflow(s), stage → ${targetStage}`,
         ...existingWfs.map(

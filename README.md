@@ -86,6 +86,18 @@ npm run local-prod                 # LOCALPROD http://localhost:3001 (build + st
 
 Do **not** run two servers on the **same** port (e.g. LOCALPROD on 3001 vs anything else on 3001). LOCALDEV uses **3010** so it can run alongside LOCALPROD on **3001** if needed.
 
+### LOCALPROD after pushing to GitHub
+
+GitHub Actions updates the **droplet**; your **Docker LOCALPROD** image on this PC does **not** update until you rebuild. **Restart** in Docker Desktop is **not** sufficient (same image layers).
+
+From the **`COMMAND-CENTRAL`** repo root:
+
+```powershell
+.\scripts\pull-master-and-localprod-up.ps1
+```
+
+That **fast-forwards `master`** from **`origin`** and runs **`docker-local-prod-desktop-up.ps1`** (includes **`docker compose ... up -d --build`**). Use this after merges to **`master`** when you want **http://localhost:3001** to match what you shipped.
+
 ### CRM Postgres (Kanban, workflow builder, real CRM data)
 
 Workflows and Kanban read/write **PostgreSQL** via [`web/lib/db.ts`](web/lib/db.ts). If **`CRM_DB_PASSWORD`** is missing, the app uses an in-memory **`.dev-store/`** — fine for UI experiments, but **pipelines will be empty or fake**.

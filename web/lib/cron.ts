@@ -606,6 +606,19 @@ export function getCronJobs(agentId?: string): CronJobConfig[] {
   return jobs;
 }
 
+/** For `/api/cron-status` — distinguish “scheduling allowed” vs “node-cron tasks actually attached”. */
+export function getCronSchedulerSnapshot(): {
+  timersAttached: number;
+  registrySize: number;
+  handlersSize: number;
+} {
+  return {
+    timersAttached: scheduledTasks.size,
+    registrySize: jobRegistry.size,
+    handlersSize: globalForCron.__cronJobHandlers?.size ?? 0,
+  };
+}
+
 /** Stop all cron jobs (for graceful shutdown) */
 export function stopAllCrons(): void {
   for (const task of scheduledTasks.values()) {

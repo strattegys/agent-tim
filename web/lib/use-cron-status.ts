@@ -16,11 +16,20 @@ export type CronStatusJob = {
   lastResult: string | null;
 };
 
+export type CronSchedulerStatus = {
+  schedulingAllowed: boolean;
+  timersAttached: number;
+  registrySize: number;
+  handlersSize: number;
+  workflowTraceBufferOn: boolean;
+};
+
 export type CronStatusResponse = {
   jobs: CronStatusJob[];
-  /** False on LOCALDEV / LOCALPROD / next dev — crons run on hosted server only. */
+  /** True only when this process may run node-cron timers (hosted prod, or CC_FORCE_SERVER_CRON=1 locally). */
   serverCronsActive?: boolean;
   serverCronsNote?: string;
+  scheduler?: CronSchedulerStatus;
 };
 
 async function fetchCronStatus(url: string): Promise<CronStatusResponse> {

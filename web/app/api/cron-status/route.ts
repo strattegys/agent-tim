@@ -31,11 +31,15 @@ export async function GET(req: NextRequest) {
           return NextResponse.json({ ...data, cronStatusSource: "hosted" });
         }
         const text = await r.text().catch(() => "");
+        const unauthorized =
+          r.status === 401
+            ? "Hosted server rejected x-internal-key — use the same INTERNAL_API_KEY as web/.env.local on the droplet (see scripts/patch-server-internal-api-key.mjs)."
+            : text.slice(0, 240);
         return NextResponse.json(
           {
             error: "hosted_cron_status_failed",
             httpStatus: r.status,
-            detail: text.slice(0, 240),
+            detail: unauthorized,
             jobs: [],
             cronStatusSource: "error",
           },
@@ -70,9 +74,9 @@ export async function GET(req: NextRequest) {
       lastRun: null,
       lastResult: null,
     }));
-    const cronStatusMessage = !origin
-      ? "Set CC_HOSTED_APP_URL in web/.env.local to your hosted Command Central origin (https://…)."
-      : "Set INTERNAL_API_KEY (same as on the hosted server) or CC_HOSTED_INTERNAL_API_KEY so this app can load live cron status.";
+    const cronStatusMessage = !internalKey
+      ? "Add INTERNAL_API_KEY to web/.env.local — it must match the hosted droplet (same file the server uses). See scripts/patch-server-internal-api-key.mjs. Optional: CC_HOSTED_INTERNAL_API_KEY if you keep a different local key."
+      : "Set CC_HOSTED_APP_URL to a valid https:// origin, or remove it to use the default production host.";
     return NextResponse.json({
       jobs,
       serverCronsActive: false,

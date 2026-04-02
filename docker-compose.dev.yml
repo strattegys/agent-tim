@@ -92,6 +92,8 @@ services:
       - AUTH_URL=http://localhost:3010
       - NEXTAUTH_URL=http://localhost:3010
       - NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV
+      # Friday → Cron tab: proxy last-run data from production (override for staging).
+      - CC_HOSTED_APP_URL=https://stratt-central.b2bcontentartist.com
       # Isolate chat JSONL + on-disk memory from LOCALPROD / droplet paths (see web/lib/agent-config.ts).
       - CC_AGENT_CHAT_PROFILE=localdev
       # Full app shell in Docker dev even if web/.env.local copies droplet settings (CC_PUBLIC_APP_UI=backend).

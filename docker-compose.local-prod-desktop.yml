@@ -39,6 +39,8 @@ services:
     # can inherit the **host** variable on Windows (e.g. localprod) and hide all canonical session files.
     environment:
       CC_AGENT_CHAT_PROFILE: ""
+      # Friday → Cron tab: proxy last-run data from production (override for staging).
+      CC_HOSTED_APP_URL: https://stratt-central.b2bcontentartist.com
       # Must not be HOSTED — db.ts would force crm-db; this stack uses Tailscale/tunnel CRM on the droplet.
       CC_RUNTIME_STACK: LOCALPROD
       CC_BUNDLED_CRM_SERVICE: "0"

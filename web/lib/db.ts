@@ -19,14 +19,24 @@ let crmRouteMode: CrmRouteMode = "primary";
 let warnedDockerLoopbackCrm = false;
 let warnedHostedComposeCrmOverride = false;
 
-/** DigitalOcean stack: `web` and `crm-db` share a compose network. BWS/.env.local often keeps laptop tunnel vars (127.0.0.1:5433), which break inside the container (ECONNREFUSED). */
+/**
+ * DigitalOcean stack: `web` and `crm-db` share a compose network. BWS/.env.local often keeps laptop tunnel
+ * vars (127.0.0.1:5433), which break inside the container (ECONNREFUSED).
+ *
+ * Uses **CC_RUNTIME_STACK** (server-only, set in compose) — not `NEXT_PUBLIC_CC_RUNTIME_LABEL`, which Next.js
+ * can inline at build time and incorrectly leave as LOCALPROD on the droplet image.
+ */
 function useHostedDropletComposeCrm(): boolean {
   if (process.env.NODE_ENV !== "production") return false;
-  if (getLocalRuntimeLabel() !== null) return false;
   if (!isInsideLinuxDocker()) return false;
   if (!process.env.CRM_DB_PASSWORD?.trim()) return false;
   if (process.env.CRM_DB_USE_COMPOSE_SERVICE?.trim() === "0") return false;
-  return true;
+
+  const stack = process.env.CC_RUNTIME_STACK?.trim().toUpperCase();
+  if (stack === "LOCALPROD" || stack === "LOCALDEV") return false;
+  if (stack === "HOSTED") return true;
+  // Older compose files (before CC_RUNTIME_STACK): infer from UI label — fragile if NEXT_PUBLIC_* was build-baked.
+  return getLocalRuntimeLabel() === null;
 }
 
 function shouldOfferCrmTailscaleFallback(): boolean {

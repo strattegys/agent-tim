@@ -39,6 +39,8 @@ services:
     # can inherit the **host** variable on Windows (e.g. localprod) and hide all canonical session files.
     environment:
       CC_AGENT_CHAT_PROFILE: ""
+      # Must not be HOSTED — db.ts would force crm-db; this stack uses Tailscale/tunnel CRM on the droplet.
+      CC_RUNTIME_STACK: LOCALPROD
       AUTH_URL: http://localhost:3001
       NEXTAUTH_URL: http://localhost:3001
       # Friday → Observation Post + /api/dev/observability* (NODE_ENV=production in this stack)

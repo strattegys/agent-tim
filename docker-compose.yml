@@ -75,6 +75,8 @@ services:
       # Hosted droplet only: clear laptop runtime labels / cron kill-switch if they appear in web/.env.local (BWS).
       # Server crons (LinkedIn, discovery, heartbeats) require no LOCALDEV|LOCALPROD label and no CC_DISABLE_SERVER_CRON=1.
       - NEXT_PUBLIC_CC_RUNTIME_LABEL=
+      # Server-only (not NEXT_PUBLIC): lib/db.ts uses this so CRM always targets crm-db — avoids build-inlined LOCALPROD.
+      - CC_RUNTIME_STACK=HOSTED
       - CC_DISABLE_SERVER_CRON=
       # Always reach Postgres on the compose network (overrides CRM_DB_HOST in .env.local for production).
       # web/lib/db.ts also forces crm-db:5432 inside hosted Docker if BWS still has laptop 127.0.0.1:5433.

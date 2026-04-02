@@ -361,10 +361,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
         name: "Knowledge Studio (cadence)",
         schedule: "23 * * * *",
         description:
-          "Runs due Knowledge Studio topics for Marni and Tim: web research → chunks when cadenceMinutes elapsed",
+          "Runs due Knowledge Studio topics for Marni and Tim: web research → chunks when cadenceMinutes elapsed. Turn off via Friday → Cron pause, not code.",
         handler: "marni-kb-cadence",
-        /** Paused: CRM missing `topic_kind` until migrate-kb-topic-kind.sql is applied / code aligned. Re-enable when ready. */
-        enabled: false,
       },
     ],
     heartbeat: null,

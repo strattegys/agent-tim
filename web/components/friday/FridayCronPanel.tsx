@@ -227,11 +227,7 @@ export default function FridayCronPanel() {
             <article
               key={job.id}
               className={`rounded-lg border bg-[var(--bg-primary)] p-3 shadow-sm flex flex-col ${
-                !job.enabled
-                  ? "border-[var(--border-color)] opacity-50"
-                  : isError
-                    ? "border-red-500/40"
-                    : "border-[var(--border-color)]"
+                isError ? "border-red-500/40" : "border-[var(--border-color)]"
               }`}
             >
               <div className="flex items-start justify-between gap-2">
@@ -240,11 +236,6 @@ export default function FridayCronPanel() {
                     <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
                       {job.name}
                     </p>
-                    {!job.enabled && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-tertiary)] shrink-0">
-                        disabled
-                      </span>
-                    )}
                     {visuallyPaused ? (
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-200 shrink-0">
                         paused
@@ -330,12 +321,6 @@ export default function FridayCronPanel() {
                   </label>
                 ) : null}
               </div>
-              {!job.enabled && pauseEditable ? (
-                <p className="mt-1 text-[9px] text-[var(--text-tertiary)] leading-snug">
-                  Not scheduled (disabled in registry). Checking pause still saves on the server so this job
-                  stays skipped if you enable it in code later.
-                </p>
-              ) : null}
               {pauseFromEnv ? (
                 <p className="mt-1.5 text-[9px] text-amber-800/90 dark:text-amber-200/90">
                   Also listed in <code className="font-mono">CC_CRON_PAUSED_IDS</code> — remove there to fully unpause.

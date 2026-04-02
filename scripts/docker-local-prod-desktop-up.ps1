@@ -71,7 +71,30 @@ if (-not (Test-Path $cronPauseDir)) {
   Write-Host "Created $cronPauseDir (cron pause bind mount)." -ForegroundColor DarkGray
 }
 
+Write-Host "Checking Docker engine..." -ForegroundColor Gray
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
+docker ps 2>&1 | Out-Null
+$dockerOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEap
+if (-not $dockerOk) {
+  Write-Host ""
+  Write-Host "Docker engine is not reachable (Docker Desktop not running or still starting)." -ForegroundColor Red
+  Write-Host "  1) Start Docker Desktop from the Start menu" -ForegroundColor Yellow
+  Write-Host "  2) Wait until it shows Engine running (whale icon steady)" -ForegroundColor Yellow
+  Write-Host "  3) Re-run: .\scripts\docker-local-prod-desktop-up.ps1" -ForegroundColor Yellow
+  Write-Host "     or:  .\scripts\pull-master-and-localprod-up.ps1" -ForegroundColor Yellow
+  exit 1
+}
+
+Write-Host "Starting stack (build may take several minutes)..." -ForegroundColor Cyan
 docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml up -d --build
+if ($LASTEXITCODE -ne 0) {
+  Write-Host ""
+  Write-Error "docker compose failed (exit code $LASTEXITCODE). Scroll up for the error from Docker/build."
+  exit $LASTEXITCODE
+}
+
 Write-Host ""
 Write-Host 'LOCALPROD (Docker Desktop project cc-localprod):'
 Write-Host "  Web: cc-localprod-p3001  ->  http://localhost:3001"

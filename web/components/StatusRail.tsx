@@ -158,7 +158,7 @@ function buildConsolidatedSystemRows(services: ServiceRow[] | null): ServiceRow[
   return [commandCentral, dataPlatform, websiteProjects, servicesRow];
 }
 
-export type StatusRailLabMode = "off" | "tim" | "friday";
+export type StatusRailLabMode = "off" | "tim" | "friday" | "devNeutral";
 
 interface StatusRailProps {
   agents: AgentConfig[];
@@ -167,8 +167,11 @@ interface StatusRailProps {
   /**
    * Desktop lab layouts: wider right column, no per-agent heartbeat poll.
    * `tim` — Unipile + Groq log dock. `friday` — Data Platform + notices/alerts (CRM workflow focus).
+   * `devNeutral` — compact dev chrome without Tim/Friday log docks (other agents).
    */
   labMode?: StatusRailLabMode;
+  /** Shown in the rail header when `labMode` is `devNeutral` (e.g. active agent display name). */
+  devLayoutAgentLabel?: string | null;
 }
 
 function formatAlertTime(ts: string) {
@@ -327,10 +330,19 @@ export default function StatusRail({
   agents,
   sharedNotifications,
   labMode = "off",
+  devLayoutAgentLabel,
 }: StatusRailProps) {
   const labDockActive = labMode === "tim" || labMode === "friday";
   const railTitle =
-    labMode === "tim" ? "Tim lab" : labMode === "friday" ? "Friday lab" : "System monitor";
+    labMode === "tim"
+      ? "Tim lab"
+      : labMode === "friday"
+        ? "Friday lab"
+        : labMode === "devNeutral"
+          ? devLayoutAgentLabel
+            ? `Dev layout · ${devLayoutAgentLabel}`
+            : "Dev layout"
+          : "System monitor";
   const [services, setServices] = useState<ServiceRow[] | null>(null);
   /** Set when /api/system-status is non-OK, times out, or cannot be parsed (session, server crash, etc.). */
   const [systemStatusFetchHint, setSystemStatusFetchHint] = useState<string | null>(null);
@@ -597,6 +609,13 @@ export default function StatusRail({
         <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
         {statusFetchBanner}
         {systemStatusSection}
+
+        {labMode === "devNeutral" ? (
+          <p className="text-[9px] leading-snug text-[var(--text-tertiary)] font-mono">
+            System monitor — no agent-specific lab logs for this workspace. Use Tim or Friday with Dev
+            when you need Unipile or workflow traces.
+          </p>
+        ) : null}
 
         <section>
           <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">

@@ -5,34 +5,30 @@ import type { TimWorkQueueSelection } from "@/lib/tim-work-context";
 import TimCrmPanel from "./TimCrmPanel";
 import TimMessagesPanel from "./TimMessagesPanel";
 
-export type TimWorkPanelTab = "active" | "pending" | "crm";
+export type TimWorkPanelTab = "messaging" | "crm";
 
 interface TimAgentPanelProps {
-  /** Actionable items (excludes waiting follow-up) — same as human-tasks `count` for Tim */
-  messageQueueCount?: number;
-  /** Warm-outreach MESSAGED / waiting follow-up rows */
-  pendingQueueCount?: number;
+  /** Active workflow rows + pending follow-up + inbound receipt rows (dashboard unified count). */
+  unifiedMessagingCount?: number;
   onTimWorkSelectionChange?: (selection: TimWorkQueueSelection | null) => void;
 }
 
 /**
- * Tim’s work panel: Active / Pending work queues plus a **CRM** directory tab (see `AGENT_UI_ARCHITECTURE.md`).
+ * Tim’s work panel: unified messaging queue + **CRM** directory tab (see `AGENT_UI_ARCHITECTURE.md`).
  */
 export default function TimAgentPanel({
-  messageQueueCount = 0,
-  pendingQueueCount = 0,
+  unifiedMessagingCount = 0,
   onTimWorkSelectionChange,
 }: TimAgentPanelProps) {
-  const [tab, setTab] = useState<TimWorkPanelTab>("active");
+  const [tab, setTab] = useState<TimWorkPanelTab>("messaging");
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2 gap-0.5">
-        {(["active", "pending", "crm"] as const).map((key) => {
-          const label =
-            key === "active" ? "Active Work Queue" : key === "pending" ? "Pending Work Queue" : "CRM";
+        {(["messaging", "crm"] as const).map((key) => {
+          const label = key === "messaging" ? "Messaging" : "CRM";
           const isActive = tab === key;
-          const count = key === "active" ? messageQueueCount : key === "pending" ? pendingQueueCount : 0;
+          const count = key === "messaging" ? unifiedMessagingCount : 0;
           const showBadge = count > 0 && key !== "crm";
           return (
             <button
@@ -62,11 +58,7 @@ export default function TimAgentPanel({
         {tab === "crm" ? (
           <TimCrmPanel />
         ) : (
-          <TimMessagesPanel
-            embedded
-            queueTab={tab}
-            onWorkSelectionChange={onTimWorkSelectionChange}
-          />
+          <TimMessagesPanel embedded onWorkSelectionChange={onTimWorkSelectionChange} />
         )}
       </div>
     </div>

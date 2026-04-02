@@ -19,6 +19,7 @@
     "seed:tim-test-queue": "npx tsx scripts/seed-tim-test-queue.ts",
     "seed:agent-builder": "npx tsx scripts/seed-agent-builder-package.ts",
     "check-crm-db": "node scripts/check-crm-db.mjs",
+    "report:packaged-li-responders": "node scripts/db-exec.mjs scripts/find-packaged-linkedin-responders.sql",
     "check-gemini-env": "node scripts/check-gemini-env.mjs",
     "db:reconnect": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/dev-db-reconnect.ps1",
     "db:reconnect:bridge": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/dev-db-reconnect.ps1 -UseTailscaleBridge",
@@ -47,7 +48,8 @@
     "migrate:tim-crm-slice": "node scripts/migrate-tim-crm-slice.mjs",
     "migrate:linkedin-connection-intake": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/migrate-linkedin-connection-intake-items.ts",
     "backfill:tim-human-task-open": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-tim-human-task-open.ts",
-    "cleanup:person-dupes": "node --env-file=.env.local -r ./scripts/empty-server-only.cjs --import tsx ./scripts/cleanup-person-duplicates.ts"
+    "cleanup:person-dupes": "node --env-file=.env.local -r ./scripts/empty-server-only.cjs --import tsx ./scripts/cleanup-person-duplicates.ts",
+    "architecture:report": "node -e \"require('fs').mkdirSync('public/architecture/depcruise',{recursive:true})\" && depcruise --config .dependency-cruiser.cjs --output-type mermaid --output-to public/architecture/depcruise/graph.mmd --collapse 2 app components lib && depcruise --config .dependency-cruiser.cjs --output-type mermaid --output-to public/architecture/depcruise/graph-lib.mmd --collapse 2 lib"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
@@ -73,6 +75,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "cross-env": "^7.0.3",
+    "dependency-cruiser": "^17.3.6",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"

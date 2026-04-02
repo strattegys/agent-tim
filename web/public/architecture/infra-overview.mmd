@@ -1,0 +1,54 @@
+%% High-level DEV-MASTER picture (no secrets). Update when PROJECT-MEMORY infrastructure changes.
+%% Local DEV / LOCALPROD: same Compose app image as production, run on the laptop (not via droplet Caddy).
+%% Mobile: planned core client — document structure now; wire when app exists.
+flowchart TB
+  subgraph clients [Clients]
+    Browser[Browser hosted HTTPS]
+    TailscaleClient[Tailscale optional]
+    LocalDev[Local DEV Node or Docker dev stack]
+    LocalProd[Local PROD Docker desktop]
+    Mobile[Mobile client planned core roadmap]
+  end
+
+  subgraph ccDroplet [Command_Central_droplet]
+    CC_Caddy[Caddy TLS]
+    CC_Compose[Docker Compose]
+    CC_Web[Next Command Central web]
+    CC_CRM[(CRM Postgres crm-db on this droplet)]
+    CC_SaaS["LLM and vendor APIs (outbound from CC web)"]
+    CC_Caddy --> CC_Compose
+    CC_Compose --> CC_Web
+    CC_Web --> CC_CRM
+    CC_Web --> CC_SaaS
+  end
+
+  subgraph psDroplet [Project_Server_droplet]
+    PS_Caddy[Caddy TLS]
+    PS_Compose[Docker Compose]
+    PS_Site[Next strattegys site]
+    PS_AgentArmy[Next agent army]
+    PS_Rainbow[RainbowBot]
+    PS_Kokoro[Kokoro TTS]
+    PS_SaaS["LLM and vendor APIs (outbound from PS apps)"]
+    PS_Caddy --> PS_Compose
+    PS_Compose --> PS_Site
+    PS_Compose --> PS_AgentArmy
+    PS_Compose --> PS_Rainbow
+    PS_Compose --> PS_Kokoro
+    PS_Site --> PS_SaaS
+    PS_AgentArmy --> PS_SaaS
+  end
+
+  subgraph external [External]
+    GH[GitHub Actions deploy]
+  end
+
+  Browser --> CC_Caddy
+  Browser --> PS_Caddy
+  TailscaleClient --> CC_Caddy
+  TailscaleClient --> PS_Caddy
+  LocalDev -.->|laptop same stack| CC_Compose
+  LocalProd -.->|Docker desktop| CC_Compose
+  Mobile -.->|planned core client| CC_Caddy
+  GH --> ccDroplet
+  GH --> psDroplet

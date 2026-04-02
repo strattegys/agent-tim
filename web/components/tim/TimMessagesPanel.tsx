@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useId } from "react";
 import useSWR from "swr";
 import { panelBus } from "@/lib/events";
 import { useDocumentVisible } from "@/lib/use-document-visible";
@@ -29,6 +29,13 @@ const NO_REJECT_STAGES = new Set([
 
 interface MessagingTask {
   itemId: string;
+  /** Sidebar row kind; workflow rows omit this. */
+  queueRowKind?: "linkedin_inbound";
+  receiptId?: string;
+  /** When queueRowKind is linkedin_inbound, workflow item for ArtifactViewer / resolve. */
+  artifactWorkflowItemId?: string | null;
+  unipileMessageId?: string | null;
+  linkedinChatId?: string | null;
   itemTitle: string;
   itemSubtitle: string;
   sourceId: string | null;
@@ -53,6 +60,8 @@ interface MessagingTask {
   lastMessageAt?: string | null;
   /** Warm-outreach MESSAGED — visible in Tim’s list but not an actionable draft submit */
   waitingFollowUp?: boolean;
+  /** From human-tasks API; drives Needs action vs Waiting when stages are ambiguous */
+  humanTaskOpen?: boolean;
   /** Discovery slot: Next/Contact placeholder person — show “add contact” in strip */
   contactSlotOpen?: boolean;
   contactName?: string | null;
@@ -157,6 +166,7 @@ function timPersonWorkflowHeaderDetail(task: MessagingTask) {
 }
 
 function timShowsArtifactSubmit(task: MessagingTask): boolean {
+  if (task.queueRowKind === "linkedin_inbound") return false;
   if (task.waitingFollowUp) return false;
   return (
     task.stage === "MESSAGE_DRAFT" ||
@@ -181,7 +191,8 @@ function timQueueUsesContactHeadline(task: MessagingTask): boolean {
     task.workflowType === "warm-outreach" ||
     task.workflowType === "linkedin-general-inbox" ||
     task.workflowType === "linkedin-connection-intake" ||
-    task.workflowType === "linkedin-outreach"
+    task.workflowType === "linkedin-outreach" ||
+    task.workflowType === "linkedin-inbound-message"
   );
 }
 
@@ -297,28 +308,72 @@ function formatTimQueueItemDateTime(task: MessagingTask): string {
   });
 }
 
-function messageAffiliationLine(t: MessagingTask): string {
-  if (!t.packageId) {
-    if (t.workflowName?.trim()) return `General · ${t.workflowName.trim()}`;
-    return "General";
-  }
-  const num =
-    t.packageNumber != null && !Number.isNaN(t.packageNumber) ? `#${t.packageNumber} ` : "";
-  const pkg = `${num}${(t.packageName && t.packageName.trim()) || "Package"}`.trim();
-  const wf = t.workflowName?.trim() || "Workflow";
-  return `${pkg} · ${wf}`;
+/** Three tabs only — mutual buckets over the merged Tim list (workflow + inbound receipts). */
+type TimBucketTab = "needs_action" | "waiting" | "messages";
+
+/** Packaged Agent Army / cold outreach: conversation active — triage under Messages, not mixed with pre-send drafts. */
+const PACKAGED_LINKEDIN_TRIAGE_STAGES = new Set([
+  "REPLY_DRAFT",
+  "LINKEDIN_INBOUND",
+  "REPLIED",
+]);
+
+/** Empty `selectedTypes` means no type filter (show all). */
+function taskMatchesWorkflowTypes(task: MessagingTask, selectedTypes: string[]): boolean {
+  if (selectedTypes.length === 0) return true;
+  return selectedTypes.includes(task.workflowType);
 }
 
-type TimQueueFilter =
-  | { type: "all" }
-  | { type: "workflow"; workflowType: string }
-  | { type: "package"; packageId: string };
+function timTaskBucket(task: MessagingTask): TimBucketTab {
+  if (task.queueRowKind === "linkedin_inbound") return "messages";
+  const wf = task.workflowType;
+  if (
+    wf === "linkedin-general-inbox" ||
+    wf === "linkedin-connection-intake" ||
+    wf === "linkedin-inbound-message"
+  ) {
+    return "messages";
+  }
+  if (
+    wf === "linkedin-outreach" &&
+    Boolean(task.packageId) &&
+    PACKAGED_LINKEDIN_TRIAGE_STAGES.has((task.stage || "").trim().toUpperCase())
+  ) {
+    return "messages";
+  }
+  if (task.waitingFollowUp) return "waiting";
+  if (wf === "reply-to-close") {
+    const sk = (task.stage || "").trim().toUpperCase();
+    if (
+      sk === "AWAITING_THEIR_REPLY" ||
+      sk === "AWAITING_AFTER_FOLLOW_UP_ONE" ||
+      sk === "AWAITING_AFTER_FOLLOW_UP_TWO"
+    ) {
+      return "waiting";
+    }
+  }
+  if (wf === "linkedin-outreach") {
+    const sk = (task.stage || "").trim().toUpperCase();
+    if (
+      sk === "INITIATED" ||
+      sk === "ACCEPTED" ||
+      sk === "MESSAGED" ||
+      sk === "AWAITING_THEIR_REPLY" ||
+      sk === "AWAITING_AFTER_FOLLOW_UP_ONE" ||
+      sk === "AWAITING_AFTER_FOLLOW_UP_TWO" ||
+      sk === "FOLLOW_UP_ONE_SENT" ||
+      sk === "FOLLOW_UP_TWO_SENT" ||
+      sk === "REPLY_SENT"
+    ) {
+      return "waiting";
+    }
+  }
+  if (task.humanTaskOpen === false) return "waiting";
+  return "needs_action";
+}
 
-function taskMatchesQueueFilter(task: MessagingTask, f: TimQueueFilter): boolean {
-  if (f.type === "all") return true;
-  if (f.type === "workflow") return task.workflowType === f.workflowType;
-  if (f.type === "package") return task.packageId === f.packageId;
-  return true;
+function taskMatchesBucket(task: MessagingTask, tab: TimBucketTab): boolean {
+  return timTaskBucket(task) === tab;
 }
 
 function workflowTypeFilterLabel(wt: string): string {
@@ -331,6 +386,8 @@ function workflowTypeFilterLabel(wt: string): string {
       return "LinkedIn inbox";
     case "linkedin-connection-intake":
       return "LinkedIn connection";
+    case "linkedin-inbound-message":
+      return "LinkedIn messages";
     default:
       return wt.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) || "Other";
   }
@@ -339,18 +396,25 @@ function workflowTypeFilterLabel(wt: string): string {
 const POLL_INTERVAL_MS = 30_000;
 const POLL_INTERVAL_HIDDEN_MS = 120_000;
 const TIM_QUEUE_PAGE = 120;
-const TIM_QUEUE_SWR_KEY = "tim-messaging-queue";
+/** Cards per page in the sidebar list (keep DOM small). */
+const TIM_QUEUE_LIST_PAGE_SIZE = 5;
+/** Workflow rows only — skips linkedinInboundFeed on the server (faster first paint). */
+const TIM_QUEUE_WORKFLOW_SWR_KEY = "tim-messaging-workflow";
+/** Inbound receipt rows — separate request; heavy LATERAL join per receipt. */
+const TIM_QUEUE_INBOUND_SWR_KEY = "tim-messaging-inbound";
+const TIM_INBOUND_FEED_LIMIT = 80;
 
 interface TimTasksPage {
-  tasks: MessagingTask[];
+  workflowTasks: MessagingTask[];
   hasMore: boolean;
   nextOffset: number | null;
 }
 
-async function fetchTimTasksPage(): Promise<TimTasksPage> {
+async function fetchTimWorkflowPage(): Promise<TimTasksPage> {
   const qs = new URLSearchParams({
     ownerAgent: "tim",
     messagingOnly: "1",
+    linkedinInboundFeed: "0",
     limit: String(TIM_QUEUE_PAGE),
     offset: "0",
   });
@@ -358,7 +422,7 @@ async function fetchTimTasksPage(): Promise<TimTasksPage> {
   if (!r.ok) throw new Error(`Could not load queue (HTTP ${r.status}).`);
   const raw = await r.json();
   return {
-    tasks: Array.isArray(raw.tasks)
+    workflowTasks: Array.isArray(raw.tasks)
       ? raw.tasks.map((t: Record<string, unknown>) => mapRawToMessagingTask(t))
       : [],
     hasMore: Boolean(raw.hasMore),
@@ -366,9 +430,38 @@ async function fetchTimTasksPage(): Promise<TimTasksPage> {
   };
 }
 
+async function fetchTimInboundFeedPage(): Promise<MessagingTask[]> {
+  const qs = new URLSearchParams({
+    ownerAgent: "tim",
+    messagingInboundOnly: "1",
+    inboundFeedLimit: String(TIM_INBOUND_FEED_LIMIT),
+  });
+  const r = await fetch(`/api/crm/human-tasks?${qs}`, { credentials: "include" });
+  if (!r.ok) throw new Error(`Could not load inbound feed (HTTP ${r.status}).`);
+  const raw = await r.json();
+  return Array.isArray(raw.linkedinInboundFeed)
+    ? raw.linkedinInboundFeed.map((t: Record<string, unknown>) => mapRawToMessagingTask(t))
+    : [];
+}
+
 function mapRawToMessagingTask(t: Record<string, unknown>): MessagingTask {
+  const qrk = t.queueRowKind === "linkedin_inbound" ? "linkedin_inbound" : undefined;
   return {
     itemId: String(t.itemId),
+    queueRowKind: qrk,
+    receiptId: t.receiptId != null ? String(t.receiptId) : undefined,
+    artifactWorkflowItemId:
+      t.artifactWorkflowItemId != null && String(t.artifactWorkflowItemId).trim() !== ""
+        ? String(t.artifactWorkflowItemId)
+        : null,
+    unipileMessageId:
+      t.unipileMessageId != null && String(t.unipileMessageId).trim() !== ""
+        ? String(t.unipileMessageId)
+        : null,
+    linkedinChatId:
+      t.linkedinChatId != null && String(t.linkedinChatId).trim() !== ""
+        ? String(t.linkedinChatId)
+        : null,
     itemTitle: String(t.itemTitle || ""),
     itemSubtitle: String(t.itemSubtitle || ""),
     sourceId: t.sourceId != null ? String(t.sourceId) : null,
@@ -392,6 +485,7 @@ function mapRawToMessagingTask(t: Record<string, unknown>): MessagingTask {
         ? String(t.updatedAt)
         : String(t.createdAt || ""),
     waitingFollowUp: Boolean(t.waitingFollowUp),
+    humanTaskOpen: typeof t.humanTaskOpen === "boolean" ? t.humanTaskOpen : true,
     contactSlotOpen: Boolean(t.contactSlotOpen),
     contactName: t.contactName != null ? String(t.contactName) : null,
     contactFirstName:
@@ -448,10 +542,13 @@ function TimQueueItemRow({
   task,
   active,
   onSelect,
+  className = "",
 }: {
   task: MessagingTask;
   active: boolean;
   onSelect: () => void;
+  /** e.g. `h-full min-h-0` when the row sits in a fixed-height slot */
+  className?: string;
 }) {
   const secondary = timQueueCardSecondaryLine(task);
   const whenLabel = formatTimQueueItemDateTime(task);
@@ -475,67 +572,44 @@ function TimQueueItemRow({
       type="button"
       onClick={onSelect}
       aria-current={active ? "true" : undefined}
-      className={`w-full text-left rounded-lg px-3 py-2.5 border transition-colors ${
+      className={`flex h-full min-h-0 w-full flex-col text-left rounded-lg border px-4 py-3.5 transition-colors ${
         active
           ? "border-[var(--accent-green)]/80 bg-[var(--accent-green)]/14 shadow-sm ring-2 ring-inset ring-[var(--accent-green)]/45"
           : "border-[var(--border-color)] bg-[var(--bg-primary)]/90 hover:border-[var(--text-tertiary)]/55 hover:bg-[var(--bg-primary)]"
-      }`}
+      } ${className}`.trim()}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div
-          className={`min-w-0 flex-1 line-clamp-2 text-[12px] leading-relaxed break-words ${active ? "font-semibold text-[var(--text-primary)]" : "font-semibold text-[var(--text-chat-body)]"}`}
-        >
-          {timQueueCardPrimaryTitle(task)}
-        </div>
-        {whenLabel ? (
-          <time
-            dateTime={whenIso || undefined}
-            title={whenTitle}
-            className="shrink-0 pt-0.5 text-[8px] leading-tight tabular-nums text-[var(--text-tertiary)]"
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div
+            className={`min-h-0 min-w-0 flex-1 line-clamp-2 text-[12px] leading-relaxed break-words ${active ? "font-semibold text-[var(--text-primary)]" : "font-semibold text-[var(--text-chat-body)]"}`}
           >
-            {whenLabel}
-          </time>
-        ) : null}
-      </div>
-      {secondary ? (
-        <div className="text-[10px] text-[var(--text-tertiary)] line-clamp-2 break-words mt-1.5 leading-snug">
-          {secondary}
+            {timQueueCardPrimaryTitle(task)}
+          </div>
+          {whenLabel ? (
+            <time
+              dateTime={whenIso || undefined}
+              title={whenTitle}
+              className="shrink-0 self-start pt-0.5 text-[8px] leading-tight tabular-nums text-[var(--text-tertiary)]"
+            >
+              {whenLabel}
+            </time>
+          ) : null}
         </div>
-      ) : null}
-      <div className="text-[9px] text-[var(--text-secondary)] truncate mt-1.5 leading-tight">
-        {messageAffiliationLine(task)}
-      </div>
-      <p
-        className="mt-1.5 font-mono text-[8px] leading-tight text-[var(--text-tertiary)] break-all select-all"
-        title={
-          task.sourceId
-            ? `Queue item ${task.itemId} · Person ${task.sourceId}`
-            : `Queue item ${task.itemId}`
-        }
-      >
-        {task.itemId}
-        {task.sourceId ? (
-          <>
-            <span className="text-[var(--text-tertiary)]/70"> · </span>
-            {task.sourceId}
-          </>
+        {secondary ? (
+          <div className="shrink-0 text-[10px] text-[var(--text-tertiary)] break-words leading-snug">
+            {secondary}
+          </div>
         ) : null}
-      </p>
+      </div>
     </button>
   );
 }
 
 export default function TimMessagesPanel({
   embedded = false,
-  queueTab,
   onWorkSelectionChange,
 }: {
   embedded?: boolean;
-  /**
-   * When set (e.g. from `TimAgentPanel` work tabs), only that queue is listed and selectable.
-   * When omitted, both Active and Pending sections render in one sidebar (standalone layout).
-   */
-  queueTab?: "active" | "pending";
   /** Lets main Tim chat include the selected queue row as ephemeral context. */
   onWorkSelectionChange?: (selection: TimWorkQueueSelection | null) => void;
 }) {
@@ -543,33 +617,61 @@ export default function TimMessagesPanel({
   const [syncingWarmContact, setSyncingWarmContact] = useState(false);
   const [warmSyncHint, setWarmSyncHint] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [queueFilter, setQueueFilter] = useState<TimQueueFilter>({ type: "all" });
+  /** Empty = all workflow types visible. */
+  const [selectedWorkflowTypes, setSelectedWorkflowTypes] = useState<string[]>([]);
+  const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
+  const typeDropdownRef = useRef<HTMLDivElement>(null);
+  const typeDropdownId = useId();
+  const [listPage, setListPage] = useState(1);
+  const [bucketTab, setBucketTab] = useState<TimBucketTab>("needs_action");
   const [resolveHint, setResolveHint] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const tabVisible = useDocumentVisible();
 
-  const { data: swrPage, error: swrError, isLoading: loading, mutate: refreshTasks } = useSWR<TimTasksPage>(
-    TIM_QUEUE_SWR_KEY,
-    fetchTimTasksPage,
+  const {
+    data: swrPage,
+    error: swrError,
+    isLoading: loadingWorkflow,
+    mutate: refreshWorkflow,
+  } = useSWR<TimTasksPage>(TIM_QUEUE_WORKFLOW_SWR_KEY, fetchTimWorkflowPage, {
+    refreshInterval: tabVisible ? POLL_INTERVAL_MS : POLL_INTERVAL_HIDDEN_MS,
+    revalidateOnFocus: true,
+    dedupingInterval: 10_000,
+  });
+
+  const { data: inboundFeedData, mutate: refreshInbound } = useSWR<MessagingTask[]>(
+    TIM_QUEUE_INBOUND_SWR_KEY,
+    fetchTimInboundFeedPage,
     {
-      refreshInterval: tabVisible ? POLL_INTERVAL_MS : POLL_INTERVAL_HIDDEN_MS,
+      refreshInterval: tabVisible ? POLL_INTERVAL_MS * 2 : POLL_INTERVAL_HIDDEN_MS * 2,
       revalidateOnFocus: true,
-      dedupingInterval: 10_000,
+      dedupingInterval: 15_000,
     },
   );
 
-  const tasks = swrPage?.tasks ?? [];
+  const workflowTasks = swrPage?.workflowTasks ?? [];
+  const inboundFeed = inboundFeedData ?? [];
+  const loading = loadingWorkflow;
   const loadError = swrError
     ? (swrError instanceof Error ? swrError.message : "Network error loading queue.")
     : null;
   const queueHasMore = swrPage?.hasMore ?? false;
 
+  const refreshQueue = useCallback(() => {
+    void refreshWorkflow();
+    void refreshInbound();
+  }, [refreshWorkflow, refreshInbound]);
+
   useEffect(() => {
-    const u1 = panelBus.on("workflow_items", () => void refreshTasks());
-    const u2 = panelBus.on("package_manager", () => void refreshTasks());
-    const u3 = panelBus.on("tim_human_task_progress", () => void refreshTasks());
-    return () => { u1(); u2(); u3(); };
-  }, [refreshTasks]);
+    const u1 = panelBus.on("workflow_items", refreshQueue);
+    const u2 = panelBus.on("package_manager", refreshQueue);
+    const u3 = panelBus.on("tim_human_task_progress", refreshQueue);
+    return () => {
+      u1();
+      u2();
+      u3();
+    };
+  }, [refreshQueue]);
 
   const loadMoreTasks = useCallback(async () => {
     if (!swrPage?.hasMore || loadingMore || swrPage.nextOffset == null) return;
@@ -578,6 +680,7 @@ export default function TimMessagesPanel({
       const qs = new URLSearchParams({
         ownerAgent: "tim",
         messagingOnly: "1",
+        linkedinInboundFeed: "0",
         limit: String(TIM_QUEUE_PAGE),
         offset: String(swrPage.nextOffset),
       });
@@ -587,14 +690,15 @@ export default function TimMessagesPanel({
       const next = Array.isArray(raw.tasks)
         ? raw.tasks.map((t: Record<string, unknown>) => mapRawToMessagingTask(t))
         : [];
-      await refreshTasks((prev) => {
+      await refreshWorkflow((prev) => {
         if (!prev) return prev;
-        const m = new Map(prev.tasks.map((x) => [x.itemId, x]));
+        const m = new Map(prev.workflowTasks.map((x) => [x.itemId, x]));
         for (const t of next) m.set(t.itemId, t);
+        const workflowTasksNext = [...m.values()].sort(
+          (a, b) => timQueueItemActivityTimeMs(b) - timQueueItemActivityTimeMs(a),
+        );
         return {
-          tasks: [...m.values()].sort(
-            (a, b) => timQueueItemActivityTimeMs(b) - timQueueItemActivityTimeMs(a),
-          ),
+          workflowTasks: workflowTasksNext,
           hasMore: Boolean(raw.hasMore),
           nextOffset: typeof raw.nextOffset === "number" ? raw.nextOffset : null,
         };
@@ -602,32 +706,50 @@ export default function TimMessagesPanel({
     } finally {
       setLoadingMore(false);
     }
-  }, [swrPage, loadingMore, refreshTasks]);
+  }, [swrPage, loadingMore, refreshWorkflow]);
 
-  const sortedTasks = useMemo(
-    () =>
-      [...tasks].sort(
-        (a, b) => timQueueItemActivityTimeMs(b) - timQueueItemActivityTimeMs(a)
-      ),
-    [tasks]
-  );
-  const activeQueue = useMemo(
-    () => sortedTasks.filter((t) => !t.waitingFollowUp),
-    [sortedTasks]
-  );
-  const pendingQueue = useMemo(
-    () => sortedTasks.filter((t) => t.waitingFollowUp),
-    [sortedTasks]
+  const sortedTasks = useMemo(() => {
+    const merged = [...workflowTasks, ...inboundFeed];
+    return merged.sort((a, b) => timQueueItemActivityTimeMs(b) - timQueueItemActivityTimeMs(a));
+  }, [workflowTasks, inboundFeed]);
+
+  const typeFilteredTasks = useMemo(
+    () => sortedTasks.filter((t) => taskMatchesWorkflowTypes(t, selectedWorkflowTypes)),
+    [sortedTasks, selectedWorkflowTypes],
   );
 
-  const filteredActiveQueue = useMemo(
-    () => activeQueue.filter((t) => taskMatchesQueueFilter(t, queueFilter)),
-    [activeQueue, queueFilter]
+  const bucketCounts = useMemo(() => {
+    let needs_action = 0;
+    let waiting = 0;
+    let messages = 0;
+    for (const t of typeFilteredTasks) {
+      const b = timTaskBucket(t);
+      if (b === "needs_action") needs_action += 1;
+      else if (b === "waiting") waiting += 1;
+      else messages += 1;
+    }
+    return { needs_action, waiting, messages };
+  }, [typeFilteredTasks]);
+
+  const filteredUnifiedQueue = useMemo(
+    () => typeFilteredTasks.filter((t) => taskMatchesBucket(t, bucketTab)),
+    [typeFilteredTasks, bucketTab],
   );
-  const filteredPendingQueue = useMemo(
-    () => pendingQueue.filter((t) => taskMatchesQueueFilter(t, queueFilter)),
-    [pendingQueue, queueFilter]
+
+  const filteredUnifiedQueueRef = useRef<MessagingTask[]>([]);
+  filteredUnifiedQueueRef.current = filteredUnifiedQueue;
+
+  const filterKey = useMemo(
+    () => `${bucketTab}|${[...selectedWorkflowTypes].sort().join(",")}`,
+    [bucketTab, selectedWorkflowTypes],
   );
+
+  const listPageCount = Math.max(1, Math.ceil(filteredUnifiedQueue.length / TIM_QUEUE_LIST_PAGE_SIZE));
+  const safeListPage = Math.min(listPage, listPageCount);
+  const paginatedQueue = useMemo(() => {
+    const start = (safeListPage - 1) * TIM_QUEUE_LIST_PAGE_SIZE;
+    return filteredUnifiedQueue.slice(start, start + TIM_QUEUE_LIST_PAGE_SIZE);
+  }, [filteredUnifiedQueue, safeListPage]);
 
   const workflowFilterOptions = useMemo(() => {
     const set = new Set<string>();
@@ -637,63 +759,46 @@ export default function TimMessagesPanel({
     return [...set].sort();
   }, [sortedTasks]);
 
-  const packageFilterOptions = useMemo(() => {
-    const m = new Map<string, { packageId: string; packageName: string; count: number }>();
-    for (const t of sortedTasks) {
-      if (!t.packageId) continue;
-      const prev = m.get(t.packageId);
-      if (prev) prev.count += 1;
-      else
-        m.set(t.packageId, {
-          packageId: t.packageId,
-          packageName: (t.packageName && t.packageName.trim()) || "Package",
-          count: 1,
-        });
-    }
-    return [...m.values()].sort((a, b) => b.count - a.count).slice(0, 6);
-  }, [sortedTasks]);
-
-  const visibleQueue = useMemo(() => {
-    if (queueTab === "active") return filteredActiveQueue;
-    if (queueTab === "pending") return filteredPendingQueue;
-    return null;
-  }, [queueTab, filteredActiveQueue, filteredPendingQueue]);
+  useEffect(() => {
+    setSelectedWorkflowTypes((prev) => prev.filter((wt) => workflowFilterOptions.includes(wt)));
+  }, [workflowFilterOptions]);
 
   useEffect(() => {
-    if (queueFilter.type === "workflow" && !workflowFilterOptions.includes(queueFilter.workflowType)) {
-      setQueueFilter({ type: "all" });
+    if (!selectedId) {
+      setListPage(1);
       return;
     }
-    if (queueFilter.type === "package") {
-      const stillHere = sortedTasks.some((t) => t.packageId === queueFilter.packageId);
-      if (!stillHere) setQueueFilter({ type: "all" });
-    }
-  }, [queueFilter, workflowFilterOptions, sortedTasks]);
+    const q = filteredUnifiedQueueRef.current;
+    const idx = q.findIndex((t) => t.itemId === selectedId);
+    if (idx < 0) setListPage(1);
+    else setListPage(Math.floor(idx / TIM_QUEUE_LIST_PAGE_SIZE) + 1);
+  }, [selectedId, filterKey]);
 
   useEffect(() => {
-    if (visibleQueue) {
-      if (visibleQueue.length === 0) {
-        setSelectedId(null);
-        return;
-      }
-      setSelectedId((prev) =>
-        prev && visibleQueue.some((t) => t.itemId === prev)
-          ? prev
-          : visibleQueue[0]?.itemId ?? null
-      );
-      return;
-    }
-    const ordered = [...filteredActiveQueue, ...filteredPendingQueue];
-    if (ordered.length === 0) {
+    setListPage((p) => Math.min(p, listPageCount));
+  }, [listPageCount]);
+
+  useEffect(() => {
+    if (!typeDropdownOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (typeDropdownRef.current?.contains(e.target as Node)) return;
+      setTypeDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [typeDropdownOpen]);
+
+  useEffect(() => {
+    if (filteredUnifiedQueue.length === 0) {
       setSelectedId(null);
       return;
     }
     setSelectedId((prev) =>
-      prev && ordered.some((t) => t.itemId === prev)
+      prev && filteredUnifiedQueue.some((t) => t.itemId === prev)
         ? prev
-        : filteredActiveQueue[0]?.itemId ?? filteredPendingQueue[0]?.itemId ?? null
+        : filteredUnifiedQueue[0]?.itemId ?? null,
     );
-  }, [visibleQueue, filteredActiveQueue, filteredPendingQueue]);
+  }, [filteredUnifiedQueue]);
 
   useEffect(() => {
     setWarmSyncHint(null);
@@ -702,15 +807,19 @@ export default function TimMessagesPanel({
 
   const selected = useMemo(() => {
     if (!selectedId) return null;
-    if (visibleQueue) {
-      return visibleQueue.find((t) => t.itemId === selectedId) ?? null;
-    }
-    return (
-      filteredActiveQueue.find((t) => t.itemId === selectedId) ??
-      filteredPendingQueue.find((t) => t.itemId === selectedId) ??
-      null
-    );
-  }, [visibleQueue, filteredActiveQueue, filteredPendingQueue, selectedId]);
+    return filteredUnifiedQueue.find((t) => t.itemId === selectedId) ?? null;
+  }, [filteredUnifiedQueue, selectedId]);
+
+  const effectiveWorkflowItemId = useMemo(() => {
+    if (!selected) return null;
+    const a = selected.artifactWorkflowItemId?.trim();
+    if (a) return a;
+    if (selected.queueRowKind === "linkedin_inbound") return null;
+    return selected.itemId;
+  }, [selected]);
+
+  /** `_workflow_item.id` for resolve, artifacts, and sync — empty when receipt row has no linked item. */
+  const workflowOpsItemId = (effectiveWorkflowItemId || "").trim();
 
   const isInputStage = Boolean(selected && INPUT_ONLY_STAGES.has(selected.stage));
 
@@ -720,13 +829,15 @@ export default function TimMessagesPanel({
     (selected.workflowType === "warm-outreach" ||
       selected.workflowType === "linkedin-outreach" ||
       selected.workflowType === "linkedin-general-inbox" ||
-      selected.workflowType === "linkedin-connection-intake")
+      selected.workflowType === "linkedin-connection-intake" ||
+      selected.workflowType === "linkedin-inbound-message")
       ? timPersonWorkflowHeaderDetail(selected)
       : undefined;
 
   const useLinkedInInboxIntakeWorkspace = Boolean(
     selected &&
       selected.sourceId &&
+      effectiveWorkflowItemId &&
       (selected.workflowType === "linkedin-connection-intake" ||
         (selected.workflowType === "linkedin-general-inbox" && selected.stage === "LINKEDIN_INBOUND"))
   );
@@ -754,6 +865,10 @@ export default function TimMessagesPanel({
     }
     onWorkSelectionChange({
       itemId: selected.itemId,
+      effectiveWorkflowItemId,
+      isLinkedInInboundReceiptRow: selected.queueRowKind === "linkedin_inbound",
+      workflowType: selected.workflowType,
+      sourceId: selected.sourceId,
       stage: selected.stage,
       stageLabel: selected.stageLabel,
       itemTitle: selected.itemTitle,
@@ -769,7 +884,7 @@ export default function TimMessagesPanel({
       omitLinkedInThreadFromChat:
         selected.workflowType === "warm-outreach" || selected.workflowType === "linkedin-outreach",
     });
-  }, [selected, isInputStage, focusedArtifact, onWorkSelectionChange, linkedInThreadTranscript]);
+  }, [selected, isInputStage, focusedArtifact, onWorkSelectionChange, linkedInThreadTranscript, effectiveWorkflowItemId]);
 
   useEffect(() => {
     return () => {
@@ -784,6 +899,7 @@ export default function TimMessagesPanel({
       notes?: string
     ) => {
       if (resolving) return;
+      if (itemId.startsWith("receipt:")) return;
       setResolving(itemId);
       try {
         const res = await fetch("/api/crm/human-tasks/resolve", {
@@ -796,7 +912,7 @@ export default function TimMessagesPanel({
           }),
         });
         const data = await res.json();
-        const taskRow = tasks.find((t) => t.itemId === itemId);
+        const taskRow = sortedTasks.find((t) => t.itemId === itemId);
         const resolvedPackageId =
           (data as { packageId?: string | null }).packageId ?? taskRow?.packageId ?? null;
         const pushLogs = (logs: string[]) => {
@@ -816,7 +932,7 @@ export default function TimMessagesPanel({
           panelBus.emit("tim_human_task_progress");
           panelBus.emit("dashboard_sync");
           await new Promise((r) => setTimeout(r, 350));
-          await refreshTasks();
+          await Promise.all([refreshWorkflow(), refreshInbound()]);
         } else {
           const errText =
             typeof (data as { error?: string }).error === "string"
@@ -833,13 +949,14 @@ export default function TimMessagesPanel({
       }
       setResolving(null);
     },
-    [refreshTasks, resolving, tasks]
+    [refreshWorkflow, refreshInbound, resolving, sortedTasks]
   );
 
   /** Header actions (ArtifactViewer top-right): warm-outreach steps + Reject when that transition is allowed. */
   const timArtifactHeaderActions = useMemo((): ArtifactConfirmedWorkflowAction[] | undefined => {
     if (!selected) return undefined;
-    const id = selected.itemId;
+    if (selected.queueRowKind === "linkedin_inbound" && !effectiveWorkflowItemId) return undefined;
+    const id = effectiveWorkflowItemId ?? selected.itemId;
     const actions: ArtifactConfirmedWorkflowAction[] = [];
 
     if (selected.workflowType === "linkedin-general-inbox") {
@@ -906,7 +1023,7 @@ export default function TimMessagesPanel({
     }
 
     return actions.length > 0 ? actions : undefined;
-  }, [selected, handleResolve]);
+  }, [selected, handleResolve, effectiveWorkflowItemId]);
 
   if (loading) {
     return (
@@ -920,7 +1037,7 @@ export default function TimMessagesPanel({
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {!embedded && (
         <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-          <span className="text-xs font-medium text-[var(--text-chat-body)]">Tim work queues</span>
+          <span className="text-xs font-medium text-[var(--text-chat-body)]">Tim messaging queue</span>
           {loadError && (
             <p className="text-[10px] text-[var(--text-secondary)] mt-1">{loadError}</p>
           )}
@@ -934,193 +1051,172 @@ export default function TimMessagesPanel({
 
       <div className="flex flex-1 min-h-0 flex-row">
         <aside
-          className="w-[20%] min-w-[140px] max-w-[260px] shrink-0 flex flex-col border-r border-[var(--border-color)] bg-[var(--bg-secondary)]/60"
-          aria-label={
-            queueTab === "active"
-              ? "Tim Active Work Queue"
-              : queueTab === "pending"
-                ? "Tim Pending Work Queue"
-                : "Tim message queues"
-          }
+          className="flex min-h-0 w-[30%] min-w-[192px] max-w-[312px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-secondary)]/60"
+          aria-label="Tim messaging queue"
         >
           <div className="shrink-0 px-2.5 py-2 border-b border-[var(--border-color)]/80 space-y-2">
             <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--text-tertiary)]">
-              {queueTab === "active"
-                ? `Active · ${filteredActiveQueue.length}${queueFilter.type !== "all" && filteredActiveQueue.length !== activeQueue.length ? ` / ${activeQueue.length}` : ""}`
-                : queueTab === "pending"
-                  ? `Pending · ${filteredPendingQueue.length}${queueFilter.type !== "all" && filteredPendingQueue.length !== pendingQueue.length ? ` / ${pendingQueue.length}` : ""}`
-                  : `Queues · ${sortedTasks.length}`}
+              {`List · ${filteredUnifiedQueue.length}${
+                selectedWorkflowTypes.length > 0 ? ` / ${typeFilteredTasks.length}` : ""
+              }`}
             </span>
-            {sortedTasks.length > 0 ? (
-              <div className="flex flex-wrap gap-1" role="toolbar" aria-label="Filter queue by type or package">
+            <div className="flex flex-wrap gap-1" role="tablist" aria-label="Queue buckets">
+              {(
+                [
+                  ["needs_action", "Needs action", bucketCounts.needs_action] as const,
+                  ["waiting", "Waiting", bucketCounts.waiting] as const,
+                  ["messages", "Messages", bucketCounts.messages] as const,
+                ] as const
+              ).map(([key, label, count]) => (
                 <button
+                  key={key}
                   type="button"
-                  onClick={() => setQueueFilter({ type: "all" })}
-                  className={`text-[9px] px-2 py-0.5 rounded-full border shrink-0 transition-colors ${
-                    queueFilter.type === "all"
+                  role="tab"
+                  aria-selected={bucketTab === key}
+                  onClick={() => setBucketTab(key)}
+                  className={`text-[9px] px-2 py-0.5 rounded-full border shrink-0 transition-colors tabular-nums ${
+                    bucketTab === key
                       ? "border-[var(--accent-green)]/60 bg-[var(--accent-green)]/15 text-[var(--text-primary)] font-medium"
                       : "border-[var(--border-color)] bg-[var(--bg-primary)]/80 text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]/40"
                   }`}
                 >
-                  All
+                  {label} ({count})
                 </button>
-                {workflowFilterOptions.map((wt) => (
+              ))}
+            </div>
+            {sortedTasks.length > 0 ? (
+                <div className="relative" ref={typeDropdownRef}>
                   <button
-                    key={wt}
                     type="button"
-                    onClick={() => setQueueFilter({ type: "workflow", workflowType: wt })}
-                    className={`text-[9px] px-2 py-0.5 rounded-full border shrink-0 max-w-[9.5rem] truncate transition-colors ${
-                      queueFilter.type === "workflow" && queueFilter.workflowType === wt
-                        ? "border-[var(--accent-green)]/60 bg-[var(--accent-green)]/15 text-[var(--text-primary)] font-medium"
-                        : "border-[var(--border-color)] bg-[var(--bg-primary)]/80 text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]/40"
-                    }`}
-                    title={wt}
+                    id={typeDropdownId}
+                    aria-expanded={typeDropdownOpen}
+                    aria-haspopup="listbox"
+                    onClick={() => setTypeDropdownOpen((o) => !o)}
+                    className="flex w-full items-center justify-between gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)]/90 px-2 py-1.5 text-left text-[10px] font-medium text-[var(--text-chat-body)] hover:border-[var(--text-tertiary)]/40"
                   >
-                    {workflowTypeFilterLabel(wt)}
+                    <span className="min-w-0 truncate">
+                      {selectedWorkflowTypes.length === 0
+                        ? "Types: all"
+                        : `Types: ${selectedWorkflowTypes.length} selected`}
+                    </span>
+                    <span className="shrink-0 text-[var(--text-tertiary)]" aria-hidden>
+                      {typeDropdownOpen ? "▴" : "▾"}
+                    </span>
                   </button>
-                ))}
-                {packageFilterOptions.map((p) => (
+                  {typeDropdownOpen ? (
+                    <div
+                      role="listbox"
+                      aria-labelledby={typeDropdownId}
+                      className="absolute left-0 right-0 z-40 mt-1 max-h-[14rem] overflow-y-auto rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] py-1 shadow-lg"
+                    >
+                      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-[var(--border-color)]/80 bg-[var(--bg-primary)] px-2 py-1">
+                        <span className="text-[9px] font-medium text-[var(--text-tertiary)]">Workflow types</span>
+                        <button
+                          type="button"
+                          className="text-[9px] font-medium text-[var(--accent-green)] hover:underline"
+                          onClick={() => setSelectedWorkflowTypes([])}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      {workflowFilterOptions.map((wt) => {
+                        const checked = selectedWorkflowTypes.includes(wt);
+                        return (
+                          <label
+                            key={wt}
+                            className="flex cursor-pointer items-start gap-2 px-2 py-1.5 text-[10px] hover:bg-[var(--bg-secondary)]"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-0.5 shrink-0 rounded border-[var(--border-color)]"
+                              checked={checked}
+                              onChange={() => {
+                                setSelectedWorkflowTypes((prev) =>
+                                  prev.includes(wt) ? prev.filter((x) => x !== wt) : [...prev, wt],
+                                );
+                              }}
+                            />
+                            <span className="min-w-0 break-words text-[var(--text-chat-body)]">
+                              {workflowTypeFilterLabel(wt)}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+            ) : null}
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col px-2.5 py-2">
+            <div className="flex min-h-0 flex-1 flex-col">
+              {sortedTasks.length === 0 ? (
+                <p className="flex flex-1 items-center justify-center text-center text-[10px] text-[var(--text-tertiary)] px-1">
+                  No rows
+                </p>
+              ) : filteredUnifiedQueue.length === 0 ? (
+                <p className="flex flex-1 items-center justify-center text-center text-[10px] text-[var(--text-tertiary)] px-1">
+                  Nothing in this bucket. Try another tab or widen types.
+                </p>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col gap-3">
+                  {Array.from({ length: TIM_QUEUE_LIST_PAGE_SIZE }, (_, i) => {
+                    const task = paginatedQueue[i];
+                    if (!task) {
+                      return (
+                        <div
+                          key={`tim-queue-slot-${i}`}
+                          className="min-h-0 flex-1 basis-0 rounded-lg border border-dashed border-[var(--border-color)]/35 bg-[var(--bg-secondary)]/25"
+                          aria-hidden
+                        />
+                      );
+                    }
+                    return (
+                      <div key={task.itemId} className="flex min-h-0 flex-1 basis-0 flex-col">
+                        <TimQueueItemRow
+                          task={task}
+                          active={task.itemId === selectedId}
+                          onSelect={() => setSelectedId(task.itemId)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {listPageCount > 1 ? (
+              <div
+                className="shrink-0 border-t border-[var(--border-color)]/60 pt-2 mt-2 flex flex-wrap items-center justify-center gap-1"
+                role="navigation"
+                aria-label="Queue pages"
+              >
+                {Array.from({ length: listPageCount }, (_, i) => i + 1).map((p) => (
                   <button
-                    key={p.packageId}
+                    key={p}
                     type="button"
-                    onClick={() => setQueueFilter({ type: "package", packageId: p.packageId })}
-                    className={`text-[9px] px-2 py-0.5 rounded-full border shrink-0 max-w-[10rem] truncate transition-colors ${
-                      queueFilter.type === "package" && queueFilter.packageId === p.packageId
-                        ? "border-[var(--accent-green)]/60 bg-[var(--accent-green)]/15 text-[var(--text-primary)] font-medium"
-                        : "border-[var(--border-color)] bg-[var(--bg-primary)]/80 text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]/40"
+                    onClick={() => setListPage(p)}
+                    className={`min-w-[1.75rem] rounded border px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition-colors ${
+                      safeListPage === p
+                        ? "border-[var(--accent-green)]/70 bg-[var(--accent-green)]/15 text-[var(--text-primary)]"
+                        : "border-[var(--border-color)] bg-[var(--bg-primary)]/70 text-[var(--text-secondary)] hover:border-[var(--text-tertiary)]/50"
                     }`}
-                    title={`${p.packageName} (${p.count})`}
                   >
-                    {p.packageName.length > 20 ? `${p.packageName.slice(0, 18)}…` : p.packageName}
-                    <span className="opacity-70 font-normal"> ·{p.count}</span>
+                    {p}
                   </button>
                 ))}
               </div>
             ) : null}
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto px-2.5 py-2.5 space-y-4">
-            {queueTab === "active" ? (
-              sortedTasks.length === 0 ? (
-                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">No tasks</p>
-              ) : activeQueue.length === 0 ? (
-                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
-                  Nothing active — check <strong>Pending Work Queue</strong>.
-                </p>
-              ) : filteredActiveQueue.length === 0 ? (
-                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
-                  Nothing matches this filter. Try <strong>All</strong> or another package/type.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {filteredActiveQueue.map((task) => (
-                    <TimQueueItemRow
-                      key={task.itemId}
-                      task={task}
-                      active={task.itemId === selectedId}
-                      onSelect={() => setSelectedId(task.itemId)}
-                    />
-                  ))}
-                </div>
-              )
-            ) : queueTab === "pending" ? (
-              sortedTasks.length === 0 ? (
-                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">No tasks</p>
-              ) : pendingQueue.length === 0 ? (
-                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
-                  No pending items.
-                </p>
-              ) : filteredPendingQueue.length === 0 ? (
-                <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">
-                  Nothing matches this filter. Try <strong>All</strong> or another package/type.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {filteredPendingQueue.map((task) => (
-                    <TimQueueItemRow
-                      key={task.itemId}
-                      task={task}
-                      active={task.itemId === selectedId}
-                      onSelect={() => setSelectedId(task.itemId)}
-                    />
-                  ))}
-                </div>
-              )
-            ) : sortedTasks.length === 0 ? (
-              <p className="text-[10px] text-[var(--text-tertiary)] text-center py-6 px-1">Queues empty</p>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <div className="px-0.5 pb-0.5">
-                    <span className="text-[10px] font-semibold text-[var(--text-primary)]">
-                      Active ({filteredActiveQueue.length}
-                      {queueFilter.type !== "all" && filteredActiveQueue.length !== activeQueue.length
-                        ? ` / ${activeQueue.length}`
-                        : ""}
-                      )
-                    </span>
-                  </div>
-                  {activeQueue.length === 0 ? (
-                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">None right now.</p>
-                  ) : filteredActiveQueue.length === 0 ? (
-                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">
-                      No rows for this filter.
-                    </p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {filteredActiveQueue.map((task) => (
-                        <TimQueueItemRow
-                          key={task.itemId}
-                          task={task}
-                          active={task.itemId === selectedId}
-                          onSelect={() => setSelectedId(task.itemId)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="space-y-2 pt-3 mt-1 border-t border-[var(--border-color)]/50">
-                  <div className="px-0.5 pb-0.5">
-                    <span className="text-[10px] font-medium text-[var(--text-chat-body)]">
-                      Pending ({filteredPendingQueue.length}
-                      {queueFilter.type !== "all" && filteredPendingQueue.length !== pendingQueue.length
-                        ? ` / ${pendingQueue.length}`
-                        : ""}
-                      )
-                    </span>
-                  </div>
-                  {pendingQueue.length === 0 ? (
-                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">None.</p>
-                  ) : filteredPendingQueue.length === 0 ? (
-                    <p className="text-[9px] text-[var(--text-tertiary)] px-0.5 py-1">
-                      No rows for this filter.
-                    </p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {filteredPendingQueue.map((task) => (
-                        <TimQueueItemRow
-                          key={task.itemId}
-                          task={task}
-                          active={task.itemId === selectedId}
-                          onSelect={() => setSelectedId(task.itemId)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
             {queueHasMore ? (
-              <div className="pt-3 px-0.5 shrink-0">
+              <div className="shrink-0 pt-2">
                 <button
                   type="button"
                   onClick={() => loadMoreTasks()}
                   disabled={loadingMore}
                   className="w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)]/60 px-2 py-1.5 text-[10px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-secondary)] disabled:opacity-50"
                 >
-                  {loadingMore ? "Loading…" : "Load more"}
+                  {loadingMore ? "Loading…" : "Load more from server"}
                 </button>
                 <p className="text-[8px] text-[var(--text-tertiary)] mt-1 leading-snug">
-                  Polling refreshes the first page only; use Load more again if the list resets.
+                  Polling refreshes the first server page; load more to extend the queue.
                 </p>
               </div>
             ) : null}
@@ -1130,6 +1226,27 @@ export default function TimMessagesPanel({
         <div className="flex-1 min-w-0 min-h-0 flex flex-col p-2">
           {selected ? (
             <>
+              {selected.queueRowKind === "linkedin_inbound" && !workflowOpsItemId ? (
+                <div className="flex-1 min-h-0 overflow-y-auto space-y-3 px-1">
+                  {timPersonHeaderDetail ? (
+                    <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2.5">
+                      {timPersonHeaderDetail}
+                    </div>
+                  ) : null}
+                  <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-3">
+                    <p className="text-[11px] leading-snug text-[var(--text-chat-body)]">
+                      This message is stored as an inbound receipt, but no Tim workflow row matched this person yet. When a
+                      general inbox or package row exists, refresh the list or open that workflow item.
+                    </p>
+                    {selected.unipileMessageId ? (
+                      <p className="mt-2 font-mono text-[9px] text-[var(--text-tertiary)] break-all select-all">
+                        Unipile message id: {selected.unipileMessageId}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+              <>
               {selected.contactDbSyncPending ? (
                 <div className="shrink-0 mb-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2">
                   <p className="text-[11px] text-[var(--text-chat-body)] leading-snug">
@@ -1151,7 +1268,7 @@ export default function TimMessagesPanel({
                           method: "POST",
                           headers: { "Content-Type": "application/json" },
                           credentials: "include",
-                          body: JSON.stringify({ itemId: selected.itemId }),
+                          body: JSON.stringify({ itemId: workflowOpsItemId }),
                         });
                         const data = (await r.json().catch(() => ({}))) as {
                           error?: string;
@@ -1172,7 +1289,7 @@ export default function TimMessagesPanel({
                               "Could not infer a person name from saved notes. Add a line like Name: First Last or put the full name alone on the first line."
                           );
                         }
-                        await refreshTasks();
+                        await refreshQueue();
                       } finally {
                         setSyncingWarmContact(false);
                       }
@@ -1186,14 +1303,14 @@ export default function TimMessagesPanel({
               {isInputStage ? (
                 <TimIntakeWorkspace
                   task={selected}
-                  resolving={resolving === selected.itemId}
+                  resolving={resolving === workflowOpsItemId}
                   headerDetail={timPersonHeaderDetail}
                   titleAccessory={
                     <TimWorkQueueIdsAccessory itemId={selected.itemId} sourceId={selected.sourceId} />
                   }
                   confirmedWorkflowActions={timArtifactHeaderActions}
                   onSubmitInput={async (notes) => {
-                    await handleResolve(selected.itemId, "input", notes);
+                    await handleResolve(workflowOpsItemId, "input", notes);
                   }}
                 />
               ) : (
@@ -1222,11 +1339,11 @@ export default function TimMessagesPanel({
                     </p>
                     <button
                       type="button"
-                      disabled={resolving === selected.itemId}
-                      onClick={() => handleResolve(selected.itemId, "approve")}
+                      disabled={resolving === workflowOpsItemId}
+                      onClick={() => handleResolve(workflowOpsItemId, "approve")}
                       className="mt-2 text-[10px] px-2.5 py-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-secondary)] font-medium hover:text-[var(--text-primary)] hover:border-[var(--text-tertiary)]/40 disabled:opacity-50"
                     >
-                      {resolving === selected.itemId ? "Starting…" : "Start follow-up early"}
+                      {resolving === workflowOpsItemId ? "Starting…" : "Start follow-up early"}
                     </button>
                   </div>
                 ) : null}
@@ -1234,7 +1351,7 @@ export default function TimMessagesPanel({
                   <div className="flex-1 min-h-0 min-w-0">
                     <TimLinkedInInboxIntakeWorkspace
                       task={{
-                        itemId: selected.itemId,
+                        itemId: workflowOpsItemId,
                         workflowId: selected.workflowId,
                         workflowName: selected.workflowName,
                         stage: selected.stage,
@@ -1243,11 +1360,11 @@ export default function TimMessagesPanel({
                         workflowType: selected.workflowType,
                         sourceId: selected.sourceId as string,
                       }}
-                      resolving={resolving === selected.itemId}
+                      resolving={resolving === workflowOpsItemId}
                       onSubmitApprove={async (notes) => {
-                        await handleResolve(selected.itemId, "approve", notes);
+                        await handleResolve(workflowOpsItemId, "approve", notes);
                       }}
-                      onMoved={() => void refreshTasks()}
+                      onMoved={() => void refreshQueue()}
                       headerDetail={timPersonHeaderDetail}
                       titleAccessory={
                         <TimWorkQueueIdsAccessory itemId={selected.itemId} sourceId={selected.sourceId} />
@@ -1257,7 +1374,7 @@ export default function TimMessagesPanel({
                 ) : (
                   <div className="flex-1 min-h-0 min-w-0">
                     <ArtifactViewer
-                      key={`${selected.itemId}-${selected.stage}`}
+                      key={`${workflowOpsItemId}-${selected.stage}`}
                       variant="inline"
                       alwaysShowArtifactTabs
                       allWorkflowArtifacts
@@ -1275,7 +1392,7 @@ export default function TimMessagesPanel({
                         selected.workflowType === "warm-outreach" ||
                         selected.workflowType === "linkedin-outreach"
                       }
-                      workflowItemId={selected.itemId}
+                      workflowItemId={workflowOpsItemId}
                       itemType={selected.itemType === "person" ? "person" : "content"}
                       title={selected.workflowName}
                       titleAccessory={
@@ -1286,7 +1403,7 @@ export default function TimMessagesPanel({
                       onSubmitTask={
                         timShowsArtifactSubmit(selected)
                           ? async () => {
-                              await handleResolve(selected.itemId, "approve");
+                              await handleResolve(workflowOpsItemId, "approve");
                             }
                           : undefined
                       }
@@ -1302,6 +1419,8 @@ export default function TimMessagesPanel({
                   </div>
                 )}
                 </>
+              )}
+              </>
               )}
             </>
           ) : (

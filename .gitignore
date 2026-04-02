@@ -59,6 +59,9 @@ nanoclaw/
 docker-data/agent-avatars/*
 !docker-data/agent-avatars/.gitkeep
 
+docker-data/cron-pause/*
+!docker-data/cron-pause/.gitkeep
+
 # Local CRM pg_dump snapshots (populate dev — never commit)
 docker-data/*.dump
 

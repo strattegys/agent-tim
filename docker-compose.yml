@@ -90,6 +90,8 @@ services:
       - ./agents:/agents
       # Uploaded avatars (custom photos). Recover from old named volume: docker run --rm -v command-central_agent_avatars:/from -v "$(pwd)/docker-data/agent-avatars:/to" alpine cp -a /from/. /to/
       - ./docker-data/agent-avatars:/data/agent-avatars
+      # Friday cron pause toggles (web/data/cron-pause.json in container → survives image rebuilds)
+      - ./docker-data/cron-pause:/app/data
     expose:
       - "3001"
 

@@ -38,6 +38,7 @@ export async function fetchDashboardSyncPayload(
 
   let timMessagingTaskCount = 0;
   let timPendingQueueCount = 0;
+  let timUnifiedMessagingCount = 0;
   if (dTim) {
     timMessagingTaskCount = typeof dTim.count === "number" ? dTim.count : 0;
     if (typeof dTim.pendingFollowUpCount === "number") {
@@ -46,6 +47,11 @@ export async function fetchDashboardSyncPayload(
       timPendingQueueCount = (dTim.tasks as { waitingFollowUp?: boolean }[]).filter((t) =>
         Boolean(t.waitingFollowUp)
       ).length;
+    }
+    if (typeof dTim.unifiedMessagingCount === "number") {
+      timUnifiedMessagingCount = dTim.unifiedMessagingCount;
+    } else {
+      timUnifiedMessagingCount = timMessagingTaskCount + timPendingQueueCount;
     }
   }
 
@@ -61,6 +67,7 @@ export async function fetchDashboardSyncPayload(
     badges: {
       timMessagingTaskCount,
       timPendingQueueCount,
+      timUnifiedMessagingCount,
       ghostContentTaskCount,
       suziDueReminderCount,
     },

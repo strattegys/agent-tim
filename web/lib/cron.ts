@@ -13,6 +13,7 @@ import {
 } from "./unipile-webhook-inbox";
 import { isLinkedInAutomationDisabled } from "./linkedin-automation-gate";
 import { isCommandCentralLocalRuntime } from "./cron-runtime-context";
+import { isCronJobPaused } from "./cron-pause";
 
 /**
  * In-App Cron Scheduler
@@ -112,6 +113,11 @@ function attachCronJobTask(job: CronJobConfig, handler: () => Promise<void>): vo
     job.schedule,
     async () => {
       const startTime = new Date();
+      if (isCronJobPaused(job.id)) {
+        job.lastRun = startTime;
+        job.lastResult = "paused";
+        return;
+      }
       try {
         await handler();
         job.lastRun = startTime;
@@ -492,6 +498,29 @@ export function initCronJobs(): void {
   reconcileCronSchedulingFromEnv();
 }
 
+/** Who mainly benefits from the job (Friday Cron tab), not necessarily the owning agent. */
+const CRON_JOB_BENEFICIARIES: Record<string, readonly string[]> = {
+  "linkedin-connections": ["tim"],
+  "warm-outreach-discovery": ["tim"],
+  "daily-target-research": ["tim"],
+  "heartbeat-friday": ["tim"],
+  "marni-kb-cadence": ["marni", "tim"],
+  "unipile-webhook-inbox-drain": ["tim"],
+  "linkedin-inbound-catchup": ["tim"],
+  "anthropic-cost-sync": ["penny"],
+};
+
+function beneficiaryAgentIdsFor(jobId: string): string[] {
+  return [...(CRON_JOB_BENEFICIARIES[jobId] ?? [])];
+}
+
+export function getCronJobBeneficiaryRows(jobId: string): { id: string; name: string }[] {
+  return beneficiaryAgentIdsFor(jobId).map((id) => ({
+    id,
+    name: AGENT_REGISTRY[id]?.name ?? id,
+  }));
+}
+
 /**
  * Static job catalog for `/api/cron-status` and Friday Cron tab — derived from AGENT_REGISTRY + fixed jobs.
  * Does not depend on initCronJobs succeeding (avoids empty UI when init throws or registries differ).
@@ -505,6 +534,7 @@ export type CronJobListSeed = {
   agentId: string;
   enabled: boolean;
   timeZone: string | null;
+  beneficiaryAgentIds: string[];
 };
 
 export function getCronJobSeedMetadata(): CronJobListSeed[] {
@@ -521,11 +551,13 @@ export function getCronJobSeedMetadata(): CronJobListSeed[] {
         agentId: spec.id,
         enabled: routine.enabled !== false,
         timeZone: routine.timeZone ?? null,
+        beneficiaryAgentIds: beneficiaryAgentIdsFor(routine.id),
       });
     }
     if (spec.heartbeat) {
+      const hbId = `heartbeat-${spec.id}`;
       rows.push({
-        id: `heartbeat-${spec.id}`,
+        id: hbId,
         name: "Heartbeat",
         schedule: spec.heartbeat.schedule,
         description: spec.heartbeat.checks.map((c) => c.name).join(", "),
@@ -533,6 +565,7 @@ export function getCronJobSeedMetadata(): CronJobListSeed[] {
         agentId: spec.id,
         enabled: true,
         timeZone: null,
+        beneficiaryAgentIds: beneficiaryAgentIdsFor(hbId),
       });
     }
   }
@@ -547,6 +580,7 @@ export function getCronJobSeedMetadata(): CronJobListSeed[] {
       agentId: "friday",
       enabled: true,
       timeZone: null,
+      beneficiaryAgentIds: beneficiaryAgentIdsFor("holiday-sync"),
     },
     {
       id: "unipile-webhook-inbox-drain",
@@ -558,6 +592,7 @@ export function getCronJobSeedMetadata(): CronJobListSeed[] {
       agentId: "friday",
       enabled: true,
       timeZone: null,
+      beneficiaryAgentIds: beneficiaryAgentIdsFor("unipile-webhook-inbox-drain"),
     },
     {
       id: "linkedin-inbound-catchup",
@@ -569,6 +604,7 @@ export function getCronJobSeedMetadata(): CronJobListSeed[] {
       agentId: "friday",
       enabled: true,
       timeZone: null,
+      beneficiaryAgentIds: beneficiaryAgentIdsFor("linkedin-inbound-catchup"),
     }
   );
 
@@ -583,6 +619,7 @@ export function getCronJobSeedMetadata(): CronJobListSeed[] {
     agentId: "friday",
     enabled: hasAnthropicAdmin,
     timeZone: null,
+    beneficiaryAgentIds: beneficiaryAgentIdsFor("anthropic-cost-sync"),
   });
 
   return rows;

@@ -4,7 +4,8 @@ import ToolsPanel from "./ToolsPanel";
 import FridayGoalsPanel from "./FridayGoalsPanel";
 import FridayCronPanel from "./FridayCronPanel";
 import FridayPackageAdminPanel from "./FridayPackageAdminPanel";
-import type { FridayDashboardTab } from "@/lib/agent-ui-context";
+import type { FridayArchitecturePane, FridayDashboardTab } from "@/lib/agent-ui-context";
+import FridayArchitecturePanel from "./FridayArchitecturePanel";
 import { useCronStatus, cronJobsWithErrors } from "@/lib/use-cron-status";
 import { useMemo } from "react";
 
@@ -12,66 +13,50 @@ interface FridayDashboardPanelProps {
   onClose?: () => void;
   dashboardTab: FridayDashboardTab;
   onDashboardTabChange: (tab: FridayDashboardTab) => void;
+  /** When true (NEXT_PUBLIC_HIDE_ARCHITECTURE_TAB), the Architecture tab is omitted. */
+  architectureTabHidden?: boolean;
+  architecturePane: FridayArchitecturePane;
+  onArchitecturePaneChange: (pane: FridayArchitecturePane) => void;
 }
 
 export default function FridayDashboardPanel({
   onClose: _onClose,
   dashboardTab: tab,
   onDashboardTabChange,
+  architectureTabHidden = false,
+  architecturePane,
+  onArchitecturePaneChange,
 }: FridayDashboardPanelProps) {
   const { data: cronData } = useCronStatus(true);
   const cronErrors = useMemo(() => cronJobsWithErrors(cronData?.jobs), [cronData?.jobs]);
 
-  const TABS: { key: FridayDashboardTab; label: string; title?: string }[] = [
-    { key: "goals", label: "Goals", title: "Throughput vs daily/weekly targets (from workflow type registry)" },
-    {
-      key: "package-kanban",
-      label: "Package Kanban",
-      title: "Draft through completed — compact cards; open for planner, workflow steps, or live Kanban",
-    },
-    {
-      key: "wf-templates",
-      label: "Workflow templates",
-      title: "Workflow types — stages, transitions, people vs content",
-    },
-    { key: "tools", label: "Tools", title: "Internal tools registry" },
-    { key: "cron", label: "Cron", title: "All scheduled jobs — schedule, last run, status" },
-  ];
+  const TABS: { key: FridayDashboardTab; label: string; title?: string }[] = useMemo(() => {
+    const all: { key: FridayDashboardTab; label: string; title?: string }[] = [
+      { key: "goals", label: "Goals", title: "Throughput vs daily/weekly targets (from workflow type registry)" },
+      {
+        key: "package-kanban",
+        label: "Package Kanban",
+        title: "Draft through completed — compact cards; open for planner, workflow steps, or live Kanban",
+      },
+      {
+        key: "wf-templates",
+        label: "Workflow templates",
+        title: "Workflow types — stages, transitions, people vs content",
+      },
+      { key: "tools", label: "Tools", title: "Internal tools registry" },
+      {
+        key: "architecture",
+        label: "Architecture",
+        title: "Infrastructure diagram and visual code import graphs (dependency-cruiser → Mermaid)",
+      },
+      { key: "cron", label: "Cron", title: "All scheduled jobs — schedule, last run, status" },
+    ];
+    if (architectureTabHidden) return all.filter((t) => t.key !== "architecture");
+    return all;
+  }, [architectureTabHidden]);
 
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
-      {cronErrors.length > 0 ? (
-        <div
-          role="alert"
-          className="shrink-0 border-b border-red-500/35 bg-red-500/10 px-3 py-2 text-[11px] text-[var(--text-primary)]"
-        >
-          <p className="font-semibold text-red-600 dark:text-red-400">
-            Cron / automation: {cronErrors.length} job{cronErrors.length === 1 ? "" : "s"} last run failed
-          </p>
-          <p className="text-[var(--text-secondary)] mt-0.5">
-            LinkedIn webhooks, inbox drain, and catch-up depend on healthy jobs. Open the{" "}
-            <button
-              type="button"
-              className="underline font-medium text-[var(--text-primary)] hover:no-underline"
-              onClick={() => onDashboardTabChange("cron")}
-            >
-              Cron
-            </button>{" "}
-            tab for names and error text. Fix CRM connectivity (see Status rail / Data Platform) or env, then
-            refresh.
-          </p>
-          <ul className="mt-1.5 list-disc list-inside text-[var(--text-tertiary)] space-y-0.5">
-            {cronErrors.slice(0, 5).map((j) => (
-              <li key={j.id}>
-                <span className="font-mono text-[10px]">{j.id}</span>
-                {j.lastResult ? ` — ${j.lastResult.slice(0, 120)}` : ""}
-              </li>
-            ))}
-            {cronErrors.length > 5 ? <li>…and {cronErrors.length - 5} more</li> : null}
-          </ul>
-        </div>
-      ) : null}
-
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2 gap-1 overflow-x-auto">
         {TABS.map((t) => {
           const isActive = tab === t.key;
@@ -110,6 +95,11 @@ export default function FridayDashboardPanel({
         <FridayGoalsPanel />
       ) : tab === "cron" ? (
         <FridayCronPanel />
+      ) : tab === "architecture" ? (
+        <FridayArchitecturePanel
+          architecturePane={architecturePane}
+          onArchitecturePaneChange={onArchitecturePaneChange}
+        />
       ) : (
         <FridayPackageAdminPanel activeView={tab} />
       )}

@@ -163,12 +163,12 @@ export default function PushToTalk({ onTranscript, disabled, ttsSpeaking, onStop
     return (
       <button
         onClick={onStopTts}
-        className="w-10 h-10 rounded-full flex items-center justify-center transition-all select-none shrink-0 bg-red-500 hover:bg-red-600 cursor-pointer animate-pulse"
+        className="w-9 h-9 rounded-full flex items-center justify-center transition-all select-none shrink-0 bg-red-500 hover:bg-red-600 cursor-pointer animate-pulse"
         title="Stop speaking"
       >
         <svg
-          width="16"
-          height="16"
+          width="14"
+          height="14"
           viewBox="0 0 24 24"
           fill="currentColor"
           className="text-white"
@@ -185,8 +185,8 @@ export default function PushToTalk({ onTranscript, disabled, ttsSpeaking, onStop
       disabled={disabled}
       className={`rounded-full flex items-center justify-center transition-all select-none shrink-0 ${
         isListening
-          ? "w-16 h-10 bg-[var(--accent-blue)]"
-          : "w-10 h-10 bg-[var(--accent-blue)] hover:brightness-125"
+          ? "w-14 h-9 bg-[var(--accent-blue)]"
+          : "w-9 h-9 bg-[var(--accent-blue)] hover:brightness-125"
       } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
       title={isListening ? "Click to stop" : "Click to talk"}
     >
@@ -194,8 +194,8 @@ export default function PushToTalk({ onTranscript, disabled, ttsSpeaking, onStop
         <WaveformBars />
       ) : (
         <svg
-          width="18"
-          height="18"
+          width="16"
+          height="16"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"

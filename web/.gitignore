@@ -42,8 +42,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# generated architecture report (run npm run architecture:report)
+/public/architecture/depcruise/
+
 # user uploads
 /uploads
+
+# Friday cron pause overrides (hosted / local Node cwd)
+/data/cron-pause.json
 
 # local dev
 /tmp

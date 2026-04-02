@@ -21,7 +21,7 @@ interface MessageBubbleProps {
 }
 
 /** Subtle agent tint on top of app tertiary bg — low contrast, not a saturated slab. */
-function toMutedAgentBubbleBg(hex: string): string {
+export function toMutedAgentBubbleBg(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
@@ -55,14 +55,14 @@ export default function MessageBubble({
   const agentBg = useMemo(() => toMutedAgentBubbleBg(agentColor), [agentColor]);
 
   return (
-    <div className="flex mb-1">
+    <div className="flex mb-0.5">
       <div
         className="relative group w-full"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         <div
-          className="w-full rounded-lg px-3.5 py-2.5 break-words overflow-hidden"
+          className="w-full rounded-md px-3 py-2 break-words overflow-hidden"
           style={{
             background: isUser ? "color-mix(in srgb, var(--bg-tertiary) 92%, var(--bg-primary))" : agentBg,
             border: isUser
@@ -71,22 +71,22 @@ export default function MessageBubble({
           }}
         >
           {replyTo && (
-            <div className="text-[11px] mb-1.5 px-2 py-1 rounded border-l-2 border-l-[color-mix(in_srgb,var(--border-color)_70%,transparent)] bg-[var(--bg-primary)]/50 text-[var(--text-chat-muted)]">
-              <div className="font-medium text-[10px] mb-0.5 text-[var(--text-tertiary)]">
+            <div className="text-[10px] mb-1 px-1.5 py-0.5 rounded border-l-2 border-l-[color-mix(in_srgb,var(--border-color)_70%,transparent)] bg-[var(--bg-primary)]/50 text-[var(--text-chat-muted)]">
+              <div className="font-medium text-[9px] mb-0.5 text-[var(--text-tertiary)]">
                 {replyTo.role === "user" ? "You" : agentName}
               </div>
               <div className="truncate text-[var(--text-chat-body)]">{replyTo.text.slice(0, 100)}</div>
             </div>
           )}
           {isUser && (
-            <div className="mb-1 text-[12px] font-medium text-[var(--text-tertiary)]">
+            <div className="mb-0.5 text-[11px] font-medium text-[var(--text-tertiary)]">
               {fromAgent
                 ? fromAgent.charAt(0).toUpperCase() + fromAgent.slice(1)
                 : "You"}
             </div>
           )}
           {!isUser && (
-            <div className="mb-1 text-[12px] font-medium text-[var(--text-secondary)]">
+            <div className="mb-0.5 text-[11px] font-medium text-[var(--text-secondary)]">
               {agentName}
               {delegatedFrom && (
                 <span className="text-[var(--text-tertiary)] font-normal">
@@ -152,7 +152,7 @@ export default function MessageBubble({
               </button>
             )}
             {!isThinking && (
-              <span className="text-[11px] text-[var(--text-chat-muted)] tabular-nums">{time}</span>
+              <span className="text-[10px] text-[var(--text-chat-muted)] tabular-nums">{time}</span>
             )}
           </div>
         </div>

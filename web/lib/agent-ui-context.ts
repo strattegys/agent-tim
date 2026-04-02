@@ -17,13 +17,17 @@ export type AgentUiRightPanel =
   | "marni-work"
   | "agent-knowledge";
 
-/** Friday work panel — flat top-level tabs (goals, package kanban, workflow templates, tools, cron). */
+/** Friday work panel — flat top-level tabs (goals, package kanban, workflow templates, tools, cron, architecture). */
 export type FridayDashboardTab =
   | "goals"
   | "package-kanban"
   | "wf-templates"
   | "tools"
-  | "cron";
+  | "cron"
+  | "architecture";
+
+/** Sub-view inside Friday’s Architecture tab (infrastructure diagram vs code dependency report). */
+export type FridayArchitecturePane = "infra" | "code";
 
 export interface AgentUiContextInput {
   agentId: string;
@@ -38,6 +42,8 @@ export interface AgentUiContextInput {
    */
   ghostHasWorkQueueSelection?: boolean;
   fridayTab?: FridayDashboardTab;
+  /** Friday Architecture tab: which inner pane is active. */
+  fridayArchitecturePane?: FridayArchitecturePane;
   /** Marni: selected research topic while Knowledge base (book panel) is open. */
   marniKnowledgeTopic?: { id: string; name: string } | null;
   /** Tim: selected research topic while Knowledge base (book panel) is open. */
@@ -136,6 +142,12 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
       label = "Tools registry";
     } else if (tab === "cron") {
       label = "Cron hub (all scheduled jobs, status, last run)";
+    } else if (tab === "architecture") {
+      const sub =
+        input.fridayArchitecturePane === "code"
+          ? "Code graph (visual import map: overview + lib)"
+          : "Infrastructure (high-level deploy and services diagram)";
+      label = `Architecture — ${sub}`;
     } else {
       label = "Goals (workflow throughput vs targets)";
     }

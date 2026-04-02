@@ -7,6 +7,10 @@ export const TIM_COLLABORATION_FRAMEWORK = `PRIMARY FRAMEWORK (Command Central)
 /** Work queue row the user has selected in Tim’s right-rail panel — sent as ephemeral chat context. */
 export type TimWorkQueueSelection = {
   itemId: string;
+  /** When the sidebar row is a receipt, the workflow item to use for tools / artifacts (if any). */
+  effectiveWorkflowItemId?: string | null;
+  /** True when the user selected a per-message LinkedIn inbound receipt row. */
+  isLinkedInInboundReceiptRow?: boolean;
   stage: string;
   stageLabel: string;
   itemTitle: string;
@@ -93,7 +97,21 @@ export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
   lines.push(
     `OUTBOUND LINKEDIN (warm outreach): You do not send DMs from chat. **Submit** runs Unipile only after Govind has replied **Send It Now** following your chat post of the exact draft. Never claim you already sent before that.`,
     ``,
-    `Workflow item id: ${s.itemId}`,
+  );
+
+  if (s.isLinkedInInboundReceiptRow) {
+    const eff = (s.effectiveWorkflowItemId || "").trim();
+    lines.push(
+      `**LinkedIn inbound message row** (one row per received message). The queue row id may be a receipt id, not a workflow item.`,
+      eff
+        ? `Linked workflow item for artifacts/tools: \`${eff}\`.`
+        : `No Tim workflow item is linked to this receipt yet — use CRM / general inbox to match or create a row; person id is in the selection if present.`,
+      ``
+    );
+  }
+
+  lines.push(
+    `Workflow item id: ${(s.effectiveWorkflowItemId || s.itemId).trim() || s.itemId}`,
     `Prospect / title: ${s.itemTitle}`,
     `Workflow: ${s.workflowName}`,
     `Human-task stage: ${s.stageLabel} (${s.stage})`,
@@ -106,11 +124,12 @@ export function formatTimWorkQueueContext(s: TimWorkQueueSelection): string {
   const isLinkedInIntakeMove =
     (wt === "linkedin-connection-intake" && st === "CONNECTION_ACCEPTED") ||
     (wt === "linkedin-general-inbox" && st === "LINKEDIN_INBOUND");
+  const queueItemIdForClose = ((s.effectiveWorkflowItemId || s.itemId) || "").trim() || s.itemId;
   if (isLinkedInIntakeMove && personId) {
     lines.push(
       ``,
       `## Move to a package workflow (voice or tools)`,
-      `When Govind asks to put this contact on a package pipeline (warm-outreach, linkedin-outreach, etc.), use **workflow_items** **add-person-to-workflow**: **arg1** = target workflow uuid (ACTIVE Tim package pipeline — not LinkedIn intake), **arg2** = person id \`${personId}\`, **arg3** = board stage key (e.g. \`TARGET\`, \`AWAITING_CONTACT\`, \`INITIATED\`; omit only if the first board stage is correct), **arg4** = this queue item id \`${s.itemId}\` to close this intake row after the new row is created.`,
+      `When Govind asks to put this contact on a package pipeline (warm-outreach, linkedin-outreach, etc.), use **workflow_items** **add-person-to-workflow**: **arg1** = target workflow uuid (ACTIVE Tim package pipeline — not LinkedIn intake), **arg2** = person id \`${personId}\`, **arg3** = board stage key (e.g. \`TARGET\`, \`AWAITING_CONTACT\`, \`INITIATED\`; omit only if the first board stage is correct), **arg4** = this queue item id \`${queueItemIdForClose}\` to close this intake row after the new row is created.`,
       `To discover workflow ids, use **twenty_crm** or ask Govind to pick from the UI; you can also use **workflow_manager** \`list-workflows\` / \`get-workflow\` if that tool is available in this session.`,
     );
   }

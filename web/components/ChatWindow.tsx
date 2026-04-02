@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import type { TimContextDebugSnapshot } from "@/lib/tim-chat-debug";
-import MessageBubble from "./MessageBubble";
+import MessageBubble, { toMutedAgentBubbleBg } from "./MessageBubble";
 
 export interface Message {
   id: string;
@@ -13,7 +13,7 @@ export interface Message {
   ambient?: boolean;
   replyTo?: { id: string; text: string; role: "user" | "model" };
   delegatedFrom?: string; // comma-separated agent IDs (e.g. "scout")
-  fromAgent?: string;     // for inter-agent messages: who sent this
+  fromAgent?: string; // for inter-agent messages: who sent this
   /** Tim only: server snapshot when `TIM_CHAT_CONTEXT_DEBUG=1` — work queue + UI context actually merged. */
   timContextDebug?: TimContextDebugSnapshot;
 }
@@ -26,14 +26,29 @@ interface ChatWindowProps {
   onReply?: (msg: Message) => void;
 }
 
-function ChatThinkingPlaceholder() {
+/** Thinking state shown in the streaming placeholder bubble (empty model message). */
+function thinkingShownInsideBubble(messages: Message[], isLoading: boolean): boolean {
+  if (!isLoading || messages.length === 0) return false;
+  const last = messages[messages.length - 1];
+  return last.role === "model" && !last.text.trim();
+}
+
+function AgentThinkingStrip({ agentName, agentColor }: { agentName: string; agentColor: string }) {
+  const agentBg = useMemo(() => toMutedAgentBubbleBg(agentColor), [agentColor]);
   return (
-    <div className="flex justify-start mb-1">
-      <div className="rounded-lg border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] bg-[color-mix(in_srgb,var(--bg-tertiary)_85%,var(--bg-primary))] px-4 py-3">
-        <div className="flex space-x-1">
-          <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:0ms]" />
-          <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:150ms]" />
-          <div className="h-1.5 w-1.5 rounded-full bg-[var(--text-tertiary)]/50 animate-bounce [animation-delay:300ms]" />
+    <div className="flex justify-start shrink-0 px-2 pt-1.5 pb-1" aria-live="polite">
+      <div
+        className="w-full max-w-[min(100%,25.2rem)] rounded-md px-3 py-2"
+        style={{
+          background: agentBg,
+          border: `1px solid color-mix(in srgb, ${agentColor} 14%, var(--border-color))`,
+        }}
+      >
+        <div className="mb-0.5 text-[11px] font-medium text-[var(--text-secondary)]">{agentName}</div>
+        <div className="flex items-center gap-1.5 py-0.5" aria-label="Thinking">
+          <div className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:0ms] bg-[var(--text-tertiary)]/55" />
+          <div className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:150ms] bg-[var(--text-tertiary)]/55" />
+          <div className="w-1.5 h-1.5 rounded-full animate-bounce [animation-delay:300ms] bg-[var(--text-tertiary)]/55" />
         </div>
       </div>
     </div>
@@ -53,6 +68,9 @@ export default function ChatWindow({
   /** Newest first in the UI; internal state and API stay chronological. */
   const ordered = useMemo(() => [...messages].reverse(), [messages]);
 
+  const inBubbleThinking = thinkingShownInsideBubble(messages, isLoading);
+  const showThinkingStrip = isLoading && !inBubbleThinking;
+
   useEffect(() => {
     const isInitialLoad = prevCountRef.current === 0 && messages.length > 0;
     const isBigJump = Math.abs(messages.length - prevCountRef.current) > 2;
@@ -65,30 +83,27 @@ export default function ChatWindow({
     prevCountRef.current = messages.length;
   }, [messages, isLoading]);
 
-  const showStandaloneThinking =
-    isLoading &&
-    (messages.length === 0 || messages[messages.length - 1]?.role !== "model");
-
   return (
-    <div
-      ref={scrollRef}
-      className="flex-1 overflow-y-auto overflow-x-hidden pl-2.5 pr-1.5 py-3 space-y-2.5"
-    >
-      {messages.length === 0 && !isLoading && (
-        <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-tertiary)]">
-          Send a message to {agentName}
-        </div>
-      )}
-      {showStandaloneThinking && ordered.length === 0 ? (
-        <ChatThinkingPlaceholder />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {showThinkingStrip ? (
+        <AgentThinkingStrip agentName={agentName} agentColor={agentColor} />
       ) : null}
-      {ordered.map((msg, idx) => {
-        const isNewest = idx === 0;
-        const thinkingInside =
-          isLoading && isNewest && msg.role === "model" && !msg.text.trim();
-        return (
-          <div key={msg.id} className="contents">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pl-2 pr-1 py-2.5 space-y-2"
+      >
+        {messages.length === 0 && !isLoading && (
+          <div className="flex h-full min-h-[108px] items-center justify-center text-[12px] text-[var(--text-tertiary)]">
+            Send a message to {agentName}
+          </div>
+        )}
+        {ordered.map((msg, idx) => {
+          const isNewest = idx === 0;
+          const thinkingInside =
+            isLoading && isNewest && msg.role === "model" && !msg.text.trim();
+          return (
             <MessageBubble
+              key={msg.id}
               role={msg.role}
               text={msg.text}
               timestamp={msg.timestamp}
@@ -101,10 +116,9 @@ export default function ChatWindow({
               isThinking={thinkingInside}
               timContextDebug={msg.timContextDebug}
             />
-            {isNewest && showStandaloneThinking ? <ChatThinkingPlaceholder /> : null}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

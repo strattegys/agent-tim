@@ -26,6 +26,11 @@ import {
   parsePersonLinkedInFields,
   sqlPersonLinkedinUrlCoalesce,
 } from "@/lib/linkedin-person-identity";
+import {
+  countTimLinkedInInboundMessageReceipts,
+  fetchTimLinkedInInboundFeedRows,
+  type TimLinkedInInboundFeedRow,
+} from "@/lib/tim-linkedin-inbound-feed";
 
 /**
  * GET /api/crm/human-tasks?packageStage=ACTIVE&ownerAgent=tim&messagingOnly=true
@@ -38,7 +43,9 @@ import {
  * - sourceType — filter workflow items by source (e.g. `content` for Ghost’s content queue)
  * - excludePackageStages — comma-separated package stages to omit (e.g. `DRAFT,PENDING_APPROVAL` so planner draft/testing rows don’t appear in agent queues)
  * - includeInactivePackages — with ownerAgent=tim: include workflows on non-ACTIVE packages (default excludes them so planner work stays in package planner).
- * - summary=1 — with ownerAgent=tim only: returns { count, pendingFollowUpCount, warmOutreachDaily } without per-row CRM/artifact work (fast polling).
+ * - summary=1 — with ownerAgent=tim only: returns { count, pendingFollowUpCount, linkedinInboundMessageCount, unifiedMessagingCount, warmOutreachDaily } without per-row CRM/artifact work (fast polling).
+ * - Full GET with ownerAgent=tim + messagingOnly: also returns linkedinInboundFeed unless linkedinInboundFeed=0 (skip for faster first paint; use messagingInboundOnly=1 to fetch feed alone).
+ * - messagingInboundOnly=1 + ownerAgent=tim: returns only linkedinInboundFeed (no workflow query) — pairs with linkedinInboundFeed=0 on the main pull.
  * - ownerAgent=tim (default): packaged workflows only if `_package` exists and `stage` is ACTIVE; `packageId` IS NULL still shows (general inbox, connection intake, etc.). Pass includeInactivePackages=1 to include non-ACTIVE packages (planner / ops).
  * - ownerAgent=tim + humanTaskOpen column: queue is **human steps only** (`humanTaskOpen = true`), plus warm-outreach **MESSAGED** (waiting on LinkedIn; flag intentionally false — see syncHumanTaskOpenForItem).
  * - limit / offset — with ownerAgent=tim on full GET (not summary): paginate (default limit 80, max 150). Response includes hasMore and nextOffset when applicable.
@@ -47,6 +54,7 @@ import {
 /** Keep in sync: SQL `IN` below and messaging-tab filtering in this route. */
 const MESSAGING_ITEM_STAGES_LIST = [
   "INITIATED",
+  "ACCEPTED",
   "AWAITING_CONTACT",
   "MESSAGE_DRAFT",
   "MESSAGED",
@@ -431,6 +439,8 @@ type QueueRow = {
   spec: unknown;
   itemType: string;
   board_stages: unknown;
+  /** Present when column exists and selected in query. */
+  humanTaskOpen?: boolean | null;
   /** Tim messaging queue: max timestamp from inbound receipts + LinkedIn CRM notes (not workflow row touches). */
   lastLinkedInMessageAt?: string | null;
 };
@@ -625,7 +635,14 @@ async function fetchHumanTaskRows(
   if (useHumanTaskOpenCol) {
     if (ownerAgentLower === "tim") {
       /* Human-in-the-loop only: trust persisted flag (synced from board requiresHuman + templates).
-       * Exception: warm-outreach MESSAGED keeps humanTaskOpen=false while waiting on LinkedIn — still list for context. */
+       * Exception: warm-outreach MESSAGED keeps humanTaskOpen=false while waiting on LinkedIn — still list for context.
+       * Exception: packaged cold outreach INITIATED/ACCEPTED often has requiresHuman=false — still show in Tim messaging. */
+      const packagedWaitConnection = messagingOnly
+        ? `OR (
+          w."packageId" IS NOT NULL
+          AND UPPER(TRIM(wi.stage::text)) IN ('INITIATED', 'ACCEPTED')
+        )`
+        : "";
       humanOpenSql = `(
         wi."humanTaskOpen" = true
         OR (
@@ -633,6 +650,7 @@ async function fetchHumanTaskRows(
           AND COALESCE(w.spec::text, '') LIKE '%"workflowType"%'
           AND COALESCE(w.spec::text, '') LIKE '%warm-outreach%'
         )
+        ${packagedWaitConnection}
       ) AND `;
     } else {
       humanOpenSql = 'wi."humanTaskOpen" = true AND ';
@@ -656,10 +674,11 @@ async function fetchHumanTaskRows(
       ? ` AND UPPER(TRIM(wi.stage::text)) IN (${MESSAGING_ITEM_STAGES_SQL_IN})`
       : "";
 
+  const humanOpenSelect = useHumanTaskOpenCol ? ', wi."humanTaskOpen" AS "humanTaskOpen"' : "";
   const baseSelectCols = `wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi."dueDate", wi."createdAt",
             wi."updatedAt",
             w.name AS "workflowName", w."ownerAgent", w."packageId", w.spec, ${itemTypeSql},
-            b.stages AS board_stages`;
+            b.stages AS board_stages${humanOpenSelect}`;
 
   const fromWhere = `FROM "_workflow_item" wi
      INNER JOIN "_workflow" w ON w.id = wi."workflowId"
@@ -751,6 +770,89 @@ function registryHumanMeta(
   return { humanAction: st.humanAction, stageLabel: st.label };
 }
 
+async function buildTimLinkedinInboundFeedTaskPayloads(
+  feedRows: TimLinkedInInboundFeedRow[],
+  customWfMap: Map<string, WorkflowTypeSpec>,
+  personIdentityMap: Map<
+    string,
+    {
+      linkedinLinkPrimaryLinkUrl: string | null;
+      linkedinProviderId: string | null;
+      emailsPrimaryEmail: string | null;
+    }
+  >
+): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  for (const row of feedRows) {
+    const stageKey = (row.linkedStage || "").trim().toUpperCase();
+    const wfType =
+      row.linkedItemId && row.linkedWorkflowSpec != null
+        ? resolveWorkflowRegistryForQueueWithCustomMap(row.linkedWorkflowSpec as WorkflowTypeSpec, {
+            boardStages: row.linkedBoardStages,
+            ownerAgent: "tim",
+          }, customWfMap) || ""
+        : "";
+    const stageMeta =
+      row.linkedItemId && row.linkedBoardStages != null
+        ? boardHumanMetaForStage(row.linkedBoardStages, row.linkedStage || "")
+        : null;
+    const nameParts = [row.personFirstName, row.personLastName].filter((x) => x && String(x).trim());
+    const contactName = nameParts.length ? nameParts.map((x) => String(x).trim()).join(" ") : "";
+    const title = (row.senderDisplayName && row.senderDisplayName.trim()) || "LinkedIn inbound";
+    const subtitle = row.linkedItemId
+      ? wfType
+        ? `${wfType.replace(/-/g, " ")} · open workflow row`
+        : "Matched workflow row"
+      : "No Tim workflow row matched yet";
+    const lastMsg = row.messageSentAt?.trim() || row.createdAt;
+    const ex = personIdentityMap.get(row.personId) || {
+      linkedinLinkPrimaryLinkUrl: null as string | null,
+      linkedinProviderId: null as string | null,
+      emailsPrimaryEmail: null as string | null,
+    };
+    out.push({
+      queueRowKind: "linkedin_inbound",
+      receiptId: row.receiptId,
+      itemId: `receipt:${row.receiptId}`,
+      artifactWorkflowItemId: row.linkedItemId,
+      itemTitle: title,
+      itemSubtitle: subtitle,
+      sourceId: row.personId,
+      workflowId: row.linkedWorkflowId || "",
+      workflowName: row.linkedWorkflowName || (row.linkedItemId ? "Tim workflow" : "—"),
+      packageName: "",
+      ownerAgent: "tim",
+      packageId: null,
+      packageNumber: null,
+      packageStage: null,
+      inActiveCampaign: false,
+      workflowType: wfType || "linkedin-inbound-message",
+      stage: stageKey || "LINKEDIN_INBOUND",
+      stageLabel:
+        stageMeta?.label ||
+        (row.linkedStage ? row.linkedStage.replace(/_/g, " ") : "Inbound message"),
+      humanAction: stageMeta?.humanAction || "Review LinkedIn thread and CRM",
+      dueDate: null,
+      itemType: "person",
+      createdAt: row.createdAt,
+      updatedAt: row.createdAt,
+      lastMessageAt: lastMsg,
+      waitingFollowUp: false,
+      contactName: contactName || null,
+      contactFirstName: row.personFirstName?.trim() || null,
+      contactCompany: row.personCompanyName,
+      contactTitle: null,
+      contactDbSyncPending: false,
+      contactLinkedinPublicUrl: ex.linkedinLinkPrimaryLinkUrl,
+      contactLinkedinMemberId: ex.linkedinProviderId,
+      contactPrimaryEmail: ex.emailsPrimaryEmail,
+      unipileMessageId: row.unipileMessageId,
+      linkedinChatId: row.chatId || "",
+    });
+  }
+  return out;
+}
+
 export async function GET(req: NextRequest) {
   const packageStageFilter = req.nextUrl.searchParams.get("packageStage");
   const ownerAgentFilter = req.nextUrl.searchParams.get("ownerAgent")?.trim().toLowerCase() || null;
@@ -773,7 +875,46 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get("includeInactivePackages") === "true";
   const timOpsQueueOnly = ownerAgentFilter === "tim" && !includeInactivePackages;
   const timPagination = parseTimPagination(ownerAgentFilter, summaryOnly, req.nextUrl.searchParams);
+  const linkedinInboundFeedParam = req.nextUrl.searchParams.get("linkedinInboundFeed");
+  const includeLinkedinInboundFeed =
+    linkedinInboundFeedParam == null ||
+    linkedinInboundFeedParam === "1" ||
+    linkedinInboundFeedParam.toLowerCase() === "true";
+  const messagingInboundOnly =
+    ownerAgentFilter === "tim" &&
+    (req.nextUrl.searchParams.get("messagingInboundOnly") === "1" ||
+      req.nextUrl.searchParams.get("messagingInboundOnly") === "true");
+
   try {
+    if (messagingInboundOnly && !summaryOnly) {
+      const customWfMap = await loadCustomWorkflowTypeMap();
+      const inboundLimitRaw = req.nextUrl.searchParams.get("inboundFeedLimit");
+      const inboundLimit = Math.min(
+        150,
+        Math.max(1, parseInt(inboundLimitRaw || "80", 10) || 80)
+      );
+      let linkedinInboundFeed: Record<string, unknown>[] = [];
+      try {
+        const feedRows = await fetchTimLinkedInInboundFeedRows(inboundLimit);
+        const pids = [...new Set(feedRows.map((r) => r.personId))];
+        const personIdentityMap = await batchFetchPersonIdentityExtrasMap(pids);
+        linkedinInboundFeed = await buildTimLinkedinInboundFeedTaskPayloads(
+          feedRows,
+          customWfMap,
+          personIdentityMap
+        );
+      } catch (e) {
+        console.warn("[human-tasks] messagingInboundOnly:", errMsg(e).slice(0, 160));
+      }
+      return NextResponse.json({
+        tasks: [],
+        linkedinInboundFeed,
+        count: 0,
+        hasMore: false,
+        nextOffset: null,
+      });
+    }
+
     const conditions: string[] = ['wi."deletedAt" IS NULL', 'w."deletedAt" IS NULL'];
     const params: unknown[] = [];
 
@@ -815,10 +956,16 @@ export async function GET(req: NextRequest) {
       : "";
 
     if (timOpsQueueOnly && !packageStageFilter) {
-      /* Non-packaged Tim workflows (inbox, intake) stay visible; packaged rows only when package row exists and is ACTIVE. */
-      conditions.push(
-        `(w."packageId" IS NULL OR (p.id IS NOT NULL AND UPPER(TRIM(COALESCE(p.stage::text, ''))) = 'ACTIVE'))`
-      );
+      /* Non-packaged Tim workflows (inbox, intake) stay visible. Packaged: ACTIVE always; DRAFT also when loading Tim messaging so Agent Army / draft campaigns still surface rows. */
+      if (messagingOnly) {
+        conditions.push(
+          `(w."packageId" IS NULL OR (p.id IS NOT NULL AND UPPER(TRIM(COALESCE(p.stage::text, ''))) IN ('ACTIVE', 'DRAFT')))`
+        );
+      } else {
+        conditions.push(
+          `(w."packageId" IS NULL OR (p.id IS NOT NULL AND UPPER(TRIM(COALESCE(p.stage::text, ''))) = 'ACTIVE'))`
+        );
+      }
     }
 
     let useHumanTaskOpenCol = true;
@@ -914,10 +1061,19 @@ export async function GET(req: NextRequest) {
         else activeCount += 1;
       }
       const warmOutreachDaily = await getWarmOutreachDailyProgressForTim();
+      let linkedinInboundMessageCount = 0;
+      try {
+        linkedinInboundMessageCount = await countTimLinkedInInboundMessageReceipts();
+      } catch {
+        linkedinInboundMessageCount = 0;
+      }
+      const unifiedMessagingCount = activeCount + pendingFollowUpCount + linkedinInboundMessageCount;
       return NextResponse.json({
         summary: true,
         count: activeCount,
         pendingFollowUpCount,
+        linkedinInboundMessageCount,
+        unifiedMessagingCount,
         warmOutreachDaily,
       });
     }
@@ -1052,6 +1208,8 @@ export async function GET(req: NextRequest) {
       lastMessageAt?: string | null;
       /** Warm-outreach MESSAGED: in Tim’s list for context, not an actionable submit step */
       waitingFollowUp: boolean;
+      /** Synced from board requiresHuman; used by Tim UI for bucket split */
+      humanTaskOpen: boolean;
       /** Person row: display in Tim warm-outreach contact strip (null = empty slot) */
       contactSlotOpen?: boolean;
       contactName?: string | null;
@@ -1339,6 +1497,11 @@ export async function GET(req: NextRequest) {
           ? packageNumbers[item.packageId]
           : null;
 
+      const humanTaskOpenResolved =
+        useHumanTaskOpenCol && item.humanTaskOpen != null
+          ? Boolean(item.humanTaskOpen)
+          : humanTaskOpenFromBoardStages(item.board_stages, item.stage);
+
       tasks.push({
         itemId: item.id,
         itemTitle: title,
@@ -1365,6 +1528,7 @@ export async function GET(req: NextRequest) {
             ? String(item.lastLinkedInMessageAt)
             : null,
         waitingFollowUp,
+        humanTaskOpen: humanTaskOpenResolved,
         ...(item.sourceType === "person" || item.sourceType === WARM_DISCOVERY_SOURCE_TYPE
           ? {
               contactSlotOpen,
@@ -1390,8 +1554,25 @@ export async function GET(req: NextRequest) {
       const warmOutreachDaily = await getWarmOutreachDailyProgressForTim();
       const sqlHasMore = timPagination != null && rows.length === timPagination.limit;
       const nextOffset = sqlHasMore ? timPagination.offset + timPagination.limit : null;
+      let linkedinInboundFeed: Record<string, unknown>[] = [];
+      if (messagingOnly && includeLinkedinInboundFeed) {
+        try {
+          const feedRows = await fetchTimLinkedInInboundFeedRows(80);
+          const pids = [...new Set(feedRows.map((r) => r.personId))];
+          const personIdentityMap = await batchFetchPersonIdentityExtrasMap(pids);
+          linkedinInboundFeed = await buildTimLinkedinInboundFeedTaskPayloads(
+            feedRows,
+            customWfMap,
+            personIdentityMap
+          );
+        } catch (e) {
+          console.warn("[human-tasks] linkedinInboundFeed:", errMsg(e).slice(0, 160));
+          linkedinInboundFeed = [];
+        }
+      }
       return NextResponse.json({
         tasks,
+        linkedinInboundFeed,
         count,
         warmOutreachDaily,
         hasMore: sqlHasMore,

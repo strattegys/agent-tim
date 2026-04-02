@@ -16,6 +16,7 @@ interface AgentSidebarProps {
   onSelect: (id: string) => void;
   unreadCounts?: Record<string, number>;
   timMessagingTaskCount?: number;
+  timUnifiedMessagingCount?: number;
   ghostContentTaskCount?: number;
   suziDueReminderCount?: number;
 }
@@ -26,11 +27,13 @@ export default function AgentSidebar({
   onSelect,
   unreadCounts = {},
   timMessagingTaskCount = 0,
+  timUnifiedMessagingCount = 0,
   ghostContentTaskCount = 0,
   suziDueReminderCount = 0,
 }: AgentSidebarProps) {
   const workBadges = {
     timMessagingTaskCount,
+    timUnifiedMessagingCount,
     ghostContentTaskCount,
     suziDueReminderCount,
   };

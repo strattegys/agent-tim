@@ -3,6 +3,11 @@
 import useSWR from "swr";
 import { useDocumentVisible } from "@/lib/use-document-visible";
 
+export type CronStatusBeneficiary = {
+  id: string;
+  name: string;
+};
+
 export type CronStatusJob = {
   id: string;
   name: string;
@@ -14,6 +19,10 @@ export type CronStatusJob = {
   timeZone: string | null;
   lastRun: string | null;
   lastResult: string | null;
+  beneficiaries?: CronStatusBeneficiary[];
+  paused?: boolean;
+  pauseFromEnv?: boolean;
+  pauseFromFile?: boolean;
 };
 
 export type CronStatusSource = "hosted" | "this_process" | "local_catalog" | "error";
@@ -25,6 +34,8 @@ export type CronStatusResponse = {
   cronStatusSource?: CronStatusSource;
   /** When cronStatusSource is local_catalog: how to enable hosted proxy. */
   cronStatusMessage?: string;
+  /** Whether POST /api/cron/pause can apply (false when only local catalog, no hosted link). */
+  cronPauseEditable?: boolean;
   error?: string;
   httpStatus?: number;
   detail?: string;

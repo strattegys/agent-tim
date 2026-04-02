@@ -3,7 +3,6 @@
  * Packaged warm-outreach / linkedin-outreach steps are handled elsewhere before this runs.
  */
 import { query } from "@/lib/db";
-import { personHasNonSystemBlockingPackagedWorkflow } from "@/lib/person-packaged-workflow-exclusivity";
 import {
   extractLinkedInHintFromArtifactOrNotes,
   isLinkedInProviderMemberId,
@@ -405,13 +404,10 @@ export async function recordGeneralLinkedInInbound(args: {
 
   await ensurePersonLinkedInFromUnipileWebhook(primaryPersonId, args.senderProviderId);
 
-  if (await personHasNonSystemBlockingPackagedWorkflow(primaryPersonId)) {
-    return {
-      ok: false,
-      reason:
-        "Person is already on an active or planned package pipeline — skipping Tim LinkedIn general-inbox queue row (inbound still visible in Unipile).",
-    };
-  }
+  // Do not skip general inbox just because this person has another packaged row (e.g. warm-outreach not
+  // at MESSAGED, or CRM person-id drift so warm-outreach matching failed). Skipping made inbound vanish
+  // from Tim’s queue while the drain cron still reported success. Duplicates for the same person are
+  // merged via mergeDuplicateActiveGeneralInboxInboundRows.
 
   await refreshInboundPersonDisplayNameIfPlaceholder(primaryPersonId, args.senderDisplayName);
 

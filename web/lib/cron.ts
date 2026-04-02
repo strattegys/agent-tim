@@ -437,11 +437,10 @@ export function initCronJobs(): void {
       // Static import — dynamic import() here caused webpack chunk "reading 'call'" failures on the server.
       if (!isUnipileWebhookInboxEnabled()) return;
       const r = await drainUnipileWebhookInbox(50);
-      if (r.processed > 0 || r.failed > 0) {
-        console.log(
-          `[cron] unipile-webhook-inbox-drain: processed=${r.processed} failed=${r.failed} claimed=${r.claimed}`
-        );
-      }
+      // Always log once per minute so ops can tell “job ran” from “inbox had work” (Friday still shows lastResult=success either way).
+      console.log(
+        `[cron] unipile-webhook-inbox-drain: claimed=${r.claimed} processed=${r.processed} failed=${r.failed}`
+      );
     }
   );
 

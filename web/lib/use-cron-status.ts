@@ -68,5 +68,10 @@ export function useCronStatus(enabled: boolean) {
 
 export function cronJobsWithErrors(jobs: CronStatusJob[] | undefined): CronStatusJob[] {
   if (!jobs?.length) return [];
-  return jobs.filter((j) => j.enabled && j.lastResult?.startsWith("error"));
+  return jobs.filter(
+    (j) =>
+      j.enabled &&
+      j.lastResult?.startsWith("error") &&
+      !j.paused
+  );
 }

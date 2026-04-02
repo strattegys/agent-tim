@@ -211,15 +211,17 @@ export default function FridayCronPanel() {
       {/* Job list */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
         {filtered.map((job) => {
-          const isError = job.lastResult?.startsWith("error");
+          const pauseFromFile = job.pauseFromFile === true;
+          const pauseFromEnv = job.pauseFromEnv === true;
+          const visuallyPaused = job.paused === true;
+          const lastResultLooksLikeError = job.lastResult?.startsWith("error");
+          /** Stale error from before pause — do not alarm while the job is intentionally paused. */
+          const isError = Boolean(lastResultLooksLikeError && !visuallyPaused);
           const isSuccess = job.lastResult === "success";
           const isPausedRun = job.lastResult === "paused";
           const color = AGENT_COLORS[job.agentId] ?? "var(--text-secondary)";
           const beneficiaries = job.beneficiaries ?? [];
           const pauseEditable = data?.cronPauseEditable === true;
-          const pauseFromFile = job.pauseFromFile === true;
-          const pauseFromEnv = job.pauseFromEnv === true;
-          const visuallyPaused = job.paused === true;
 
           return (
             <article
@@ -301,7 +303,14 @@ export default function FridayCronPanel() {
                           ? "text-[#1D9E75]"
                           : isPausedRun
                             ? "text-amber-700 dark:text-amber-300"
-                            : ""
+                            : lastResultLooksLikeError && visuallyPaused
+                              ? "text-[var(--text-tertiary)]"
+                              : ""
+                    }
+                    title={
+                      lastResultLooksLikeError && visuallyPaused
+                        ? "Last run before pause (not a current failure)"
+                        : undefined
                     }
                   >
                     {isError ? job.lastResult.slice(0, 80) : job.lastResult}

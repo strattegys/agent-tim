@@ -54,8 +54,10 @@ const globalForCron = globalThis as typeof globalThis & {
   __cronJobRegistry?: Map<string, CronJobConfig>;
   __cronScheduledTasks?: Map<string, ScheduledTask>;
   __cronInitialized?: boolean;
-  /** Set once in initCronJobs — false on LOCALDEV/LOCALPROD when jobs are registry-only for the UI. */
+  /** Mirrors serverCronsAllowed() after each initCronJobs — drives node-cron scheduling. */
   __cronScheduleEnabled?: boolean;
+  /** Enables starting timers on a later initCronJobs after CC_FORCE_SERVER_CRON=1 (first init may have run without it). */
+  __cronJobHandlers?: Map<string, () => Promise<void>>;
 };
 
 const jobRegistry = globalForCron.__cronJobRegistry ?? new Map<string, CronJobConfig>();
@@ -107,6 +109,56 @@ function execScript(
   });
 }
 
+function attachCronJobTask(job: CronJobConfig, handler: () => Promise<void>): void {
+  if (scheduledTasks.has(job.id)) return;
+
+  const cronOpts = job.timeZone ? { timezone: job.timeZone } : undefined;
+  const task = schedule(
+    job.schedule,
+    async () => {
+      const startTime = new Date();
+      try {
+        await handler();
+        job.lastRun = startTime;
+        job.lastResult = "success";
+        logToFile(job.logFile, `[OK] ${job.name} completed`);
+        if (!CRON_TRACE_SKIP_IDS.has(job.id)) {
+          pushWorkflowObservabilityEvent("cron_job", {
+            jobId: job.id,
+            name: job.name,
+            agentId: job.agentId,
+            result: "success",
+          });
+        }
+      } catch (error) {
+        const errMsg =
+          error instanceof Error ? error.message : String(error);
+        job.lastRun = startTime;
+        job.lastResult = `error: ${errMsg.slice(0, 200)}`;
+        logToFile(job.logFile, `[ERROR] ${job.name}: ${errMsg}`);
+        console.error(`[cron] ${job.name} failed:`, errMsg);
+        if (!CRON_TRACE_SKIP_IDS.has(job.id)) {
+          let traceErr = errMsg.slice(0, 420);
+          if (/ECONNREFUSED|5433/i.test(errMsg)) {
+            const diag = cronTraceDbDiag();
+            if (diag) traceErr = `${traceErr} | ${diag}`.slice(0, 500);
+          }
+          pushWorkflowObservabilityEvent("cron_job", {
+            jobId: job.id,
+            name: job.name,
+            agentId: job.agentId,
+            result: "error",
+            error: traceErr,
+          });
+        }
+      }
+    },
+    cronOpts
+  );
+
+  scheduledTasks.set(job.id, task);
+}
+
 function registerJob(
   config: Omit<CronJobConfig, "lastRun" | "lastResult">,
   handler: () => Promise<void>
@@ -119,53 +171,43 @@ function registerJob(
   jobRegistry.set(config.id, job);
 
   if (!config.enabled) return;
-  if (!globalForCron.__cronScheduleEnabled) return;
 
-  const cronOpts = config.timeZone ? { timezone: config.timeZone } : undefined;
-  const task = schedule(
-    config.schedule,
-    async () => {
-      const startTime = new Date();
-      try {
-        await handler();
-        job.lastRun = startTime;
-        job.lastResult = "success";
-        logToFile(config.logFile, `[OK] ${config.name} completed`);
-        if (!CRON_TRACE_SKIP_IDS.has(config.id)) {
-          pushWorkflowObservabilityEvent("cron_job", {
-            jobId: config.id,
-            name: config.name,
-            agentId: config.agentId,
-            result: "success",
-          });
-        }
-      } catch (error) {
-        const errMsg =
-          error instanceof Error ? error.message : String(error);
-        job.lastRun = startTime;
-        job.lastResult = `error: ${errMsg.slice(0, 200)}`;
-        logToFile(config.logFile, `[ERROR] ${config.name}: ${errMsg}`);
-        console.error(`[cron] ${config.name} failed:`, errMsg);
-        if (!CRON_TRACE_SKIP_IDS.has(config.id)) {
-          let traceErr = errMsg.slice(0, 420);
-          if (/ECONNREFUSED|5433/i.test(errMsg)) {
-            const diag = cronTraceDbDiag();
-            if (diag) traceErr = `${traceErr} | ${diag}`.slice(0, 500);
-          }
-          pushWorkflowObservabilityEvent("cron_job", {
-            jobId: config.id,
-            name: config.name,
-            agentId: config.agentId,
-            result: "error",
-            error: traceErr,
-          });
-        }
-      }
-    },
-    cronOpts
-  );
+  if (!globalForCron.__cronJobHandlers) {
+    globalForCron.__cronJobHandlers = new Map();
+  }
+  globalForCron.__cronJobHandlers.set(config.id, handler);
 
-  scheduledTasks.set(config.id, task);
+  if (globalForCron.__cronScheduleEnabled) {
+    attachCronJobTask(job, handler);
+  }
+}
+
+/** Re-read env (CC_FORCE_SERVER_CRON, etc.) and start/stop node-cron tasks. Safe to call on every /api/cron-status hit. */
+function reconcileCronSchedulingFromEnv(): void {
+  const want = serverCronsAllowed();
+  globalForCron.__cronScheduleEnabled = want;
+
+  if (!want) {
+    if (scheduledTasks.size > 0) {
+      stopAllCrons();
+    }
+    return;
+  }
+
+  let started = 0;
+  for (const job of jobRegistry.values()) {
+    if (!job.enabled) continue;
+    if (scheduledTasks.has(job.id)) continue;
+    const h = globalForCron.__cronJobHandlers?.get(job.id);
+    if (!h) continue;
+    attachCronJobTask(job, h);
+    started++;
+  }
+  if (started > 0) {
+    console.log(
+      `[cron] Started ${started} scheduled task(s) — CC_FORCE_SERVER_CRON=1 or hosted production.`
+    );
+  }
 }
 
 // ─── Handler factories ───
@@ -303,23 +345,26 @@ function createHeartbeatHandler(
 
 /** Initialize all cron jobs. Idempotent; called from server layout and chat stream API (not instrumentation — Edge-safe). */
 export function initCronJobs(): void {
-  if (globalForCron.__cronInitialized) return;
-  globalForCron.__cronInitialized = true;
-  initialized = true;
-
-  const scheduleTasks = serverCronsAllowed();
-  globalForCron.__cronScheduleEnabled = scheduleTasks;
-
-  if (!scheduleTasks) {
-    console.log(
-      "[cron] Registry populated for Friday Cron tab; timers disabled on this runtime (LOCALDEV/LOCALPROD/next dev). " +
-        "Hosted server runs jobs. UI override: CC_FORCE_SERVER_CRON=1."
-    );
-  } else {
-    console.log("[cron] Initializing cron jobs...");
+  if (!globalForCron.__cronJobHandlers) {
+    globalForCron.__cronJobHandlers = new Map();
   }
 
-  for (const spec of Object.values(AGENT_REGISTRY)) {
+  if (!globalForCron.__cronInitialized) {
+    globalForCron.__cronInitialized = true;
+    initialized = true;
+
+    globalForCron.__cronScheduleEnabled = serverCronsAllowed();
+
+    if (!globalForCron.__cronScheduleEnabled) {
+      console.log(
+        "[cron] Registry populated for Friday Cron tab; timers off until CC_FORCE_SERVER_CRON=1 (or use hosted server). " +
+          "After setting it in web/.env.local, save and open /api/cron-status or Friday → Cron — timers attach without restarting next dev."
+      );
+    } else {
+      console.log("[cron] Initializing cron jobs...");
+    }
+
+    for (const spec of Object.values(AGENT_REGISTRY)) {
     // Register routines
     for (const routine of spec.routines) {
       const factory = ROUTINE_HANDLERS[routine.handler];
@@ -450,7 +495,10 @@ export function initCronJobs(): void {
     }
   );
 
-  console.log(`[cron] Registered ${jobRegistry.size} jobs`);
+    console.log(`[cron] Registered ${jobRegistry.size} jobs`);
+  }
+
+  reconcileCronSchedulingFromEnv();
 }
 
 /** Get all cron jobs, optionally filtered by agent */

@@ -137,7 +137,9 @@ export default function FridayCronPanel() {
               "Background crons (LinkedIn inbox, catch-up, discovery, heartbeats) do not run on LOCALDEV, LOCALPROD, or next dev. They run on the DigitalOcean deployment. Open the hosted app’s Friday → Cron tab to see live last-run lines, or check workflow traces in the Observation Post when enabled."}
           </p>
           <p className="mt-1 text-[var(--text-tertiary)]">
-            Local override (not for production): <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code>
+            Local override (not for production): <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code> in{" "}
+            <code className="text-[10px]">web/.env.local</code>, then restart <code className="text-[10px]">next dev</code>{" "}
+            if the var was new — or open this tab / hit Refresh so timers attach after the first registry init.
           </p>
         </div>
       ) : null}

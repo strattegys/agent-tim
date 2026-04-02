@@ -16,26 +16,33 @@ export type CronStatusJob = {
   lastResult: string | null;
 };
 
-export type CronSchedulerStatus = {
-  schedulingAllowed: boolean;
-  timersAttached: number;
-  registrySize: number;
-  handlersSize: number;
-  workflowTraceBufferOn: boolean;
-};
+export type CronStatusSource = "hosted" | "this_process" | "local_catalog" | "error";
 
 export type CronStatusResponse = {
   jobs: CronStatusJob[];
-  /** True only when this process may run node-cron timers (hosted prod, or CC_FORCE_SERVER_CRON=1 locally). */
+  /** On the hosted process: whether node-cron is allowed (false if CC_DISABLE_SERVER_CRON). */
   serverCronsActive?: boolean;
-  serverCronsNote?: string;
-  scheduler?: CronSchedulerStatus;
+  cronStatusSource?: CronStatusSource;
+  /** When cronStatusSource is local_catalog: how to enable hosted proxy. */
+  cronStatusMessage?: string;
+  error?: string;
+  httpStatus?: number;
+  detail?: string;
 };
 
 async function fetchCronStatus(url: string): Promise<CronStatusResponse> {
   const r = await fetch(url, { credentials: "include", cache: "no-store" });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json() as Promise<CronStatusResponse>;
+  const data = (await r.json().catch(() => ({}))) as CronStatusResponse;
+  if (!r.ok) {
+    const hint =
+      data.error === "hosted_cron_status_failed"
+        ? `Hosted cron status failed (HTTP ${data.httpStatus ?? r.status}). Check CC_HOSTED_APP_URL and INTERNAL_API_KEY.`
+        : data.error === "hosted_cron_status_unreachable"
+          ? `Could not reach hosted app: ${data.detail ?? r.status}`
+          : data.detail || `HTTP ${r.status}`;
+    throw new Error(hint);
+  }
+  return data;
 }
 
 /** Polls `/api/cron-status` when `enabled` — SWR dedupes across Friday work button, dashboard banner, and Cron tab. */

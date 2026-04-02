@@ -12,7 +12,7 @@ import {
   isUnipileWebhookInboxEnabled,
 } from "./unipile-webhook-inbox";
 import { isLinkedInAutomationDisabled } from "./linkedin-automation-gate";
-import { getLocalRuntimeLabel } from "./app-brand";
+import { isCommandCentralLocalRuntime } from "./cron-runtime-context";
 
 /**
  * In-App Cron Scheduler
@@ -20,18 +20,14 @@ import { getLocalRuntimeLabel } from "./app-brand";
  * Data-driven from the Agent Registry. Jobs are registered on server startup
  * via GET /api/health (client CronWarmup), /api/chat/stream, and optionally other API routes. Live status: /api/cron-status.
  *
- * **Hosted production only:** scheduled jobs that touch CRM / Unipile / discovery do not run on
- * LOCALDEV, LOCALPROD, or `next dev` — only on the DigitalOcean-deployed app (no local runtime label,
- * NODE_ENV=production). Laptop stacks still use the DB for UI/API; they do not run background crons.
+ * **Hosted only:** scheduled jobs do not run on LOCALDEV, LOCALPROD, or `next dev`.
+ * The deployed app (no local runtime label, NODE_ENV=production) runs node-cron.
  */
 
-/** True only on the hosted droplet stack (or when CC_FORCE_SERVER_CRON=1). */
+/** True on the hosted Command Central process only. */
 export function serverCronsAllowed(): boolean {
-  if (process.env.CC_FORCE_SERVER_CRON?.trim() === "1") return true;
   if (process.env.CC_DISABLE_SERVER_CRON?.trim() === "1") return false;
-  if (getLocalRuntimeLabel() !== null) return false;
-  if (process.env.NODE_ENV === "development") return false;
-  return true;
+  return !isCommandCentralLocalRuntime();
 }
 
 export interface CronJobConfig {
@@ -56,7 +52,6 @@ const globalForCron = globalThis as typeof globalThis & {
   __cronInitialized?: boolean;
   /** Mirrors serverCronsAllowed() after each initCronJobs — drives node-cron scheduling. */
   __cronScheduleEnabled?: boolean;
-  /** Enables starting timers on a later initCronJobs after CC_FORCE_SERVER_CRON=1 (first init may have run without it). */
   __cronJobHandlers?: Map<string, () => Promise<void>>;
 };
 
@@ -182,7 +177,7 @@ function registerJob(
   }
 }
 
-/** Re-read env (CC_FORCE_SERVER_CRON, etc.) and start/stop node-cron tasks. Safe to call on every /api/cron-status hit. */
+/** Re-read env and start/stop node-cron tasks. Safe to call on every /api/cron-status hit. */
 function reconcileCronSchedulingFromEnv(): void {
   const want = serverCronsAllowed();
   globalForCron.__cronScheduleEnabled = want;
@@ -204,9 +199,7 @@ function reconcileCronSchedulingFromEnv(): void {
     started++;
   }
   if (started > 0) {
-    console.log(
-      `[cron] Started ${started} scheduled task(s) — CC_FORCE_SERVER_CRON=1 or hosted production.`
-    );
+    console.log(`[cron] Started ${started} scheduled task(s) on hosted runtime.`);
   }
 }
 
@@ -357,8 +350,7 @@ export function initCronJobs(): void {
 
     if (!globalForCron.__cronScheduleEnabled) {
       console.log(
-        "[cron] Registry populated for Friday Cron tab; timers off until CC_FORCE_SERVER_CRON=1 (or use hosted server). " +
-          "After setting it in web/.env.local, save and open /api/cron-status or Friday → Cron — timers attach without restarting next dev."
+        "[cron] Registry populated; node-cron timers disabled on this runtime (local dev / LOCALDEV / LOCALPROD)."
       );
     } else {
       console.log("[cron] Initializing cron jobs...");
@@ -604,19 +596,6 @@ export function getCronJobs(agentId?: string): CronJobConfig[] {
     return jobs.filter((j) => j.agentId === agentId);
   }
   return jobs;
-}
-
-/** For `/api/cron-status` — distinguish “scheduling allowed” vs “node-cron tasks actually attached”. */
-export function getCronSchedulerSnapshot(): {
-  timersAttached: number;
-  registrySize: number;
-  handlersSize: number;
-} {
-  return {
-    timersAttached: scheduledTasks.size,
-    registrySize: jobRegistry.size,
-    handlersSize: globalForCron.__cronJobHandlers?.size ?? 0,
-  };
 }
 
 /** Stop all cron jobs (for graceful shutdown) */

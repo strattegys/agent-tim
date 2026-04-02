@@ -1,9 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useCronStatus, type CronStatusJob } from "@/lib/use-cron-status";
-
-type CronJob = CronStatusJob;
+import { useCronStatus } from "@/lib/use-cron-status";
 
 const AGENT_COLORS: Record<string, string> = {
   friday: "#9B59B6",
@@ -56,11 +54,7 @@ export default function FridayCronPanel() {
   const { data, error: swrError, isLoading: loading, mutate: refresh } = useCronStatus(true);
 
   const jobs = data?.jobs ?? [];
-  /** Strict: undefined must not look “on” (avoids wrong copy when API omits the flag). */
-  const schedulingAllowed = data?.serverCronsActive === true;
-  const sch = data?.scheduler;
-  const timersAttached = sch?.timersAttached ?? 0;
-  const traceBufferOn = sch?.workflowTraceBufferOn ?? false;
+  const source = data?.cronStatusSource;
 
   const error = swrError ? (swrError instanceof Error ? swrError.message : "Network error") : null;
 
@@ -70,8 +64,15 @@ export default function FridayCronPanel() {
 
   const enabledCount = jobs.filter((j) => j.enabled).length;
   const errorCount = jobs.filter((j) => j.lastResult?.startsWith("error")).length;
-  const timersMissing =
-    schedulingAllowed && !loading && enabledCount > 0 && timersAttached === 0;
+
+  const headerLine =
+    source === "hosted"
+      ? "Live job status from the hosted Command Central server (refreshes about every 30 seconds)."
+      : source === "this_process"
+        ? "Live job status from this server process (refreshes about every 30 seconds)."
+        : source === "local_catalog"
+          ? "Cron jobs never run on this machine; configure the lines below to load live status from production."
+          : "Cron status source unknown.";
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-3">
@@ -79,28 +80,19 @@ export default function FridayCronPanel() {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-[var(--text-primary)]">Cron Hub</h2>
-          <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5 max-w-xl">
-            {schedulingAllowed ? (
-              <>
-                Scheduling is allowed on this process. {enabledCount} job{enabledCount === 1 ? "" : "s"} enabled
-                {errorCount > 0 ? `; ${errorCount} with errors` : ""}.{" "}
-                {sch ? (
-                  <>
-                    node-cron timers attached: <strong>{timersAttached}</strong>
-                    {traceBufferOn ? " · workflow-trace buffer on" : " · workflow-trace buffer off"}.
-                  </>
-                ) : null}
-              </>
-            ) : (
-              <>
-                Read-only catalog: <code className="text-[10px]">next dev</code> / LOCALDEV / LOCALPROD do not run
-                timers unless <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code> — so{" "}
-                <strong>last run stays empty</strong> here. Traces still buffer in{" "}
-                <code className="text-[10px]">next dev</code> for other events; cron lines only appear after a job
-                actually runs.
-              </>
-            )}
-          </p>
+          <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5 max-w-xl">{headerLine}</p>
+          {source === "this_process" && data?.serverCronsActive === false ? (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-1 max-w-xl">
+              Scheduling is disabled on this host (<code className="text-[10px]">CC_DISABLE_SERVER_CRON</code>
+              ). Last-run times may be stale.
+            </p>
+          ) : null}
+          {source === "this_process" && enabledCount > 0 ? (
+            <p className="text-[11px] text-[var(--text-tertiary)] mt-1">
+              {enabledCount} enabled job{enabledCount === 1 ? "" : "s"}
+              {errorCount > 0 ? ` · ${errorCount} with errors` : ""}
+            </p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -145,32 +137,10 @@ export default function FridayCronPanel() {
         })}
       </div>
 
-      {timersMissing ? (
-        <div
-          role="status"
-          className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] text-[var(--text-secondary)]"
-        >
-          <p className="font-semibold text-amber-800 dark:text-amber-200">Timers not attached</p>
-          <p className="mt-1">
-            Scheduling is allowed but <strong>node-cron has 0 tasks</strong>. Restart <code className="text-[10px]">next dev</code> after adding{" "}
-            <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code>, then open this tab again (or hit Refresh). If this is the{" "}
-            <strong>hosted</strong> server, check deploy logs and that <code className="text-[10px]">CC_DISABLE_SERVER_CRON</code> is not set.
-          </p>
-        </div>
-      ) : null}
-
-      {!schedulingAllowed && !loading ? (
+      {source === "local_catalog" && data?.cronStatusMessage ? (
         <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-[11px] text-[var(--text-secondary)]">
-          <p className="font-semibold text-[var(--text-primary)]">Timers off on this runtime</p>
-          <p className="mt-1">
-            {data?.serverCronsNote ||
-              "Background crons (LinkedIn inbox, catch-up, discovery, heartbeats) do not run on LOCALDEV, LOCALPROD, or next dev. They run on the DigitalOcean deployment. Open the hosted app’s Friday → Cron tab to see live last-run lines, or check workflow traces in the Observation Post when enabled."}
-          </p>
-          <p className="mt-1 text-[var(--text-tertiary)]">
-            Local override (not for production): <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code> in{" "}
-            <code className="text-[10px]">web/.env.local</code>, then restart <code className="text-[10px]">next dev</code>{" "}
-            if the var was new — or open this tab / hit Refresh so timers attach after the first registry init.
-          </p>
+          <p className="font-semibold text-[var(--text-primary)]">Connect to hosted status</p>
+          <p className="mt-1">{data.cronStatusMessage}</p>
         </div>
       ) : null}
 
@@ -228,9 +198,7 @@ export default function FridayCronPanel() {
                   {cronToHuman(job.schedule)}
                   {job.timeZone ? ` (${job.timeZone.replace("America/", "")})` : ""}
                 </span>
-                <span>
-                  Last run: {formatLastRun(job.lastRun)}
-                </span>
+                <span>Last run: {formatLastRun(job.lastRun)}</span>
                 {job.lastResult && (
                   <span className={isError ? "text-red-500" : isSuccess ? "text-[#1D9E75]" : ""}>
                     {isError ? job.lastResult.slice(0, 80) : job.lastResult}
@@ -248,7 +216,7 @@ export default function FridayCronPanel() {
         })}
       </div>
 
-      {filtered.length === 0 && !loading && schedulingAllowed ? (
+      {filtered.length === 0 && !loading ? (
         <p className="text-xs text-[var(--text-tertiary)]">
           {filter === "all" ? "No cron jobs registered." : `No jobs for "${filter}".`}
         </p>

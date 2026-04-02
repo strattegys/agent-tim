@@ -470,18 +470,20 @@ export function initCronJobs(): void {
     }
   );
 
-  const hasAnthropicAdmin = !!process.env.ANTHROPIC_ADMIN_API_KEY?.trim();
   registerJob(
     {
       id: "anthropic-cost-sync",
       name: "Anthropic admin cost sync",
       schedule: "0 6 * * 0",
       description:
-        "Pull Anthropic organization cost_report into _usage_event (weekly, UTC)",
+        "Pull Anthropic organization cost_report into _usage_event (weekly, UTC). Requires ANTHROPIC_ADMIN_API_KEY; no-ops if unset. Use pause to turn off.",
       agentId: "friday",
-      enabled: hasAnthropicAdmin,
+      enabled: true,
     },
     async () => {
+      if (!process.env.ANTHROPIC_ADMIN_API_KEY?.trim()) {
+        return;
+      }
       const { syncAnthropicCostReportToUsageEvents } = await import(
         "./anthropic-admin-sync"
       );
@@ -608,16 +610,15 @@ export function getCronJobSeedMetadata(): CronJobListSeed[] {
     }
   );
 
-  const hasAnthropicAdmin = !!process.env.ANTHROPIC_ADMIN_API_KEY?.trim();
   rows.push({
     id: "anthropic-cost-sync",
     name: "Anthropic admin cost sync",
     schedule: "0 6 * * 0",
     description:
-      "Pull Anthropic organization cost_report into _usage_event (weekly, UTC)",
+      "Pull Anthropic organization cost_report into _usage_event (weekly, UTC). Requires ANTHROPIC_ADMIN_API_KEY; no-ops if unset. Use pause to turn off.",
     logFile: null,
     agentId: "friday",
-    enabled: hasAnthropicAdmin,
+    enabled: true,
     timeZone: null,
     beneficiaryAgentIds: beneficiaryAgentIdsFor("anthropic-cost-sync"),
   });

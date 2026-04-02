@@ -232,7 +232,7 @@ export default function FridayCronPanel() {
                   : isError
                     ? "border-red-500/40"
                     : "border-[var(--border-color)]"
-              } ${visuallyPaused && job.enabled ? "ring-1 ring-amber-500/25" : ""}`}
+              }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
@@ -245,12 +245,7 @@ export default function FridayCronPanel() {
                         disabled
                       </span>
                     )}
-                    {!job.enabled && pauseFromFile ? (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/12 text-amber-800 dark:text-amber-200 shrink-0">
-                        pause when enabled
-                      </span>
-                    ) : null}
-                    {visuallyPaused && job.enabled ? (
+                    {visuallyPaused ? (
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-200 shrink-0">
                         paused
                       </span>

@@ -65,6 +65,12 @@ if ($usingTailscale) {
   }
 }
 
+$cronPauseDir = Join-Path $RepoRoot "docker-data\cron-pause"
+if (-not (Test-Path $cronPauseDir)) {
+  New-Item -ItemType Directory -Path $cronPauseDir -Force | Out-Null
+  Write-Host "Created $cronPauseDir (cron pause bind mount)." -ForegroundColor DarkGray
+}
+
 docker compose --env-file web/.env.local -f docker-compose.yml -f docker-compose.local-prod-desktop.yml up -d --build
 Write-Host ""
 Write-Host 'LOCALPROD (Docker Desktop project cc-localprod):'

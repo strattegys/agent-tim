@@ -28,6 +28,8 @@ Set **`BWS_ACCESS_TOKEN`** (or **`bws ... --access-token`**). See [Access tokens
 | `project-server-local` | PS laptop | `..\PROJECT-SERVER\site\.env.local` (sibling folder) or absolute path |
 | `project-server-production` | PS droplet | **`/opt/project-server/.env`** (root — see **PROJECT-SERVER/docs/BITWARDEN-SECRETS.md**; prod Compose does not use `site/.env.local`) |
 
+**Command Central droplet (`command-central-production`):** store **`CRM_DB_HOST=crm-db`** and **`CRM_DB_PORT=5432`** as SM secrets alongside **`CRM_DB_PASSWORD`** (and name/user if non-default). Deploy pulls them into **`web/.env.local`** so production matches the compose network. The **laptop** project (`command-central-local`) may keep tunnel or Tailscale host/port values; do not reuse those keys blindly across projects.
+
 Store UUIDs in **`bws.secret-projects.json`** on each machine (see **`bws.secret-projects.json.example`** in this repo). Copy to **`bws.secret-projects.json`** and gitignore it (already ignored here).
 
 ## Secret keys

@@ -79,7 +79,10 @@ export default function FridayCronPanel() {
                 {errorCount > 0 ? `, ${errorCount} with errors` : ""}.
               </>
             ) : (
-              <>This laptop build does not run server crons — see the note below.</>
+              <>
+                Schedules below match production; this machine does not run timers — last run stays empty unless you
+                use <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code>.
+              </>
             )}
           </p>
         </div>
@@ -131,7 +134,7 @@ export default function FridayCronPanel() {
           <p className="font-semibold text-[var(--text-primary)]">Hosted server only</p>
           <p className="mt-1">
             {data?.serverCronsNote ||
-              "Background crons (LinkedIn inbox, catch-up, discovery, heartbeats) do not run on LOCALDEV, LOCALPROD, or next dev. They run on the DigitalOcean Command Central deployment. This machine still uses the CRM for the UI when configured."}
+              "Background crons (LinkedIn inbox, catch-up, discovery, heartbeats) do not run on LOCALDEV, LOCALPROD, or next dev. They run on the DigitalOcean deployment. Open the hosted app’s Friday → Cron tab to see live last-run lines, or check workflow traces in the Observation Post when enabled."}
           </p>
           <p className="mt-1 text-[var(--text-tertiary)]">
             Local override (not for production): <code className="text-[10px]">CC_FORCE_SERVER_CRON=1</code>

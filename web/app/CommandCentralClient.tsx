@@ -10,10 +10,10 @@ import PanelSkeleton from "@/components/shared/PanelSkeleton";
 import type { MarniKnowledgeFocus } from "@/components/marni/MarniKnowledgePanel";
 import StatusRail, { type StatusRailLabMode } from "@/components/StatusRail";
 import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
+import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
 
 const AgentInfoPanel = dynamic(() => import("@/components/AgentInfoPanel"), { loading: () => <PanelSkeleton /> });
 const KanbanInlinePanel = dynamic(() => import("@/components/kanban/KanbanInlinePanel"), { loading: () => <PanelSkeleton /> });
-const FridayDashboardPanel = dynamic(() => import("@/components/friday/FridayDashboardPanel"), { loading: () => <PanelSkeleton /> });
 const TimAgentPanel = dynamic(() => import("@/components/tim/TimAgentPanel"), { loading: () => <PanelSkeleton /> });
 const GhostAgentPanel = dynamic(() => import("@/components/ghost/GhostAgentPanel"), { loading: () => <PanelSkeleton /> });
 const SuziRemindersPanel = dynamic(() => import("@/components/suzi/SuziRemindersPanel"), { loading: () => <PanelSkeleton /> });

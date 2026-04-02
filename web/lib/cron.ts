@@ -54,6 +54,8 @@ const globalForCron = globalThis as typeof globalThis & {
   __cronJobRegistry?: Map<string, CronJobConfig>;
   __cronScheduledTasks?: Map<string, ScheduledTask>;
   __cronInitialized?: boolean;
+  /** Set once in initCronJobs — false on LOCALDEV/LOCALPROD when jobs are registry-only for the UI. */
+  __cronScheduleEnabled?: boolean;
 };
 
 const jobRegistry = globalForCron.__cronJobRegistry ?? new Map<string, CronJobConfig>();
@@ -117,6 +119,7 @@ function registerJob(
   jobRegistry.set(config.id, job);
 
   if (!config.enabled) return;
+  if (!globalForCron.__cronScheduleEnabled) return;
 
   const cronOpts = config.timeZone ? { timezone: config.timeZone } : undefined;
   const task = schedule(
@@ -300,22 +303,21 @@ function createHeartbeatHandler(
 
 /** Initialize all cron jobs. Idempotent; called from server layout and chat stream API (not instrumentation — Edge-safe). */
 export function initCronJobs(): void {
-  if (initialized) return;
-
-  if (!serverCronsAllowed()) {
-    initialized = true;
-    globalForCron.__cronInitialized = true;
-    console.log(
-      "[cron] Skipped — server crons run on the hosted DigitalOcean app only (not LOCALDEV/LOCALPROD or next dev). " +
-        "UI still uses your configured CRM. Override: CC_FORCE_SERVER_CRON=1."
-    );
-    return;
-  }
-
-  initialized = true;
+  if (globalForCron.__cronInitialized) return;
   globalForCron.__cronInitialized = true;
+  initialized = true;
 
-  console.log("[cron] Initializing cron jobs...");
+  const scheduleTasks = serverCronsAllowed();
+  globalForCron.__cronScheduleEnabled = scheduleTasks;
+
+  if (!scheduleTasks) {
+    console.log(
+      "[cron] Registry populated for Friday Cron tab; timers disabled on this runtime (LOCALDEV/LOCALPROD/next dev). " +
+        "Hosted server runs jobs. UI override: CC_FORCE_SERVER_CRON=1."
+    );
+  } else {
+    console.log("[cron] Initializing cron jobs...");
+  }
 
   for (const spec of Object.values(AGENT_REGISTRY)) {
     // Register routines

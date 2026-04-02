@@ -4,10 +4,17 @@ import { devQuery, devTransaction } from "./dev-store";
 
 function isInsideLinuxDocker(): boolean {
   try {
-    return fs.existsSync("/.dockerenv");
+    if (fs.existsSync("/.dockerenv")) return true;
   } catch {
-    return false;
+    /* ignore */
   }
+  try {
+    const cg = fs.readFileSync("/proc/self/cgroup", "utf8");
+    if (/(docker|containerd|kubepods|libpod)/i.test(cg)) return true;
+  } catch {
+    /* non-Linux host or no readable cgroup */
+  }
+  return false;
 }
 
 const USE_DEV_STORE = !process.env.CRM_DB_PASSWORD;
@@ -23,8 +30,10 @@ let warnedHostedComposeCrmOverride = false;
  * DigitalOcean stack: `web` and `crm-db` share a compose network. BWS/.env.local often keeps laptop tunnel
  * vars (127.0.0.1:5433), which break inside the container (ECONNREFUSED).
  *
- * Uses **CC_RUNTIME_STACK** (server-only, set in compose) — not `NEXT_PUBLIC_CC_RUNTIME_LABEL`, which Next.js
- * can inline at build time and incorrectly leave as LOCALPROD on the droplet image.
+ * **CC_BUNDLED_CRM_SERVICE=1** (docker-compose.yml only): authoritative — `web` is on the same compose project
+ * as service `crm-db`. LOCALPROD overlay sets **0** so we keep Tailscale/tunnel CRM targets.
+ *
+ * Also uses **CC_RUNTIME_STACK** / label heuristics for older compose files without the bundled flag.
  */
 function useHostedDropletComposeCrm(): boolean {
   if (process.env.NODE_ENV !== "production") return false;
@@ -32,10 +41,16 @@ function useHostedDropletComposeCrm(): boolean {
   if (!process.env.CRM_DB_PASSWORD?.trim()) return false;
   if (process.env.CRM_DB_USE_COMPOSE_SERVICE?.trim() === "0") return false;
 
+  const bundled = process.env.CC_BUNDLED_CRM_SERVICE?.trim();
+  if (bundled === "0") return false;
+  if (bundled === "1") return true;
+
+  const rawHost = (process.env.CRM_DB_HOST || "").trim().toLowerCase();
+  if (/^100\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(rawHost)) return false;
+
   const stack = process.env.CC_RUNTIME_STACK?.trim().toUpperCase();
   if (stack === "LOCALPROD" || stack === "LOCALDEV") return false;
   if (stack === "HOSTED") return true;
-  // Older compose files (before CC_RUNTIME_STACK): infer from UI label — fragile if NEXT_PUBLIC_* was build-baked.
   return getLocalRuntimeLabel() === null;
 }
 

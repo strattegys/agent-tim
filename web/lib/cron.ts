@@ -3,8 +3,9 @@ import "server-only";
 import { schedule, type ScheduledTask } from "node-cron";
 import { pushWorkflowObservabilityEvent } from "./workflow-observability-buffer";
 import { execFile } from "child_process";
-import { appendFileSync } from "fs";
+import { appendFileSync, existsSync } from "fs";
 import { AGENT_REGISTRY } from "./agent-registry";
+import { crmResolvedHostPort } from "./db";
 import type { RoutineSpec, HeartbeatSpec } from "./agent-spec";
 import {
   drainUnipileWebhookInbox,
@@ -60,6 +61,18 @@ globalForCron.__cronJobRegistry = jobRegistry;
 
 const scheduledTasks = globalForCron.__cronScheduledTasks ?? new Map<string, ScheduledTask>();
 globalForCron.__cronScheduledTasks = scheduledTasks;
+
+function cronTraceDbDiag(): string {
+  try {
+    const { host, port } = crmResolvedHostPort();
+    const bundled = process.env.CC_BUNDLED_CRM_SERVICE ?? "unset";
+    const stack = process.env.CC_RUNTIME_STACK ?? "unset";
+    const dockerenv = existsSync("/.dockerenv") ? "1" : "0";
+    return `pool→${host}:${port} bundled=${bundled} stack=${stack} .dockerenv=${dockerenv}`;
+  } catch {
+    return "";
+  }
+}
 
 /** Avoid flooding the Friday workflow trace buffer (runs every minute). */
 const CRON_TRACE_SKIP_IDS = new Set<string>(["unipile-webhook-inbox-drain"]);
@@ -131,12 +144,17 @@ function registerJob(
         logToFile(config.logFile, `[ERROR] ${config.name}: ${errMsg}`);
         console.error(`[cron] ${config.name} failed:`, errMsg);
         if (!CRON_TRACE_SKIP_IDS.has(config.id)) {
+          let traceErr = errMsg.slice(0, 420);
+          if (/ECONNREFUSED|5433/i.test(errMsg)) {
+            const diag = cronTraceDbDiag();
+            if (diag) traceErr = `${traceErr} | ${diag}`.slice(0, 500);
+          }
           pushWorkflowObservabilityEvent("cron_job", {
             jobId: config.id,
             name: config.name,
             agentId: config.agentId,
             result: "error",
-            error: errMsg.slice(0, 500),
+            error: traceErr,
           });
         }
       }

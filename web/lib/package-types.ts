@@ -89,6 +89,28 @@ export interface WarmOutreachDiscoverySpec {
   maxOpenDiscoverySlots?: number;
 }
 
+/** Structured targeting for Scout — stored on package `spec.scoutTargeting`. */
+export interface ScoutSourceRef {
+  /** e.g. unipile_people_search | unipile_followers_of | rss | event | web_search */
+  type: string;
+  label?: string;
+  /** Freeform: URLs, influencer slug, search keywords, feed URL, etc. */
+  detail?: string;
+}
+
+export interface ScoutTargetingSpec {
+  /** Preferred daily count of new people entering the Scout pipeline (FINDING). */
+  dailyNewTargetsGoal?: number;
+  /** One-line ICP for cards and prompts. */
+  icpSummary?: string;
+  /** Longer notes for Scout / operators. */
+  notes?: string;
+  titlePatterns?: string[];
+  keywords?: string[];
+  excludeKeywords?: string[];
+  sources?: ScoutSourceRef[];
+}
+
 /**
  * Shape of the spec JSONB stored in the _package table.
  * Contains the package brief and the deliverables array.
@@ -100,6 +122,8 @@ export interface PackageSpec {
   deliverables: PackageDeliverable[];
   /** Optional — warm-outreach template only; hourly job + heartbeat use this. */
   warmOutreachDiscovery?: WarmOutreachDiscoverySpec;
+  /** Optional — Scout campaign queue + discovery prompts (see lib/scout-queue.ts). */
+  scoutTargeting?: ScoutTargetingSpec;
 }
 
 export interface PackageTemplateSpec {

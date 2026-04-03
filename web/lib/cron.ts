@@ -251,55 +251,60 @@ const ROUTINE_HANDLERS: Record<string, HandlerFactory> = {
   "scout-daily-research": () => async () => {
     const { agentAutonomousChat } = await import("./agent-llm");
     const { query: dbQuery } = await import("./db");
+    const { workflowTypeFromSpec } = await import("./workflow-spec");
 
-    // Check for DISCOVERED items across Scout's research-pipeline workflows
     const workflows = await dbQuery(
-      `SELECT w.id, w.name FROM "_workflow" w
+      `SELECT w.id, w.name, w.spec FROM "_workflow" w
        WHERE w."ownerAgent" = 'scout' AND w.stage = 'ACTIVE' AND w."deletedAt" IS NULL`
     );
-    if (workflows.length === 0) {
+    const researchWfs = workflows.filter(
+      (w: Record<string, unknown>) => workflowTypeFromSpec(w.spec) === "research-pipeline"
+    );
+    if (researchWfs.length === 0) {
       console.log("[cron] Scout daily research: no active research-pipeline workflows");
       return;
     }
 
-    const wfIds = workflows.map((w: Record<string, unknown>) => w.id);
+    const wfIds = researchWfs.map((w: Record<string, unknown>) => w.id);
     const items = await dbQuery(
-      `SELECT wi.id, wi."workflowId",
+      `SELECT wi.id, wi."workflowId", wi.stage,
               p."name" -> 'firstName' ->> 'value' AS first,
               p."name" -> 'lastName' ->> 'value' AS last,
               p."linkedinUrl" ->> 'value' AS linkedin
        FROM "_workflow_item" wi
        LEFT JOIN person p ON p.id = wi."sourceId"
-       WHERE wi."workflowId" = ANY($1) AND wi.stage = 'DISCOVERED' AND wi."deletedAt" IS NULL
+       WHERE wi."workflowId" = ANY($1)
+         AND wi."deletedAt" IS NULL
+         AND UPPER(TRIM(COALESCE(wi.stage::text, ''))) IN ('FINDING', 'DISCOVERED')
        LIMIT 10`,
       [wfIds]
     );
 
     if (items.length === 0) {
-      console.log("[cron] Scout daily research: no DISCOVERED targets to process");
+      console.log("[cron] Scout daily research: no FINDING targets to process");
       return;
     }
 
     const targetList = items
       .map(
         (i: Record<string, unknown>) =>
-          `- ${i.first || ""} ${i.last || ""} (linkedin: ${i.linkedin || "unknown"}, item id: ${i.id}, workflow: ${i.workflowId})`
+          `- ${i.first || ""} ${i.last || ""} (linkedin: ${i.linkedin || "unknown"}, item id: ${i.id}, workflow: ${i.workflowId}, stage: ${i.stage})`
       )
       .join("\n");
 
     const prompt = `[DAILY RESEARCH ROUTINE]
 
-You have ${items.length} target(s) in DISCOVERED stage awaiting research:
+You have ${items.length} target(s) in FINDING (or legacy DISCOVERED) awaiting enrichment and qualification:
 
 ${targetList}
 
 For each target:
-1. Use linkedin fetch-profile to get their full profile data
-2. Use web_search to find recent news about them or their company
-3. Evaluate fit against the campaign criteria stored in your memory
-4. If qualified: use workflow_items move-item to move them to RESEARCHING, then QUALIFIED
-5. If not a fit: use workflow_items move-item to move them to REJECTED
-6. For qualified targets: use workflow_items add-person-to-workflow to add them to Tim's active linkedin-outreach workflow at TARGET stage, then move the item to HANDED_OFF
+1. Use linkedin fetch-profile to get their full profile data (vanity slug, URL, or ACoA provider id).
+2. Use web_search to find recent news about them or their company.
+3. Evaluate fit against the campaign criteria (package brief and spec.scoutTargeting on this workflow's package if known — use memory and CRM context).
+4. If not a fit: use workflow_items move-item to move the item to REJECTED with a clear reason.
+5. If a fit: use workflow_items move-item to advance along the research-pipeline board: FINDING → ENRICHING → QUALIFICATION (human review may be required at QUALIFICATION per board rules).
+6. When fully approved for handoff: use workflow_items add-person-to-workflow to add them to Tim's active linkedin-outreach workflow at TARGET stage, then move the research-pipeline item to HANDED_OFF.
 
 Summarize your findings for each target.`;
 

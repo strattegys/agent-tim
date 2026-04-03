@@ -16,7 +16,8 @@ export type CommandCentralRightPanel =
   | "messages"
   | "costs"
   | "marni-work"
-  | "agent-knowledge";
+  | "agent-knowledge"
+  | "scout-campaigns";
 
 export const VALID_COMMAND_CENTRAL_RIGHT_PANELS: CommandCentralRightPanel[] = [
   "info",
@@ -29,6 +30,7 @@ export const VALID_COMMAND_CENTRAL_RIGHT_PANELS: CommandCentralRightPanel[] = [
   "costs",
   "marni-work",
   "agent-knowledge",
+  "scout-campaigns",
 ];
 
 export const FRIDAY_WORK_DASHBOARD_PANELS = new Set<string>([
@@ -120,6 +122,7 @@ export function rightPanelToSearchParam(
   if (rp === "marni-work") return "kanban";
   if (rp === "agent-knowledge") return "knowledge";
   if (rp === "kanban") return "kanban";
+  if (rp === "scout-campaigns") return "scout-campaigns";
   return null;
 }
 

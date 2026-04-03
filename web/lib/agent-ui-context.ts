@@ -15,7 +15,8 @@ export type AgentUiRightPanel =
   | "messages"
   | "costs"
   | "marni-work"
-  | "agent-knowledge";
+  | "agent-knowledge"
+  | "scout-campaigns";
 
 /** Friday work panel — flat top-level tabs (goals, package kanban, workflow templates, tools, cron, architecture). */
 export type FridayDashboardTab =
@@ -87,6 +88,14 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   }
 
   if (rightPanel === "info") return null;
+
+  if (rightPanel === "scout-campaigns" && agentId === "scout") {
+    return (
+      "## Scout — UI (this message only)\n" +
+      "**Campaign throughput** panel is open: package cards, daily goals, funnel counts. Use **Open board** on a card for the kanban. " +
+      "Use workflow_items / CRM tools to move research-pipeline items toward Tim as usual."
+    );
+  }
 
   if (rightPanel === "kanban" && agentHasKanban(agentId)) {
     if (agentId === "scout") {

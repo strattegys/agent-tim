@@ -20,6 +20,9 @@ const SuziRemindersPanel = dynamic(() => import("@/components/suzi/SuziReminders
 const MarniWorkPanel = dynamic(() => import("@/components/marni/MarniWorkPanel"), { loading: () => <PanelSkeleton /> });
 const AgentKnowledgePanel = dynamic(() => import("@/components/agents/AgentKnowledgePanel"), { loading: () => <PanelSkeleton /> });
 const KingCostPanel = dynamic(() => import("@/components/king/KingCostPanel"), { loading: () => <PanelSkeleton /> });
+const ScoutCampaignPanel = dynamic(() => import("@/components/scout/ScoutCampaignPanel"), {
+  loading: () => <PanelSkeleton />,
+});
 
 import AgentAvatar from "@/components/AgentAvatar";
 import { getSidebarHeaderTitle, showAgentDevLayoutToggle } from "@/lib/app-brand";
@@ -96,6 +99,7 @@ function defaultPanelForAgent(agentId: string): RightPanel {
   if (agentId === "ghost") return "messages";
   if (agentId === "king") return "costs";
   if (agentId === "marni") return "marni-work";
+  if (agentId === "scout") return "scout-campaigns";
   if (agentHasKanban(agentId)) return "kanban";
   return "info";
 }
@@ -257,6 +261,13 @@ export default function CommandCentralClient() {
     if (activeAgent === "marni" && rightPanel === "kanban") {
       setRightPanel("marni-work");
     }
+  }, [activeAgent, rightPanel]);
+
+  useEffect(() => {
+    if (rightPanel === "scout-campaigns" && activeAgent !== "scout") {
+      setRightPanel(defaultPanelForAgent(activeAgent));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAgent, rightPanel]);
 
   useEffect(() => {
@@ -1563,6 +1574,26 @@ export default function CommandCentralClient() {
             </div>
             {/* Panel nav — next to agent name */}
             <div className="flex items-center gap-2.5 shrink-0">
+            {activeAgent === "scout" && (
+              <button
+                type="button"
+                onClick={() => setRightPanel("scout-campaigns")}
+                className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "scout-campaigns"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Scout — campaign throughput (goals, funnel, targeting)"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 19V5" />
+                  <path d="M4 19h16" />
+                  <rect x="7" y="9" width="3" height="7" rx="0.5" />
+                  <rect x="12.5" y="6" width="3" height="10" rx="0.5" />
+                  <rect x="18" y="12" width="2" height="4" rx="0.5" />
+                </svg>
+              </button>
+            )}
             {agentHasKanban(activeAgent) &&
               activeAgent !== "tim" &&
               activeAgent !== "ghost" &&
@@ -1769,6 +1800,8 @@ export default function CommandCentralClient() {
             />
           ) : rightPanel === "marni-work" && activeAgent === "marni" ? (
             <MarniWorkPanel onClose={() => setRightPanel("info")} />
+          ) : rightPanel === "scout-campaigns" && activeAgent === "scout" ? (
+            <ScoutCampaignPanel onClose={() => setRightPanel("info")} />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (

@@ -27,6 +27,9 @@ echo "Ensuring vector memory (pgvector + _memory)..."
 echo "Applying idempotent Suzi Intake migration (_intake)..."
 "${DC[@]}" exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
   < web/scripts/migrate-intake.sql
+echo "Applying idempotent Intake itemNumber (stable card ids)..."
+"${DC[@]}" exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
+  < web/scripts/migrate-intake-item-number.sql
 echo "Applying idempotent punch list actions (JSONB on _punch_list)..."
 "${DC[@]}" exec -T crm-db psql -U postgres -d default -v ON_ERROR_STOP=1 \
   < web/scripts/migrate-punch-list-actions-jsonb.sql

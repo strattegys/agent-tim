@@ -63,7 +63,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   tim: {
     id: "tim",
     name: "Tim",
-    role: "Adept Comms Artist",
+    role: "Communications Artist",
     description:
       "Helps Govind work outreach tasks in the Command Central work queue — draft copy, " +
       "CRM context, workflow artifacts. Outbound LinkedIn sends only when Govind clicks " +
@@ -272,7 +272,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   ghost: {
     id: "ghost",
     name: "Ghost",
-    role: "Content Curation Expert",
+    role: "Content Expert",
     description:
       "Content researcher and strategist — finds killer ideas, does deep research, " +
       "manages the content pipeline. Feeds published content to Marni for distribution " +
@@ -320,7 +320,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
   marni: {
     id: "marni",
     name: "Marni",
-    role: "Our Social Butterfly",
+    role: "Social Butterfly",
     description:
       "Takes Ghost's published content and creates derivative pieces — LinkedIn posts, " +
       "outreach messaging (fed to Tim), and email content. Manages the distribution pipeline.",

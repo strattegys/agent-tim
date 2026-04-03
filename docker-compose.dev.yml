@@ -1,24 +1,25 @@
 # Local development stack — Docker Desktop project **cc-localdev**; container name includes **3010** so the port is visible in the UI (mapping is still 3010:3010).
 #
-# **Default data platform:** CRM Postgres service **crm-db** in this file (same pgvector image as production).
-# No Tailscale/SSH — web uses CRM_DB_HOST=crm-db. Run with:
+# **Default data platform:** same **Command Central Postgres as production** (droplet) over Tailscale.
+# `web` uses CRM_DB_HOST/PORT from CC droplet IP **100.74.54.12:5432** unless overridden (see environment below).
+# Requires Tailscale on the PC and `expose-crm-db-tailscale.sh` on the server (deploy-web.yml runs it).
+# **web/.env.local** must set CRM_DB_PASSWORD (and name/user if non-default) to match the droplet — same as LOCALPROD.
+#
+# **No local Postgres by default** — only the `web` container runs. CRM + Knowledge use the droplet.
+# Agent chat is **JSONL on disk** (`./agents` → `/agents`), not the bundled DB.
+#
+# **Optional bundled Postgres** (empty dev-only DB — only for DB-schema hacking offline): start with profile:
+#   docker compose --env-file web/.env.local -f docker-compose.dev.yml --profile bundled-crm-postgres up -d
+# Then set COMMAND-CENTRAL/.env: CC_DOCKER_CRM_DB_HOST=crm-db  CC_DOCKER_CRM_DB_PORT=5432
+# or temporarily comment droplet defaults. Host tools: 127.0.0.1:25432 when profile is on.
+#
+# **Fallback bridge:** .\scripts\dev-docker-up.ps1 -UseRemoteCrm — host 0.0.0.0:5433 + docker-compose.dev-remote-crm.yml
+# (host.docker.internal). Set CC_DOCKER_CRM_DB_HOST=host.docker.internal CC_DOCKER_CRM_DB_PORT=5433 in .env when using that path.
+#
+# Run:
 #   docker compose --env-file web/.env.local -f docker-compose.dev.yml up -d
-#   or:  .\scripts\dev-docker-up.ps1
-# First-time DB volume is empty (only `vector` ext from docker/crm-db-init) until you pg_restore a backup
-# or run migrations; Kanban needs the workspace schema from a real Twenty/CRM dump or use LOCALPROD Docker for a full local copy.
-#
-# **Tim / LOCALDEV UI + production CRM data (recommended):** put CC_DOCKER_CRM_DB_HOST / CC_DOCKER_CRM_DB_PORT
-# in COMMAND-CENTRAL/.env (see .env.docker-dev.example) so **web** reaches droplet Postgres over Tailscale
-# from inside the container — no host bridge; survives PC restart. Recreate **web** after changing .env.
-#
-# **Fallback:** .\scripts\dev-docker-up.ps1 -UseRemoteCrm — host listener 0.0.0.0:5433 + docker-compose.dev-remote-crm.yml
-# (host.docker.internal). Bridge dies on reboot unless you run -UseRemoteCrm or npm run db:reconnect again.
-# Ensure web/.env.local CRM_DB_PASSWORD (and name/user) match the **droplet** CRM.
-#
-# Host access (pg_restore / db:exec / Cursor terminal): 127.0.0.1:25432 — same CRM_DB_PASSWORD as .env.local.
-# If .env.local still says CRM_DB_HOST=crm-db, host-side scripts remap crm-db → 127.0.0.1:25432 automatically (crm-db-pool.mjs).
-# Verify DB:  docker compose --env-file .env --env-file web/.env.local -f docker-compose.dev.yml exec web npm run check-crm-db
-#   (omit --env-file .env if you have no COMMAND-CENTRAL/.env; or use .\scripts\dev-docker-up.ps1)
+#   or:  .\scripts\dev-docker-up.ps1   (prepends COMMAND-CENTRAL/.env when present for CC_DOCKER_* overrides)
+# Verify DB:  docker compose --env-file web/.env.local -f docker-compose.dev.yml exec web npm run check-crm-db
 ## Hot reload works via volume mount of web/ directory.
 # LOCALDEV: http://localhost:3010 — use this host in the browser (not 127.0.0.1). Compose sets AUTH_URL /
 # NEXTAUTH_URL and NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV. For LOCALPROD in Docker see docker-compose.local-prod-desktop.yml.
@@ -29,7 +30,10 @@
 name: cc-localdev
 
 services:
+  # Off unless: docker compose ... --profile bundled-crm-postgres up
   crm-db:
+    profiles:
+      - bundled-crm-postgres
     container_name: cc-localdev-crm-db
     image: pgvector/pgvector:pg16
     restart: unless-stopped
@@ -79,9 +83,6 @@ services:
     # Baseline secrets: web/.env.local. Optional dev overrides: web/.env.development.local (Next dev only).
     # Next only reads env at process start. New/changed keys need a recreated container: docker compose -f docker-compose.dev.yml up -d --no-deps --force-recreate web
     env_file: ./web/.env.local
-    depends_on:
-      crm-db:
-        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -100,8 +101,9 @@ services:
       - CC_PUBLIC_APP_UI=true
       # Same as web default (openai/gpt-oss-120b); explicit so Docker dev matches agent-registry without relying on omitting env
       - GROQ_CHAT_MODEL=openai/gpt-oss-120b
-      # Default: bundled **crm-db** in this stack. Remote: docker-compose.dev-remote-crm.yml or CC_DOCKER_CRM_*.
-      - CRM_DB_HOST=${CC_DOCKER_CRM_DB_HOST:-crm-db}
+      # Default: production droplet CRM over Tailscale (override with CC_DOCKER_CRM_* in COMMAND-CENTRAL/.env).
+      # Bundled crm-db: --profile bundled-crm-postgres + CC_DOCKER_CRM_DB_HOST=crm-db
+      - CRM_DB_HOST=${CC_DOCKER_CRM_DB_HOST:-100.74.54.12}
       - CRM_DB_PORT=${CC_DOCKER_CRM_DB_PORT:-5432}
       # Windows + bind mounts: file watchers often miss saves; force polling so edits hit Next dev
       - WATCHPACK_POLLING=true

@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010 --webpack",
+    "dev:mobile": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV_MOBILE CC_AGENT_CHAT_PROFILE=localdev next dev -p 3020 --webpack",
     "dev:clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\" && cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010 --webpack",
     "dev:turbo": "cross-env NEXT_PUBLIC_CC_RUNTIME_LABEL=LOCALDEV CC_AGENT_CHAT_PROFILE=localdev next dev -p 3010 --turbopack",
     "build": "next build && node scripts/copy-standalone-assets.mjs",
@@ -16,6 +17,7 @@
     "sync:inworld": "node scripts/sync-inworld-from-rainbow.mjs",
     "push:inworld:prod": "node scripts/push-inworld-production.mjs",
     "db:exec": "node scripts/db-exec.mjs",
+    "db:knowledge-studio": "node scripts/db-exec.mjs scripts/migrate-marni-kb.sql",
     "seed:tim-test-queue": "npx tsx scripts/seed-tim-test-queue.ts",
     "seed:agent-builder": "npx tsx scripts/seed-agent-builder-package.ts",
     "check-crm-db": "node scripts/check-crm-db.mjs",

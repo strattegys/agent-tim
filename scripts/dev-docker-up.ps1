@@ -1,13 +1,12 @@
 # Start Command Central LOCALDEV in Docker Desktop (project **cc-localdev**).
 # Run from COMMAND-CENTRAL:  .\scripts\dev-docker-up.ps1
 #
-# Default: **local CRM Postgres** in the same Compose stack (no Tailscale/SSH). Stable TCP on the
-# Docker network - web uses CRM_DB_HOST=crm-db. First-time volume is empty until you pg_restore a backup
-# or use workflows that tolerate empty Kanban; see docs/LOCAL-ENV-LAYERS.md.
+# Default: **production droplet CRM** over Tailscale (web container CRM_DB_HOST=100.74.54.12:5432).
+# Requires Tailscale + droplet expose-crm-db-tailscale.sh. web/.env.local must set CRM_DB_PASSWORD
+# (same as production). Override host: COMMAND-CENTRAL/.env with CC_DOCKER_CRM_DB_* (see .env.docker-dev.example).
 #
-# Remote droplet CRM (recommended — survives PC restart): create COMMAND-CENTRAL/.env with
-#   CC_DOCKER_CRM_DB_HOST=<CC Tailscale IP>  CC_DOCKER_CRM_DB_PORT=5432
-# (see .env.docker-dev.example). Compose passes that into the web container; no host bridge.
+# Optional empty local Postgres: docker compose ... --profile bundled-crm-postgres up -d
+# and set .env CC_DOCKER_CRM_DB_HOST=crm-db CC_DOCKER_CRM_DB_PORT=5432 — see docker-compose.dev.yml header.
 # Test from Docker: docker run --rm alpine sh -c "apk add --no-cache postgresql16-client && pg_isready -h YOUR_IP -p 5432"
 #
 # Remote droplet CRM (fallback):  .\scripts\dev-docker-up.ps1 -UseRemoteCrm
@@ -120,9 +119,9 @@ if ($UseRemoteCrm) {
 
 } else {
   if (Test-Path -LiteralPath $dotEnv) {
-    Write-Host 'LOCALDEV: COMMAND-CENTRAL/.env present - CC_DOCKER_CRM_DB_* may point web at remote CRM (see .env.docker-dev.example).' -ForegroundColor Cyan
+    Write-Host "LOCALDEV: COMMAND-CENTRAL/.env present - CC_DOCKER_CRM_DB_* overrides droplet CRM host/port for the web container." -ForegroundColor Cyan
   } else {
-    Write-Host 'LOCALDEV: bundled crm-db in Docker (no tunnel). Empty until restore, or add .env with CC_DOCKER_CRM_DB_* / use -UseRemoteCrm for droplet data.' -ForegroundColor Cyan
+    Write-Host "LOCALDEV: web -> droplet CRM at 100.74.54.12:5432 (Tailscale). Add .env to override CC_DOCKER_CRM_DB_* ; use --profile bundled-crm-postgres for local empty Postgres." -ForegroundColor Cyan
   }
 }
 
@@ -135,8 +134,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host 'LOCALDEV (Docker Desktop project cc-localdev):'
 Write-Host '  Next:  cc-localdev-p3010  ->  http://localhost:3010'
-Write-Host '  Postgres: cc-localdev-crm-db (in-stack: crm-db:5432). From host: 127.0.0.1:25432 + same CRM_DB_* password as .env.local'
-Write-Host '  Remote droplet DB: .env with CC_DOCKER_CRM_DB_* (this script prepends it) or -UseRemoteCrm for host bridge on 5433'
+Write-Host '  CRM: production droplet Postgres (Tailscale 100.74.54.12:5432) unless .env sets CC_DOCKER_CRM_DB_* or you use -UseRemoteCrm'
+Write-Host '  No cc-localdev-crm-db by default (UI dev uses droplet). Old local DB still running?  docker rm -f cc-localdev-crm-db'
+Write-Host '  Optional empty local Postgres only: --profile bundled-crm-postgres (see docker-compose.dev.yml)'
 $downLogs = if (Test-Path -LiteralPath $dotEnv) {
   'docker compose --env-file .env --env-file web/.env.local -f docker-compose.dev.yml'
 } else {

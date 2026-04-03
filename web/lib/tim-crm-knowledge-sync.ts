@@ -23,6 +23,16 @@ const SELF_PROVIDER_DEFAULT =
   process.env.LINKEDIN_SELF_PROVIDER_ID?.trim() ||
   "ACoAAAFQFlkB-uguiq0-0980Ud_J2pdFMjzpQl8";
 
+/** Set `TIM_KB_SYNC_PROGRESS_LOG=1` in production; in `development` logs by default. */
+const TIM_KB_SYNC_PROGRESS_LOG =
+  process.env.TIM_KB_SYNC_PROGRESS_LOG === "1" ||
+  process.env.NODE_ENV === "development";
+
+function logTimKbSync(...parts: unknown[]) {
+  if (!TIM_KB_SYNC_PROGRESS_LOG) return;
+  console.log("[tim-kb-sync]", ...parts);
+}
+
 export interface TimCrmSyncOptions {
   chatLimit: number;
   messagesPerChat: number;
@@ -582,6 +592,14 @@ export async function runTimCrmKnowledgeSync(
   const chatLimit = Math.min(80, Math.max(1, opts.chatLimit));
   const msgLimit = Math.min(100, Math.max(1, opts.messagesPerChat));
 
+  logTimKbSync("start", {
+    chatLimit,
+    msgLimit,
+    maxNewEmbeds: maxNew,
+    dryRun: opts.dryRun,
+    includeNotes: opts.includeNotes,
+  });
+
   const listPath = `/chats?account_id=${encodeURIComponent(accountId)}&account_type=LINKEDIN&limit=${chatLimit}`;
   const listRes = await unipileGetJson(listPath);
   if (!listRes.ok) {
@@ -593,6 +611,7 @@ export async function runTimCrmKnowledgeSync(
   const listBody = listRes.body as Record<string, unknown>;
   const items = listBody.items || listBody.data;
   const chats = Array.isArray(items) ? items : [];
+  logTimKbSync(`listed ${chats.length} LinkedIn chat(s) from Unipile`);
 
   for (const c of chats) {
     if (embedCap.remaining <= 0) {
@@ -615,6 +634,12 @@ export async function runTimCrmKnowledgeSync(
     const msgBody = msgRes.body as Record<string, unknown>;
     const rawMsgs = msgBody.items || msgBody.data;
     const messages = Array.isArray(rawMsgs) ? rawMsgs : [];
+    logTimKbSync(
+      `chat ${result.chatsProcessed}/${chats.length}`,
+      chatId,
+      `messages=${messages.length}`,
+      `embeds_remaining=${embedCap.remaining}`
+    );
 
     let fallbackCp: string | null = null;
     for (const raw of messages) {
@@ -675,6 +700,7 @@ export async function runTimCrmKnowledgeSync(
   }
 
   if (opts.includeNotes && embedCap.remaining > 0) {
+    logTimKbSync("ingesting CRM notes for LinkedIn persons…");
     const n = await ingestNotesForLinkedInPersons({
       topicId,
       dryRun: opts.dryRun,
@@ -690,6 +716,18 @@ export async function runTimCrmKnowledgeSync(
   if (!opts.dryRun && (result.messagesInserted > 0 || result.notesInserted > 0)) {
     await touchKbTopicLastSync(topicId);
   }
+
+  logTimKbSync("done", {
+    ok: result.ok,
+    chatsProcessed: result.chatsProcessed,
+    messagesSeen: result.messagesSeen,
+    messagesInserted: result.messagesInserted,
+    messagesSkippedDuplicate: result.messagesSkippedDuplicate,
+    messagesSkippedNoPerson: result.messagesSkippedNoPerson,
+    notesInserted: result.notesInserted,
+    stoppedByCap: result.stoppedByCap,
+    errorCount: result.errors.length,
+  });
 
   return result;
 }

@@ -23,6 +23,7 @@ const KingCostPanel = dynamic(() => import("@/components/king/KingCostPanel"), {
 
 import AgentAvatar from "@/components/AgentAvatar";
 import { getSidebarHeaderTitle, showAgentDevLayoutToggle } from "@/lib/app-brand";
+import { LocalDevOpenMobileCheckInChip } from "@/components/LocalDevMobileCheckInChips";
 import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
 import { sidebarAttentionCount } from "@/lib/chat-sidebar-attention";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
@@ -460,6 +461,19 @@ export default function CommandCentralClient() {
     suziWorkSubTab,
   ]);
 
+  /** Local builds: ⓘ toggles dev/compact layout only (same as former Dev button); does not change work panel. */
+  const handleAgentInfoClick = useCallback(() => {
+    if (showAgentDevLayoutToggle()) {
+      toggleDevLayout();
+      return;
+    }
+    setRightPanel("info");
+  }, [toggleDevLayout]);
+
+  const agentInfoButtonActive = showAgentDevLayoutToggle()
+    ? effectiveCompactLab
+    : rightPanel === "info";
+
   const [marniKnowledgeFocus, setMarniKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
   const [timKnowledgeFocus, setTimKnowledgeFocus] = useState<MarniKnowledgeFocus | null>(null);
 
@@ -504,13 +518,19 @@ export default function CommandCentralClient() {
       if (!raw) return;
       const p = JSON.parse(raw) as Record<string, unknown>;
       if (typeof p.id !== "string" || typeof p.title !== "string") return;
+      const legacyNum =
+        typeof p.itemNumber === "number"
+          ? p.itemNumber
+          : typeof p.displayNumber === "number"
+            ? p.displayNumber
+            : undefined;
       setSuziFocusedIntake({
         id: p.id,
         title: p.title,
         url: typeof p.url === "string" ? p.url : null,
         body: typeof p.body === "string" ? p.body : null,
         source: typeof p.source === "string" ? p.source : "ui",
-        displayNumber: typeof p.displayNumber === "number" ? p.displayNumber : undefined,
+        itemNumber: legacyNum,
         filterQuery: typeof p.filterQuery === "string" && p.filterQuery.trim() ? p.filterQuery.trim() : undefined,
       });
     } catch {
@@ -1248,13 +1268,14 @@ export default function CommandCentralClient() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
       {/* Mobile: Agent list (shown when no chat is open) */}
       <div className={`md:hidden flex-1 flex flex-col bg-[var(--bg-secondary)] ${mobileShowChat ? "hidden" : ""}`}>
-        <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
+        <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center gap-2 px-3.5">
           <p
-            className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
+            className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
             title={getSidebarHeaderTitle()}
           >
             {getSidebarHeaderTitle()}
           </p>
+          <LocalDevOpenMobileCheckInChip />
         </div>
         <div className="flex-1 overflow-y-auto">
           {AGENT_CATEGORIES.filter((c) => c !== "Toys").map((category) => {
@@ -1399,8 +1420,8 @@ export default function CommandCentralClient() {
       <div
         className={
           effectiveCompactLab
-            ? "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[346px_minmax(0,1fr)_minmax(280px,22%)] md:grid-rows-1"
-            : "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[200px_346px_minmax(0,1fr)_minmax(160px,10%)] md:grid-rows-1"
+            ? "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[280px_minmax(0,1fr)_minmax(308px,24%)] md:grid-rows-1"
+            : "hidden md:grid md:flex-1 md:min-h-0 md:min-w-0 md:grid-cols-[200px_280px_minmax(0,1fr)_minmax(176px,11%)] md:grid-rows-1"
         }
       >
         {!effectiveCompactLab ? (
@@ -1418,8 +1439,8 @@ export default function CommandCentralClient() {
 
       {/* Desktop: Main chat area (narrow) */}
       <div className="flex w-full min-w-0 min-h-0 flex-col bg-[var(--bg-primary)]">
-        {/* Top bar */}
-        <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2.5 gap-2">
+        {/* Same height as AgentSidebar top row (h-11) */}
+        <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2.5 gap-2">
           <div className="flex-1 min-w-0" />
 
           {/* Action icons */}
@@ -1541,7 +1562,7 @@ export default function CommandCentralClient() {
               <span className="text-[10px] text-[var(--text-secondary)] block truncate">{agent.role}</span>
             </div>
             {/* Panel nav — next to agent name */}
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0">
             {agentHasKanban(activeAgent) &&
               activeAgent !== "tim" &&
               activeAgent !== "ghost" &&
@@ -1549,14 +1570,14 @@ export default function CommandCentralClient() {
               <button
                 type="button"
                 onClick={() => setRightPanel("kanban")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                   rightPanel === "kanban"
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
                 title="Pipeline board"
               >
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="3" y="3" width="5" height="18" rx="1" />
                   <rect x="10" y="3" width="5" height="12" rx="1" />
                   <rect x="17" y="3" width="5" height="8" rx="1" />
@@ -1567,21 +1588,21 @@ export default function CommandCentralClient() {
               <button
                 type="button"
                 onClick={() => setRightPanel("marni-work")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                   rightPanel === "marni-work"
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
                 title="Work panel — distribution queue"
               >
-                <KnowledgeRagIcon size={25} stroke="currentColor" />
+                <KnowledgeRagIcon size={18} stroke="currentColor" />
               </button>
             )}
             {activeAgent === "friday" && (
               <span className="relative inline-flex">
                 <button
                   onClick={() => setRightPanel("dashboard")}
-                  className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                     rightPanel === "dashboard"
                       ? "text-[var(--accent-green)]"
                       : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -1592,7 +1613,7 @@ export default function CommandCentralClient() {
                       : "Friday — goals, package kanban, templates & tools"
                   }
                 >
-                  <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="3" width="7" height="7" rx="1" />
                     <rect x="14" y="3" width="7" height="7" rx="1" />
                     <rect x="3" y="14" width="7" height="7" rx="1" />
@@ -1613,14 +1634,14 @@ export default function CommandCentralClient() {
               <button
                 type="button"
                 onClick={() => setRightPanel("messages")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                   rightPanel === "messages"
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
                 title="Tim work panel — Active & Pending queues, CRM directory"
               >
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="8" y1="6" x2="21" y2="6" />
                   <line x1="8" y1="12" x2="21" y2="12" />
                   <line x1="8" y1="18" x2="21" y2="18" />
@@ -1634,14 +1655,14 @@ export default function CommandCentralClient() {
               <button
                 type="button"
                 onClick={() => setRightPanel("messages")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                   rightPanel === "messages"
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
                 title="Ghost work panel — content queue & workspace"
               >
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="8" y1="6" x2="21" y2="6" />
                   <line x1="8" y1="12" x2="21" y2="12" />
                   <line x1="8" y1="18" x2="21" y2="18" />
@@ -1655,14 +1676,14 @@ export default function CommandCentralClient() {
               <button
                 type="button"
                 onClick={() => setRightPanel("costs")}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                   rightPanel === "costs"
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
                 title="Cost-Usage"
               >
-                <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="12" y1="1" x2="12" y2="23" />
                   <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                 </svg>
@@ -1672,14 +1693,14 @@ export default function CommandCentralClient() {
               <>
                 <button
                   onClick={() => setRightPanel("reminders")}
-                  className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
                     rightPanel === "reminders"
                       ? "text-[var(--accent-green)]"
                       : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                   title="Suzi work — Punch list, Reminders, Notes"
                 >
-                  <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
                     <line x1="16" y1="2" x2="16" y2="6" />
                     <line x1="8" y1="2" x2="8" y2="6" />
@@ -1690,46 +1711,36 @@ export default function CommandCentralClient() {
             )}
             <button
               type="button"
-              onClick={() => setRightPanel("info")}
-              className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
-                rightPanel === "info"
+              onClick={() => setRightPanel("agent-knowledge")}
+              className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                rightPanel === "agent-knowledge"
                   ? "text-[var(--accent-green)]"
                   : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
-              title="Agent info"
+              title="Knowledge base — CRM/Data Platform status for this agent appears on System monitor › Agents (book icon)"
             >
-              <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <KnowledgeRagIcon size={18} stroke="currentColor" />
+            </button>
+            <button
+              type="button"
+              onClick={handleAgentInfoClick}
+              className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                agentInfoButtonActive
+                  ? "text-[var(--accent-green)]"
+                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              title={
+                showAgentDevLayoutToggle()
+                  ? "Dev layout: hide agent sidebar, widen chat — toggles devLab in the URL. With timLab or fridayLab, clears those flags. Open agent details via ?panel=info or switch to another work tab."
+                  : "Agent info"
+              }
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
             </button>
-            <button
-              type="button"
-              onClick={() => setRightPanel("agent-knowledge")}
-              className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
-                rightPanel === "agent-knowledge"
-                  ? "text-[var(--accent-green)]"
-                  : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-              }`}
-              title="Knowledge base — CRM/Data Platform status for this agent appears on System monitor › Agents (rightmost book icon)"
-            >
-              <KnowledgeRagIcon size={25} stroke="currentColor" />
-            </button>
-            {showAgentDevLayoutToggle() ? (
-              <button
-                type="button"
-                onClick={() => toggleDevLayout()}
-                className={`p-1.5 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] min-w-[34px] flex items-center justify-center ${
-                  effectiveCompactLab
-                    ? "text-[var(--accent-green)]"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                }`}
-                title="Dev layout: hide agent sidebar, widen chat — keeps devLab=1 and the current agent/panel in the URL (reload and share work). Tim/Friday get lab log docks; other agents get system monitor only. With timLab or fridayLab in the URL, click to clear those flags."
-              >
-                <span className="text-[10px] font-bold leading-none tracking-tight font-mono">Dev</span>
-              </button>
-            ) : null}
             </div>
           </div>
           <div className="flex-1 min-w-2 min-h-[1px]" aria-hidden />
@@ -1823,6 +1834,8 @@ export default function CommandCentralClient() {
           sharedNotifications={dashboardNotifications}
           labMode={statusRailLabMode}
           devLayoutAgentLabel={statusRailLabMode === "devNeutral" ? agent.name : null}
+          activeAgent={agent}
+          workPanelShowsFullAgentInfo={rightPanel === "info"}
         />
       </div>
 

@@ -1,12 +1,12 @@
 /** @deprecated Use getSidebarHeaderTitle() — label comes from NEXT_PUBLIC_CC_RUNTIME_LABEL. */
 export const SIDEBAR_HEADER_TITLE = "Agent Team";
 
-export type LocalRuntimeLabel = "LOCALDEV" | "LOCALPROD";
+export type LocalRuntimeLabel = "LOCALDEV" | "LOCALDEV_MOBILE" | "LOCALPROD";
 
-/** Set by npm scripts / Docker dev: LOCALDEV (port 3010) or LOCALPROD (port 3001). */
+/** Set by npm scripts / Docker dev: LOCALDEV (3010), LOCALDEV_MOBILE (3020), LOCALPROD (3001). */
 export function getLocalRuntimeLabel(): LocalRuntimeLabel | null {
   const v = process.env.NEXT_PUBLIC_CC_RUNTIME_LABEL?.trim().toUpperCase();
-  if (v === "LOCALDEV" || v === "LOCALPROD") return v;
+  if (v === "LOCALDEV" || v === "LOCALDEV_MOBILE" || v === "LOCALPROD") return v;
   return null;
 }
 
@@ -27,6 +27,9 @@ export function getAppHeadline(): string {
 export function getAppBrandTitle(): string {
   const label = getLocalRuntimeLabel();
   if (label) {
+    if (label === "LOCALDEV_MOBILE") {
+      return "Strattegys Command Central · Local dev mobile";
+    }
     return `Strattegys Command Central · ${label}`;
   }
   if (process.env.NEXT_PUBLIC_COMMAND_CENTRAL_DEV === "1") {
@@ -42,6 +45,7 @@ export function getAppBrandTitle(): string {
 export function isDevAppBranding(): boolean {
   return (
     getLocalRuntimeLabel() === "LOCALDEV" ||
+    getLocalRuntimeLabel() === "LOCALDEV_MOBILE" ||
     process.env.NEXT_PUBLIC_COMMAND_CENTRAL_DEV === "1" ||
     process.env.NODE_ENV === "development"
   );
@@ -52,8 +56,24 @@ export function showAgentDevLayoutToggle(): boolean {
   return isDevAppBranding() || getLocalRuntimeLabel() === "LOCALPROD";
 }
 
+/**
+ * “M” chip on full UI: open /m (only on 3010 LOCALDEV — same server as desktop).
+ */
+export function showLocalDevMobileCheckInShortcut(): boolean {
+  return getLocalRuntimeLabel() === "LOCALDEV";
+}
+
+/**
+ * “D” chip on /m shell: back to / when running local dev labels (3010 or 3020).
+ */
+export function showLocalDevMobileShellDesktopShortcut(): boolean {
+  const l = getLocalRuntimeLabel();
+  return l === "LOCALDEV" || l === "LOCALDEV_MOBILE";
+}
+
 export function getAppleWebAppShortName(): string {
   const label = getLocalRuntimeLabel();
+  if (label === "LOCALDEV_MOBILE") return "CC · Mobile dev";
   if (label) return `CC · ${label}`;
   if (isDevAppBranding()) return "Command Central · Local";
   return "Command Central";
@@ -62,7 +82,8 @@ export function getAppleWebAppShortName(): string {
 /** In-browser tab favicon (SVG is fine in modern desktop Chrome). */
 export function getInstallAppIconPath(): string {
   const label = getLocalRuntimeLabel();
-  if (label === "LOCALDEV") return "/icons/app-icon-localdev.svg";
+  if (label === "LOCALDEV" || label === "LOCALDEV_MOBILE")
+    return "/icons/app-icon-localdev.svg";
   if (label === "LOCALPROD") return "/icons/app-icon-localprod.svg";
   return "/icons/app-construction.svg";
 }
@@ -79,6 +100,7 @@ export function getPwaManifestIconPath(): string {
 export function getLoginBadgeLetter(): string {
   const label = getLocalRuntimeLabel();
   if (label === "LOCALDEV") return "CD";
+  if (label === "LOCALDEV_MOBILE") return "CM";
   if (label === "LOCALPROD") return "CC";
   return "S";
 }

@@ -296,7 +296,7 @@ export function getCrmDataPlatformConnectionLabel(): string {
   const localRuntime = getLocalRuntimeLabel();
 
   if (ch === "crm-db" && isInsideLinuxDocker()) {
-    if (localRuntime === "LOCALDEV") {
+    if (localRuntime === "LOCALDEV" || localRuntime === "LOCALDEV_MOBILE") {
       return "PRACTICE CRM — local Docker only (not live pipelines)";
     }
     return "LIVE CRM — same database the hosted app uses";

@@ -63,9 +63,6 @@ export async function POST(req: Request) {
     source: "share",
   });
 
-  const dest = new URL(
-    "/?agent=suzi&panel=reminders&suziSub=intake&intakeLatest=1",
-    req.url
-  );
+  const dest = new URL("/m/suzi?intakeLatest=1", req.url);
   return NextResponse.redirect(dest, 303);
 }

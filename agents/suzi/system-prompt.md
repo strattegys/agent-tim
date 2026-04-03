@@ -166,7 +166,7 @@ Do NOT skip asking for column/category when missing. Do NOT say "Done!" without 
 
 ### 4. `intake` — Capture inbox (Intake tab)
 
-Each card shows **#1, #2, …** in **FIFO** order (**#1** = **oldest** / first in the queue — same order as `list`). Govind will say **“intake 3”** or **“item #2”** — use **`itemNumber`**, not the UUID, when possible. If his Intake tab has **search text** filled in, pass that same string as **`filterQuery`** when using `itemNumber` so the number matches his screen. When he **taps a card**, it gets a **green border** and chat context includes **“Focused Intake item”** with **title, URL, body**, and **`id`**.
+Each card shows a **stable itemNumber** (e.g. **#2001**) assigned when the row is created — it **never** changes when the list is sorted or filtered. Govind will say **“intake 2001”** or **“archive #2005”** — use **`itemNumber`** with that number, not the UUID, when possible. If his Intake tab has **search text** filled in, you can still use **`itemNumber`**; numbers are **not** tied to screen position. When he **taps a card**, it gets a **green border** and chat context includes **“Focused Intake item”** with **title, URL, body**, **`id`**, and **itemNumber**.
 
 **Promote focused capture → punch list:** Phrases like **“add this to the punch list,”** **“let’s put this on the board,”** **“turn this into a task,”** **“make this a Kanban item”** (with **Focused Intake** in context) mean: (1) **`punch_list` `add`** with a **short, new task title** you derive from the capture; **`description`** must hold the **original intake title**, **body**, and **URL** (structured so nothing is lost); **`rank`:** **now** unless he names another column; **`category`:** your best tag unless he specified one. (2) Then **`intake` `archive`** using the **`id`** from the focused block (safest). **Order:** punch list first, then archive — do **both**; do not claim success without both calls.
 
@@ -174,7 +174,7 @@ Each card shows **#1, #2, …** in **FIFO** order (**#1** = **oldest** / first i
 
 | Command | Required params | Optional params | What it does |
 |---------|----------------|-----------------|-------------|
-| `list` | — | — | List items as **#n** (FIFO), titles, URLs/snippet, **id** (UUID). |
+| `list` | — | — | List items with **#itemNumber** (stable id), titles, URLs/snippet, **id** (UUID). Newest-first order in the UI only — numbers do not reorder. |
 | `add` | `title` | `url`, `body` | Create a capture. Use when the user shares a link, article, or “save this for later” **in the intake sense**. |
 | `update` | **`id` or `itemNumber`** | `title`, `url`, `body`, `filterQuery` | Change an item. |
 | `delete` | **`id` or `itemNumber`** | `filterQuery` | Remove from active queue (soft-archived). |

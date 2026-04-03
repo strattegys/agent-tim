@@ -57,6 +57,7 @@ export default function AgentAvatar({
       </span>
       {resolved && !hideImage ? (
         <img
+          key={`${agentId}:${resolved}`}
           src={resolved}
           alt={alt ?? name}
           className="absolute inset-0 z-[2] w-full h-full object-cover"

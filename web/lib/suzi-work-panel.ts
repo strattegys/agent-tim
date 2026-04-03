@@ -15,8 +15,8 @@ export type SuziFocusedIntake = {
   url: string | null;
   body: string | null;
   source: string;
-  /** FIFO # shown on the card when selected (itemNumber when list/filter matches). */
-  displayNumber?: number;
+  /** Stable DB itemNumber on the card (same as `intake` tool `itemNumber`). */
+  itemNumber?: number;
   /** Same string as the Intake tab search box when applied — pass as intake tool `filterQuery` with `itemNumber` if needed. */
   filterQuery?: string;
 };
@@ -36,9 +36,9 @@ function formatFocusedIntakeSection(f: SuziFocusedIntake): string {
     "Treat questions like “what is this?”, “summarize this”, “what’s this about?”, or “what’s that link?” as referring to **this** item unless the user clearly means something else.",
     `- **id:** \`${f.id}\``,
   ];
-  if (f.displayNumber != null) {
+  if (f.itemNumber != null) {
     lines.push(
-      `- **FIFO # on cards:** #${f.displayNumber} (same as intake tool \`itemNumber\` when the list matches the screen${f.filterQuery ? `; Intake search is active — use \`filterQuery\` exactly: \`${f.filterQuery.replace(/`/g, "'")}\`` : ""}).`
+      `- **itemNumber (stable id):** ${f.itemNumber} (same as the # on the Intake card and intake tool \`itemNumber\`${f.filterQuery ? `; search box text for context: \`${f.filterQuery.replace(/`/g, "'")}\`` : ""}).`
     );
   }
   lines.push(`- **title:** ${f.title}`);
@@ -57,7 +57,7 @@ function formatFocusedIntakeSection(f: SuziFocusedIntake): string {
     "   - **description:** Preserve context — include a line **Intake title:** with the original title, then the **body** (and a **URL:** line if present). Nothing important should be lost.",
     "   - **rank:** **now** (or `1`) unless Govind names another column (Later, Next, …).",
     "   - **category:** Pick the best short tag from the content (`content`, `research`, `infra`, `ui`, `personal`, `agent`, …) unless Govind specified one.",
-    "2. Then call **intake** **archive** with **id** from above (preferred), or **itemNumber** + **filterQuery** if you use the FIFO # and search is active.",
+    "2. Then call **intake** **archive** with **id** from above (preferred), or **itemNumber** matching the card #.",
     "Do **both** tool calls in order; do not say “done” without executing them. Do not leave the capture in Intake after a successful promote.",
     "",
     "**How to help:** Summarize and explain from title/body. If the user wants detail from the link, use **web_search** when helpful. Use **intake** for **other** rows; this item’s text is above."
@@ -112,9 +112,9 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
 
   const lines = [
     "",
-    "### ACTIVE PUNCH LIST TARGET — the green-highlighted card on the board",
-    "**If this section appears in context, Govind has that row selected: green border / green ring on the Kanban card.** That is his **current focus** for punch-list work. **Inspect (modal) may be closed** — selection is from the green highlight alone. Phrases like **this card**, **the highlighted one**, **the green one**, **the one I have selected**, **this on screen**, **this item** mean **the row below** (use its **`id`** for **punch_list**), not some other card from chat history.",
-    "**This block is authoritative:** Do not infer focus from older messages or tool output. The **id** and **item_number** below describe the green-highlighted card unless Govind explicitly names a different card.",
+    "### ACTIVE PUNCH LIST TARGET — Kanban selection (green ring) and Suzi context",
+    "**If this section appears in context, Govind has that row selected for punch-list work** (green border / green ring on the Kanban card). **The Punch List Inspect panel, when open, is always for this same row** — the UI keeps them in sync. Phrases like **this card**, **the highlighted one**, **the green one**, **the one I have selected**, **the one in Inspect**, **this on screen**, **this item** mean **the row below** (use its **`id`** for **punch_list**), not some other card from chat history.",
+    "**This block is authoritative:** Do not infer focus from older messages or tool output. The **id** and **item_number** below describe the current punch target unless Govind explicitly names a different card.",
     `**Default target for punch_list tools:** If the user says **this item**, **this card**, **this task**, **close this out**, **close it out**, **close this item**, **mark this done**, **mark it complete**, **finish this**, **it's a duplicate** (meaning dismiss this card), **the one I selected**, **the one I have open**, **correct that**, **update this title**, or similar **without** naming a different card number, pass **id**=\`${p.id}\` (preferred) or **item_number**="${p.itemNumber}". Do not substitute a # from chat history, a misread digit, or a **list** result — and **do not** ask “which number?” when this block is present unless they clearly mean a **different** card.`,
     "**If they override the card:** When they clearly name a different item (e.g. “item 125”, “#125”, “work on one-two-five” meaning digits 1-2-5), use **that** \`item_number\` (or **list** then **id**) for that turn — not the focused **id**.",
     "**Spoken digits (voice / casual):** “one two five” / “item one two five” means card **#125** (concatenate: 1, 2, 5). It does **not** mean #1025. “One oh two five” / “one zero two five” / “ten twenty-five” may mean **#1025**. If still ambiguous, ask once which # is on their card.",

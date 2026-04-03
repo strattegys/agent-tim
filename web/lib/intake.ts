@@ -4,6 +4,8 @@ export type IntakeSource = "ui" | "agent" | "share" | "email";
 
 export interface IntakeItem {
   id: string;
+  /** Stable display / tool id (sequence); never changes for this row. */
+  itemNumber: number;
   agentId: string;
   title: string;
   url: string | null;
@@ -71,10 +73,23 @@ export async function listIntake(
 
   const where = conditions.join(" AND ");
   const rows = await query<Record<string, unknown>>(
-    `SELECT * FROM "_intake" WHERE ${where} ORDER BY "createdAt" ASC LIMIT ${limPh} OFFSET ${offPh}`,
+    `SELECT * FROM "_intake" WHERE ${where} ORDER BY "createdAt" DESC LIMIT ${limPh} OFFSET ${offPh}`,
     params
   );
   return rows.map(rowToIntake);
+}
+
+/** Resolve by stable itemNumber (same as # on Intake cards). */
+export async function getIntakeByItemNumber(
+  agentId: string,
+  itemNumber: number
+): Promise<IntakeItem | null> {
+  const rows = await query<Record<string, unknown>>(
+    `SELECT * FROM "_intake" WHERE "agentId" = $1 AND "itemNumber" = $2 AND "deletedAt" IS NULL LIMIT 1`,
+    [agentId, itemNumber]
+  );
+  if (rows.length === 0) return null;
+  return rowToIntake(rows[0]);
 }
 
 export async function addIntake(
@@ -162,8 +177,17 @@ function rowToIntake(row: Record<string, unknown>): IntakeItem {
     }
   }
 
+  const rawNum = row.itemNumber;
+  const itemNumber =
+    typeof rawNum === "number" && Number.isFinite(rawNum)
+      ? rawNum
+      : typeof rawNum === "string" && /^\d+$/.test(rawNum)
+        ? parseInt(rawNum, 10)
+        : 0;
+
   return {
     id: row.id as string,
+    itemNumber,
     agentId: row.agentId as string,
     title: row.title as string,
     url: (row.url as string) || null,

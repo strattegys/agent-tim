@@ -3,6 +3,7 @@
 import type { AgentConfig } from "@/lib/agent-frontend";
 import { AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { getSidebarHeaderTitle } from "@/lib/app-brand";
+import { LocalDevOpenMobileCheckInChip } from "@/components/LocalDevMobileCheckInChips";
 import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
 import { signOut } from "next-auth/react";
@@ -39,13 +40,14 @@ export default function AgentSidebar({
   };
   return (
     <div className="w-[200px] min-w-[200px] border-r border-[var(--border-color)] flex flex-col bg-[var(--bg-secondary)]">
-      <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5">
+      <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center gap-2 px-3.5">
         <p
-          className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
+          className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide"
           title={getSidebarHeaderTitle()}
         >
           {getSidebarHeaderTitle()}
         </p>
+        <LocalDevOpenMobileCheckInChip />
       </div>
       <div className="flex-1 overflow-y-auto p-2">
         {TEAM_CATEGORIES.map((category) => {

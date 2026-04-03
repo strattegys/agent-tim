@@ -9,13 +9,14 @@ import {
 
 export default function manifest(): MetadataRoute.Manifest {
   const icon = getPwaManifestIconPath();
-  const localDev = getLocalRuntimeLabel() === "LOCALDEV";
+  const label = getLocalRuntimeLabel();
+  const localDev = label === "LOCALDEV" || label === "LOCALDEV_MOBILE";
 
   return {
     name: getAppBrandTitle(),
     short_name: getAppleWebAppShortName(),
     description: getAppHeadline(),
-    start_url: "/",
+    start_url: "/m/suzi",
     display: "standalone",
     background_color: "#0a0f18",
     theme_color: localDev ? "#c2410c" : "#0e1621",

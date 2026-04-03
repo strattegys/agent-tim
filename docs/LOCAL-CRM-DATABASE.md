@@ -1,6 +1,8 @@
-# Using the local CRM Postgres (Command Central dev)
+# Using the **bundled** local CRM Postgres (Command Central dev — optional)
 
-This is the **Postgres service installed with local Docker dev** (`crm-db` in `docker-compose.dev.yml`). It is **not** the production droplet database. Use it when you want Tim’s queue, Kanban, migrations, and Unipile replay to hit **local data only**.
+**Default LOCALDEV** (`docker-compose.dev.yml`) uses **production droplet CRM** over Tailscale (`100.74.54.12:5432`). The bundled Postgres below is **opt-in**: start Compose with **`--profile bundled-crm-postgres`** and set **`COMMAND-CENTRAL/.env`** to **`CC_DOCKER_CRM_DB_HOST=crm-db`** so `web` uses this container instead.
+
+This `crm-db` service is **not** the droplet. Use it when you want Tim’s queue, Kanban, migrations, and Unipile replay to hit **local data only**.
 
 For how this fits next to **remote droplet CRM** and env layers, see [`LOCAL-ENV-LAYERS.md`](./LOCAL-ENV-LAYERS.md).
 
@@ -16,55 +18,33 @@ For how this fits next to **remote droplet CRM** and env layers, see [`LOCAL-ENV
 
 Credentials come from **`web/.env.local`**: **`CRM_DB_USER`** (default `postgres`), **`CRM_DB_NAME`** (default `default`), **`CRM_DB_PASSWORD`** (required — `docker compose` will error if it is missing).
 
-## Start local dev with bundled CRM (no tunnel)
+## Start LOCALDEV with bundled CRM only
 
-From the **COMMAND-CENTRAL** repo root:
+From the **COMMAND-CENTRAL** repo root (creates **`cc-localdev-crm-db`** and points `web` at it only if **`CC_DOCKER_CRM_DB_HOST=crm-db`** in **`COMMAND-CENTRAL/.env`**):
 
 ```powershell
 cd COMMAND-CENTRAL
-docker compose --env-file web/.env.local -f docker-compose.dev.yml up -d
+# In .env: CC_DOCKER_CRM_DB_HOST=crm-db  CC_DOCKER_CRM_DB_PORT=5432
+docker compose --env-file web/.env.local -f docker-compose.dev.yml --profile bundled-crm-postgres up -d
 ```
 
-Or:
-
-```powershell
-.\scripts\dev-docker-up.ps1
-```
-
-**Important:** Do **not** use **`dev-docker-up.ps1 -UseRemoteCrm`** when you want this local database. That mode merges in **`docker-compose.dev-remote-crm.yml`** and points the app at **`host.docker.internal`** and your SSH tunnel (production CRM).
+**Important:** Do **not** use **`dev-docker-up.ps1 -UseRemoteCrm`** when you want this local database. That mode merges **`docker-compose.dev-remote-crm.yml`** and points the app at **`host.docker.internal`** (tunnel/bridge).
 
 App URL: **http://localhost:3010** (LOCALDEV).
 
 ## How the Next.js container connects
 
-`docker-compose.dev.yml` sets, for the **`web`** service:
-
-- `CRM_DB_HOST=crm-db`
-- `CRM_DB_PORT=5432`
-
-These **override** `CRM_DB_HOST` / `CRM_DB_PORT` from **`web/.env.local`**. So even if `.env.local` still has values copied from Bitwarden (e.g. tunnel-oriented settings), **the running LOCALDEV container uses the bundled `crm-db`**.
+**Default** `docker-compose.dev.yml` sets **`CRM_DB_HOST=100.74.54.12`** and **`CRM_DB_PORT=5432`** on **`web`** (droplet over Tailscale). **`CC_DOCKER_CRM_DB_*`** in **`COMMAND-CENTRAL/.env`** overrides that. Profile **`bundled-crm-postgres`** + **`CC_DOCKER_CRM_DB_HOST=crm-db`** uses bundled Postgres instead.
 
 ## Run SQL from your PC (`db:exec`, `psql`, backups)
 
-Target the **published** port **25432**:
-
-| Variable | Typical value |
-|----------|----------------|
-| `CRM_DB_HOST` | `127.0.0.1` |
-| `CRM_DB_PORT` | `25432` |
-| `CRM_DB_USER` / `CRM_DB_NAME` / `CRM_DB_PASSWORD` | Same as `web/.env.local` |
-
-Example (PowerShell):
+**Droplet (default):** use `CRM_DB_*` from `web/.env.local` (e.g. `100.74.54.12:5432`). **Bundled DB:** `127.0.0.1:25432` only with profile `bundled-crm-postgres`.
 
 ```powershell
 cd COMMAND-CENTRAL\web
-$env:CRM_DB_HOST = "127.0.0.1"
-$env:CRM_DB_PORT = "25432"
 npm run check-crm-db
 npm run db:exec -- scripts/migrate-marni-kb.sql
 ```
-
-**Optional:** add **`web/.env.development.local`** (gitignored) with `CRM_DB_HOST=127.0.0.1` and `CRM_DB_PORT=25432` so **native** `npm run dev` on the host (without Docker) uses the same Postgres.
 
 See **`web/scripts/db-exec.mjs`** if env precedence is unclear for a given command.
 

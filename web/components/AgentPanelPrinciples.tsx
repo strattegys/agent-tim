@@ -4,7 +4,7 @@
 export function AgentPanelPrinciples() {
   return (
     <div
-      className="flex flex-row items-start gap-7 shrink-0"
+      className="flex flex-row items-start gap-9 shrink-0"
       role="note"
       aria-label="Product principles"
     >
@@ -12,10 +12,10 @@ export function AgentPanelPrinciples() {
         className="flex flex-col items-center gap-1 min-w-0"
         title="Your data and decisions stay under your control."
       >
-        <div className="h-[18px] w-[18px] flex items-center justify-center shrink-0">
+        <div className="h-4 w-4 flex items-center justify-center shrink-0">
           <svg
-            width={18}
-            height={18}
+            width={16}
+            height={16}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -38,10 +38,10 @@ export function AgentPanelPrinciples() {
         className="flex flex-col items-center gap-1 min-w-0"
         title="Agents take action; you steer outcomes."
       >
-        <div className="h-[18px] w-[18px] flex items-center justify-center shrink-0">
+        <div className="h-4 w-4 flex items-center justify-center shrink-0">
           <svg
-            width={18}
-            height={18}
+            width={16}
+            height={16}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -62,10 +62,10 @@ export function AgentPanelPrinciples() {
         className="flex flex-col items-center gap-1 min-w-0"
         title="Tuned for speed, cost, and quality — always improving."
       >
-        <div className="h-[18px] w-[18px] flex items-center justify-center shrink-0">
+        <div className="h-4 w-4 flex items-center justify-center shrink-0">
           <svg
-            width={18}
-            height={18}
+            width={16}
+            height={16}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"

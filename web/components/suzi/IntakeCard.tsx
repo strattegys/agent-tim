@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 /** Mirrors API / DB shape; keep free of `@/lib/intake` so the client bundle does not pull `db`. */
 export interface IntakeCardItem {
   id: string;
+  /** Stable DB itemNumber (same as intake tool); omit or 0 if pre-migration row. */
+  itemNumber?: number;
   title: string;
   url: string | null;
   body: string | null;
@@ -49,8 +51,6 @@ function ArchiveIcon({ className }: { className?: string }) {
 
 interface IntakeCardProps {
   item: IntakeCardItem;
-  /** 1-based position in the current Intake list (matches Suzi `itemNumber` when list/filter matches). */
-  displayNumber?: number;
   /** Soft-archive: removes from the active queue (same as API archive). */
   onArchive?: (id: string) => void;
   /** User selected this card for Suzi chat context. */
@@ -82,11 +82,11 @@ function IntakeUpdatedLabel({ updatedAt }: { updatedAt: string }) {
 
 export default function IntakeCard({
   item,
-  displayNumber,
   onArchive,
   isFocused = false,
   onToggleFocus,
 }: IntakeCardProps) {
+  const stableNum = item.itemNumber != null && item.itemNumber > 0 ? item.itemNumber : null;
   const src = item.source || "ui";
   const label = SOURCE_LABEL[src] || src;
   const color = SOURCE_COLOR[src] || "#8b9199";
@@ -108,12 +108,12 @@ export default function IntakeCard({
     >
       <div className="flex items-start gap-1.5 shrink-0">
         <div className="flex items-start gap-1.5 min-w-0 flex-1">
-          {displayNumber != null && (
+          {stableNum != null && (
             <span
               className="shrink-0 text-xs font-bold tabular-nums px-1.5 py-0.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--accent-green)] leading-none"
-              title={`Intake #${displayNumber} (FIFO) — ask Suzi using item ${displayNumber}, or archive here`}
+              title={`Intake #${stableNum} — stable record id; use intake tool itemNumber ${stableNum}, or archive here`}
             >
-              #{displayNumber}
+              #{stableNum}
             </span>
           )}
           <h3 className="text-sm font-medium text-[var(--text-chat-body)] leading-snug flex-1 min-w-0 break-words">

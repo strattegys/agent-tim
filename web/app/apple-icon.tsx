@@ -110,8 +110,9 @@ function ConstructionIcon() {
 export default function AppleIcon() {
   const label = process.env.NEXT_PUBLIC_CC_RUNTIME_LABEL?.trim().toUpperCase();
 
-  if (label === "LOCALDEV") {
-    return new ImageResponse(<LocalLetterIcon letters="CD" color="#f97316" />, {
+  if (label === "LOCALDEV" || label === "LOCALDEV_MOBILE") {
+    const letters = label === "LOCALDEV_MOBILE" ? "CM" : "CD";
+    return new ImageResponse(<LocalLetterIcon letters={letters} color="#f97316" />, {
       ...size,
     });
   }

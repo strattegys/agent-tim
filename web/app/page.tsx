@@ -1,6 +1,9 @@
 import nextDynamic from "next/dynamic";
 import { Suspense } from "react";
-import { redirectIfBackendOnlyUi } from "@/lib/main-ui-gate";
+import {
+  redirectIfBackendOnlyUi,
+  redirectIfMobileUiInsteadOfDesktopHome,
+} from "@/lib/main-ui-gate";
 
 /** Avoid static prerender + CSR bailout blank shell when the client reads search params. */
 export const dynamic = "force-dynamic";
@@ -19,6 +22,7 @@ const CommandCentralClient = nextDynamic(() => import("./CommandCentralClient"),
 });
 
 export default function HomePage() {
+  redirectIfMobileUiInsteadOfDesktopHome();
   redirectIfBackendOnlyUi();
   return (
     <Suspense fallback={<HomeFallback />}>

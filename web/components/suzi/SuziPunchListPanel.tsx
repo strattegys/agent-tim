@@ -125,15 +125,22 @@ export default function SuziPunchListPanel({
   const toggleSuziFocus = useCallback(
     (item: PunchListItem) => {
       if (!onFocusedPunchListChange) return;
+      // Inspect + green ring must stay one item: switching selection closes Inspect on another row.
+      if (inspectItem && inspectItem.id !== item.id) {
+        setInspectItem(null);
+      }
       if (focusedPunchListId === item.id) {
         onFocusedPunchListChange(null);
+        if (inspectItem?.id === item.id) {
+          setInspectItem(null);
+        }
       } else {
         onFocusedPunchListChange(
           punchListItemToFocusedContext(item, punchListColumnLabel(item.rank))
         );
       }
     },
-    [focusedPunchListId, onFocusedPunchListChange]
+    [focusedPunchListId, onFocusedPunchListChange, inspectItem, setInspectItem]
   );
 
   // Group items by rank for Kanban columns

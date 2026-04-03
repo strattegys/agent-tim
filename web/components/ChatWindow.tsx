@@ -90,7 +90,7 @@ export default function ChatWindow({
       ) : null}
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pl-2 pr-1 py-2.5 space-y-2"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pl-2 pr-1 pt-1 pb-2.5 space-y-2.5"
       >
         {messages.length === 0 && !isLoading && (
           <div className="flex h-full min-h-[108px] items-center justify-center text-[12px] text-[var(--text-tertiary)]">

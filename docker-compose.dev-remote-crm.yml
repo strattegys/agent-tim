@@ -2,8 +2,8 @@
 # Tailscale bridge on 0.0.0.0:5433). Start the forwarder first, e.g.:
 #   .\scripts\dev-docker-up.ps1 -UseRemoteCrm
 #
-# A **local** `crm-db` container still runs (Compose service); you may stop it after up to save RAM:
-#   docker stop cc-localdev-crm-db
+# Default LOCALDEV uses droplet CRM via Tailscale inside the container (100.74.54.12:5432).
+# Bundled `crm-db` is opt-in: `--profile bundled-crm-postgres`.
 
 services:
   web:

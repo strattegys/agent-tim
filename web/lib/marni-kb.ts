@@ -27,6 +27,31 @@ export function isMarniKbDatabaseConfigured(): boolean {
   return Boolean(process.env.CRM_DB_PASSWORD?.trim());
 }
 
+/**
+ * Older CRM DBs may have `_kb_topic` from migrate-marni-kb.sql before `topic_kind` was added.
+ * Idempotent ALTER + index (matches web/scripts/migrate-marni-kb.sql tail).
+ */
+let kbTopicKindEnsurePromise: Promise<void> | null = null;
+
+async function ensureKbTopicKindColumn(): Promise<void> {
+  if (!isMarniKbDatabaseConfigured()) return;
+  if (!kbTopicKindEnsurePromise) {
+    kbTopicKindEnsurePromise = (async () => {
+      await query(`
+        ALTER TABLE "_kb_topic"
+        ADD COLUMN IF NOT EXISTS topic_kind TEXT NOT NULL DEFAULT 'research'
+      `);
+      await query(
+        `CREATE INDEX IF NOT EXISTS idx_kb_topic_agent_kind ON "_kb_topic" ("agentId", topic_kind)`
+      );
+    })().catch((e) => {
+      kbTopicKindEnsurePromise = null;
+      throw e;
+    });
+  }
+  await kbTopicKindEnsurePromise;
+}
+
 function slugify(name: string): string {
   const s = name
     .toLowerCase()
@@ -111,6 +136,7 @@ const KB_TOPIC_SELECT =
   `id, "agentId", slug, name, description, queries, "postUrls", "sourceMode", "cadenceMinutes", enabled, "lastRunAt", "createdAt", "updatedAt", topic_kind`;
 
 export async function listKbTopics(agentId = KB_AGENT): Promise<KbTopicRow[]> {
+  await ensureKbTopicKindColumn();
   const rows = await query<Record<string, unknown>>(
     `SELECT ${KB_TOPIC_SELECT}
      FROM "_kb_topic" WHERE "agentId" = $1 ORDER BY name ASC`,
@@ -120,6 +146,7 @@ export async function listKbTopics(agentId = KB_AGENT): Promise<KbTopicRow[]> {
 }
 
 export async function getKbTopic(id: string): Promise<KbTopicRow | null> {
+  await ensureKbTopicKindColumn();
   const rows = await query<Record<string, unknown>>(
     `SELECT ${KB_TOPIC_SELECT} FROM "_kb_topic" WHERE id = $1`,
     [id]
@@ -143,6 +170,7 @@ export async function createKbTopic(input: {
     throw new Error(`Knowledge Studio agentId must be marni or tim (got: ${agentId})`);
   }
   const topicKind: KbTopicKind = input.topicKind === "crm_mirror" ? "crm_mirror" : "research";
+  await ensureKbTopicKindColumn();
   let base = slugify(input.name);
   let slug = base;
   for (let i = 0; i < 20; i++) {
@@ -367,6 +395,7 @@ export async function touchKbTopicLastSync(topicId: string): Promise<void> {
 }
 
 export async function ensureTimCrmMirrorKbTopic(): Promise<KbTopicRow> {
+  await ensureKbTopicKindColumn();
   const existing = await query<Record<string, unknown>>(
     `SELECT ${KB_TOPIC_SELECT} FROM "_kb_topic" WHERE "agentId" = 'tim' AND slug = $1`,
     [TIM_CRM_CORPUS_SLUG]
@@ -384,6 +413,7 @@ export async function ensureTimCrmMirrorKbTopic(): Promise<KbTopicRow> {
 }
 
 export async function ensureTimPdfKbTopic(): Promise<KbTopicRow> {
+  await ensureKbTopicKindColumn();
   const existing = await query<Record<string, unknown>>(
     `SELECT ${KB_TOPIC_SELECT} FROM "_kb_topic" WHERE "agentId" = 'tim' AND slug = $1`,
     [TIM_PDF_CORPUS_SLUG]
@@ -763,6 +793,7 @@ export async function answerKbQuestion(
 }
 
 export async function processDueKbTopicsCron(agentId = KB_AGENT): Promise<number> {
+  await ensureKbTopicKindColumn();
   const rows = await query<{ id: string }>(
     `SELECT id FROM "_kb_topic"
      WHERE enabled = TRUE AND "agentId" = $1

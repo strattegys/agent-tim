@@ -272,6 +272,11 @@ function insertInto(table: string, sql: string, params: unknown[]): Row[] {
     row.packageNumber = max + 1;
   }
 
+  if (table === "intake" && (row.itemNumber == null || row.itemNumber === "")) {
+    const maxNum = rows.reduce((m, r) => Math.max(m, Number(r.itemNumber) || 0), 0);
+    row.itemNumber = maxNum >= 2001 ? maxNum + 1 : 2001;
+  }
+
   rows.push(row);
   saveTable(table, rows);
 
@@ -519,7 +524,7 @@ function selectArtifacts(sql: string, params: unknown[]): Row[] {
   return filtered;
 }
 
-// ─── SELECT intake (Suzi) — FIFO by createdAt, optional LIMIT/OFFSET ───────────
+// ─── SELECT intake (Suzi) — newest first by createdAt, optional LIMIT/OFFSET ─────
 
 function filterIntakeBySearch(rows: Row[], searchPattern: string): Row[] {
   const inner = searchPattern.replace(/^%|%$/g, "").toLowerCase();
@@ -561,7 +566,7 @@ function selectIntake(params: unknown[]): Row[] {
     rows = filterIntakeBySearch(rows, String(params[1]));
   }
 
-  rows.sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+  rows.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
   return rows.slice(offset, offset + limit);
 }
 

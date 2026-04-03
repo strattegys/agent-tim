@@ -12,6 +12,7 @@ import { getAgentSpec } from "@/lib/agent-registry";
 import { isKbStudioAgentId } from "@/lib/kb-studio";
 import TimLabLogDock from "@/components/TimLabLogDock";
 import FridayLabLogDock from "@/components/FridayLabLogDock";
+import StatusRailAgentInspector from "@/components/StatusRailAgentInspector";
 
 const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "workflow", "schedule"];
 
@@ -172,6 +173,10 @@ interface StatusRailProps {
   labMode?: StatusRailLabMode;
   /** Shown in the rail header when `labMode` is `devNeutral` (e.g. active agent display name). */
   devLayoutAgentLabel?: string | null;
+  /** Selected chat agent — drives the compact cron/tools block in the rail. */
+  activeAgent: AgentConfig;
+  /** When true, the main column shows full Agent info; rail hides the compact block to avoid duplication. */
+  workPanelShowsFullAgentInfo: boolean;
 }
 
 function formatAlertTime(ts: string) {
@@ -331,6 +336,8 @@ export default function StatusRail({
   sharedNotifications,
   labMode = "off",
   devLayoutAgentLabel,
+  activeAgent,
+  workPanelShowsFullAgentInfo,
 }: StatusRailProps) {
   const labDockActive = labMode === "tim" || labMode === "friday";
   const railTitle =
@@ -582,17 +589,25 @@ export default function StatusRail({
       <div className="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">
         {labMode === "tim" ? (
           <>
-            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2 space-y-2">
               {statusFetchBanner}
               {systemStatusSection}
+              <StatusRailAgentInspector
+                activeAgent={activeAgent}
+                hidden={workPanelShowsFullAgentInfo}
+              />
             </div>
             <TimLabLogDock fillRail />
           </>
         ) : labMode === "friday" ? (
           <div className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
-            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2">
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2 space-y-2">
               {statusFetchBanner}
               {systemStatusSection}
+              <StatusRailAgentInspector
+                activeAgent={activeAgent}
+                hidden={workPanelShowsFullAgentInfo}
+              />
             </div>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               <div className="max-h-36 shrink-0 overflow-y-auto border-b border-[var(--border-color)] p-2">
@@ -617,12 +632,17 @@ export default function StatusRail({
           </p>
         ) : null}
 
+        <StatusRailAgentInspector
+          activeAgent={activeAgent}
+          hidden={workPanelShowsFullAgentInfo}
+        />
+
         <section>
           <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
             Agents
           </div>
           <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mb-1.5 font-mono">
-            Per agent: eye · heartbeat · memory · book (Knowledge Studio — same icon as header, right of Agent info) — work: bell left
+            Per agent: eye · heartbeat · memory · book (Knowledge — header icon left of info) — work: bell left
           </p>
           <ul className="font-mono text-[10px] space-y-2">
             {teamAgents.map((a) => {

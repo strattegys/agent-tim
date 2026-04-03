@@ -79,23 +79,6 @@ export default function SuziIntakePanel({
     localStorage.setItem("suzi_intake_search", appliedSearch);
   }, [appliedSearch]);
 
-  /** API returns FIFO (oldest first); last page holds the newest captures. */
-  const probeLastPageIndex = useCallback(async (): Promise<number> => {
-    const params = new URLSearchParams();
-    if (appliedSearch.trim()) params.set("search", appliedSearch.trim());
-    params.set("limit", "1");
-    params.set("offset", "0");
-    try {
-      const res = await fetch(`/api/intake?${params}`);
-      const data = await res.json();
-      const t = typeof data.total === "number" ? data.total : 0;
-      if (t <= 0) return 0;
-      return Math.max(0, Math.ceil(t / PAGE_SIZE) - 1);
-    } catch {
-      return 0;
-    }
-  }, [appliedSearch]);
-
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -133,30 +116,22 @@ export default function SuziIntakePanel({
     if (intakeLatestNavHandled.current) return;
     if (searchParams.get("intakeLatest") !== "1") return;
     intakeLatestNavHandled.current = true;
-    void (async () => {
-      const lp = await probeLastPageIndex();
-      setPage(lp);
-      setRefreshNonce((n) => n + 1);
-      const next = new URLSearchParams(searchParams.toString());
-      next.delete("intakeLatest");
-      const q = next.toString();
-      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
-    })();
-  }, [searchParams, router, pathname, probeLastPageIndex]);
+    setPage(0);
+    setRefreshNonce((n) => n + 1);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("intakeLatest");
+    const q = next.toString();
+    router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+  }, [searchParams, router, pathname]);
 
   useEffect(() => {
     return panelBus.on("intake", (detail) => {
       if (isIntakeFocusNewestDetail(detail)) {
-        void (async () => {
-          const lp = await probeLastPageIndex();
-          setPage(lp);
-          setRefreshNonce((n) => n + 1);
-        })();
-      } else {
-        setRefreshNonce((n) => n + 1);
+        setPage(0);
       }
+      setRefreshNonce((n) => n + 1);
     });
-  }, [probeLastPageIndex]);
+  }, []);
 
   const handleArchive = useCallback(
     async (id: string) => {
@@ -179,7 +154,7 @@ export default function SuziIntakePanel({
   );
 
   const toggleIntakeFocus = useCallback(
-    (item: IntakeCardItem, displayNumber: number) => {
+    (item: IntakeCardItem) => {
       if (!onFocusedIntakeChange) return;
       if (focusedIntakeId === item.id) {
         onFocusedIntakeChange(null);
@@ -191,7 +166,7 @@ export default function SuziIntakePanel({
         url: item.url,
         body: item.body,
         source: item.source,
-        displayNumber,
+        itemNumber: item.itemNumber,
         filterQuery: appliedSearch.trim() || undefined,
       });
     },
@@ -276,13 +251,10 @@ export default function SuziIntakePanel({
                 <IntakeCard
                   key={item.id}
                   item={item}
-                  displayNumber={page * PAGE_SIZE + index + 1}
                   onArchive={handleArchive}
                   isFocused={focusedIntakeId === item.id}
                   onToggleFocus={
-                    onFocusedIntakeChange
-                      ? () => toggleIntakeFocus(item, page * PAGE_SIZE + index + 1)
-                      : undefined
+                    onFocusedIntakeChange ? () => toggleIntakeFocus(item) : undefined
                   }
                 />
               ))}

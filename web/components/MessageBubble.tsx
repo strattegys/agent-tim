@@ -55,7 +55,7 @@ export default function MessageBubble({
   const agentBg = useMemo(() => toMutedAgentBubbleBg(agentColor), [agentColor]);
 
   return (
-    <div className="flex mb-0.5">
+    <div className="flex">
       <div
         className="relative group w-full"
         onMouseEnter={() => setHovered(true)}

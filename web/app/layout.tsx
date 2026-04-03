@@ -30,7 +30,8 @@ export function generateMetadata(): Metadata {
 }
 
 export function generateViewport(): Viewport {
-  const localDev = getLocalRuntimeLabel() === "LOCALDEV";
+  const label = getLocalRuntimeLabel();
+  const localDev = label === "LOCALDEV" || label === "LOCALDEV_MOBILE";
   return {
     themeColor: localDev ? "#c2410c" : "#0e1621",
     width: "device-width",

@@ -25,6 +25,26 @@ import {
 
 type SubTab = SuziWorkSubTab;
 
+/** First paint must match URL (then localStorage) so we do not call onSubTabChange("punchlist") before suziSub applies — that fought CommandCentralClient URL sync and caused suziSub to flip. */
+function initialSuziPanelSubTab(searchSnapshot: string): SubTab {
+  const p = new URLSearchParams(searchSnapshot).get("suziSub");
+  if (p === "intake" || p === "notes" || p === "punchlist" || p === "reminders") {
+    return p;
+  }
+  if (typeof window !== "undefined") {
+    const saved = localStorage.getItem("suzi_panel_subtab");
+    if (
+      saved === "reminders" ||
+      saved === "notes" ||
+      saved === "punchlist" ||
+      saved === "intake"
+    ) {
+      return saved as SubTab;
+    }
+  }
+  return "punchlist";
+}
+
 const FILTERS = [
   "All",
   "Birthdays",
@@ -112,7 +132,9 @@ export default function SuziRemindersPanel({
 }: SuziRemindersPanelProps) {
   const searchParams = useSearchParams();
 
-  const [subTab, setSubTab] = useState<SubTab>("punchlist");
+  const [subTab, setSubTab] = useState<SubTab>(() =>
+    initialSuziPanelSubTab(searchParams.toString())
+  );
   const [intakeAddOpen, setIntakeAddOpen] = useState(false);
   const [punchInspectItem, setPunchInspectItem] = useState<PunchListItem | null>(null);
   /** Bumped on every `punch_list` bus event so the punch list refetches after Suzi tools (panel may be unmounted on other tabs). */

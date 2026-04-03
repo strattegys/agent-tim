@@ -1,4 +1,10 @@
-import { listIntake, addIntake, updateIntake, deleteIntake } from "../intake";
+import {
+  listIntake,
+  addIntake,
+  updateIntake,
+  deleteIntake,
+  getIntakeByItemNumber,
+} from "../intake";
 import type { ToolModule } from "./types";
 
 function parseItemNumber(v: unknown): number | null {
@@ -13,10 +19,10 @@ function parseItemNumber(v: unknown): number | null {
   return null;
 }
 
-/** Resolve update/delete target: UUID, or itemNumber against full list or optional filter (Intake search box). */
+/** Resolve update/delete target: UUID, or stable DB itemNumber (same # as on Intake cards). */
 async function resolveIntakeTarget(
   agentId: string,
-  args: { id?: unknown; itemNumber?: unknown; filterQuery?: unknown }
+  args: { id?: unknown; itemNumber?: unknown }
 ): Promise<{ id: string } | { error: string }> {
   const rawId = typeof args.id === "string" ? args.id.trim() : "";
   if (rawId) return { id: rawId };
@@ -25,18 +31,16 @@ async function resolveIntakeTarget(
   if (n == null) {
     return {
       error:
-        "Provide either id (UUID from list) or itemNumber (#1 = oldest in queue / FIFO, same as # on the card).",
+        "Provide either id (UUID from list) or itemNumber (stable # on the card, same as intake list output).",
     };
   }
-  const fq = typeof args.filterQuery === "string" ? args.filterQuery.trim() : "";
-  const items = await listIntake(agentId, fq ? { search: fq } : {});
-  if (n > items.length) {
-    const ctx = fq ? `with Intake search “${fq}”` : "in the full list";
+  const row = await getIntakeByItemNumber(agentId, n);
+  if (!row) {
     return {
-      error: `No intake #${n} ${ctx} (only ${items.length} item(s)). Use intake list or match the user’s Intake search via filterQuery.`,
+      error: `No intake itemNumber ${n} for this agent (archived, wrong number, or not found). Use intake list.`,
     };
   }
-  return { id: items[n - 1]!.id };
+  return { id: row.id };
 }
 
 const tool: ToolModule = {
@@ -53,7 +57,7 @@ const tool: ToolModule = {
   declaration: {
     name: "intake",
     description:
-      "The **only** tool for Suzi's **Intake** tab — capture inbox (URLs, snippets, triage). Cards **#1, #2…** FIFO (**#1** = oldest); the queue is usually short. **Numbers like #500 or #1049** are **punch list** card ids — use **punch_list** (**done**, **update**), **not** intake. **update**/**delete**/**archive**: **id** (from focused context) or **itemNumber** + optional **filterQuery** if search is active. **delete**/**archive** remove from active queue (soft-archived). **Promote to punch list:** when context has **Focused Intake** and user says add to punch list / make this a task — call **punch_list add** first (short summarized **title**, put original intake **title**+**body**+**url** in **description**, **rank** now, infer **category**), then **intake archive** with this item’s **id**. Commands: list, add, update, delete, archive, search.",
+      "The **only** tool for Suzi's **Intake** tab — capture inbox (URLs, snippets, triage). Each card shows a **stable itemNumber** (DB id, e.g. #2001) — it does **not** change when sort or page changes. **Numbers like #500 or #1049** may be **punch list** card ids — use **punch_list** (**done**, **update**), **not** intake. **update**/**delete**/**archive**: **id** (UUID from focused context) or **itemNumber** (the # on the card). **delete**/**archive** remove from active queue (soft-archived). **Promote to punch list:** when context has **Focused Intake** and user says add to punch list / make this a task — call **punch_list add** first (short summarized **title**, put original intake **title**+**body**+**url** in **description**, **rank** now, infer **category**), then **intake archive** with this item’s **id**. Commands: list, add, update, delete, archive, search.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -80,12 +84,12 @@ const tool: ToolModule = {
         itemNumber: {
           type: "number",
           description:
-            "1-based FIFO index as on Intake cards (#1 = oldest / next to work). Use for update/delete/archive when the user says “intake 2” or “item #3”.",
+            "Stable **itemNumber** on the Intake card (e.g. 2001). Same value as list/search output. Use for update/delete/archive when the user cites that number.",
         },
         filterQuery: {
           type: "string",
           description:
-            "Optional: same text as the Intake tab search box — scopes itemNumber to that filtered list.",
+            "Deprecated for resolve-by-number — itemNumber is global per row. Optional echo for logging only.",
         },
         query: {
           type: "string",
@@ -104,8 +108,8 @@ const tool: ToolModule = {
       if (items.length === 0) return "No intake items.";
       return items
         .map(
-          (it, i) =>
-            `#${i + 1} ${it.title}${it.url ? ` — ${it.url}` : ""}${it.body ? `\n  ${it.body.slice(0, 120)}${it.body.length > 120 ? "…" : ""}` : ""}\n  id: ${it.id}  source: ${it.source}`
+          (it) =>
+            `#${it.itemNumber} ${it.title}${it.url ? ` — ${it.url}` : ""}${it.body ? `\n  ${it.body.slice(0, 120)}${it.body.length > 120 ? "…" : ""}` : ""}\n  id: ${it.id}  source: ${it.source}`
         )
         .join("\n\n");
     }
@@ -146,8 +150,8 @@ const tool: ToolModule = {
       if (items.length === 0) return "No intake items match that query.";
       return items
         .map(
-          (it, i) =>
-            `#${i + 1} ${it.title}${it.url ? ` — ${it.url}` : ""}\n  id: ${it.id}`
+          (it) =>
+            `#${it.itemNumber} ${it.title}${it.url ? ` — ${it.url}` : ""}\n  id: ${it.id}`
         )
         .join("\n\n");
     }

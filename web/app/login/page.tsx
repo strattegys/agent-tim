@@ -1,4 +1,5 @@
-import { signIn, auth } from "@/lib/auth";
+import { auth } from "@/lib/auth";
+import { credentialsSignIn } from "./actions";
 import { redirect } from "next/navigation";
 import {
   getAppBrandTitle,
@@ -6,20 +7,22 @@ import {
   getLocalRuntimeLabel,
   getLoginBadgeLetter,
 } from "@/lib/app-brand";
-import { isBackendOnlyUiMode } from "@/lib/backend-only-ui";
+import { isBackendOnlyUiMode, isMobilePublicUiMode } from "@/lib/backend-only-ui";
 
 export default async function LoginPage() {
   if (isBackendOnlyUiMode()) {
     redirect("/backend-only");
   }
   const session = await auth();
-  if (session) redirect("/");
+  const mobileUi = isMobilePublicUiMode();
+  if (session) redirect(mobileUi ? "/m/suzi" : "/");
 
   const brandTitle = getAppBrandTitle();
   const tagline = getAppHeadline();
   const badgeLetter = getLoginBadgeLetter();
+  const label = getLocalRuntimeLabel();
   const badgeTextClass =
-    getLocalRuntimeLabel() === "LOCALDEV"
+    label === "LOCALDEV" || label === "LOCALDEV_MOBILE"
       ? "text-2xl font-bold text-[#f97316]"
       : "text-2xl font-bold text-white";
 
@@ -35,12 +38,7 @@ export default async function LoginPage() {
           </h1>
           <p className="text-[13px] text-[#6b8a9e] mt-3 max-w-md mx-auto px-2">{tagline}</p>
         </div>
-        <form
-          action={async () => {
-            "use server";
-            await signIn("credentials", { redirectTo: "/" });
-          }}
-        >
+        <form action={credentialsSignIn}>
           <button
             type="submit"
             className="bg-[#2b5278] hover:bg-[#3a6a96] text-[#f5f5f5] text-[13px] px-6 py-2.5 rounded-lg transition-colors"

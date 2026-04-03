@@ -1,9 +1,12 @@
 import { redirect } from "next/navigation";
-import { isBackendOnlyUiMode } from "@/lib/backend-only-ui";
+import { isBackendOnlyUiMode, isMobilePublicUiMode } from "@/lib/backend-only-ui";
 
 export const dynamic = "force-dynamic";
 
 export default async function BackendOnlyLandingPage() {
+  if (isMobilePublicUiMode()) {
+    redirect("/m/suzi");
+  }
   if (!isBackendOnlyUiMode()) {
     redirect("/");
   }

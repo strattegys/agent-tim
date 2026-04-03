@@ -81,7 +81,7 @@ export default function AgentSidebar({
                         src={agent.avatar}
                       />
                       {unread > 0 && (
-                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--accent-orange)] text-white text-[10px] font-bold flex items-center justify-center px-1">
+                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] rounded-full bg-[var(--accent-gold)] text-[var(--bg-primary)] text-[10px] font-bold flex items-center justify-center px-1">
                           {unread > 99 ? "99+" : unread}
                         </span>
                       )}
@@ -105,7 +105,7 @@ export default function AgentSidebar({
                             <span
                               className={
                                 agentHasUserWorkItem(agent.id, workBadges)
-                                  ? "text-[var(--accent-orange)]"
+                                  ? "text-[var(--accent-gold)]"
                                   : "text-[var(--accent-green)]"
                               }
                               aria-label={

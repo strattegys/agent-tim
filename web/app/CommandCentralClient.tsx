@@ -31,6 +31,17 @@ import { agentHasUserWorkItem } from "@/lib/agent-work-badges";
 import { sidebarAttentionCount } from "@/lib/chat-sidebar-attention";
 import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
 import { KnowledgeRagIcon } from "@/components/icons/KnowledgeRagIcon";
+import {
+  ScoutWorkspaceIcon,
+  MarniWorkspaceIcon,
+  FridayWorkspaceIcon,
+  PennyWorkspaceIcon,
+  TimWorkspaceIcon,
+  GhostWorkspaceIcon,
+  KingWorkspaceIcon,
+  SuziWorkspaceIcon,
+  PipelineKanbanWorkspaceIcon,
+} from "@/components/icons/AgentWorkspaceNavIcons";
 import { getFrontendAgents, agentHasKanban, type AgentConfig, AGENT_CATEGORIES } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
 import { TtsQueue, type TtsState } from "@/lib/tts-queue";
@@ -156,6 +167,7 @@ export default function CommandCentralClient() {
     if (agent === "tim" && p === "kanban") return "messages";
     if (agent === "ghost" && p === "kanban") return "messages";
     if (agent === "marni" && p === "kanban") return "marni-work";
+    if (agent === "scout" && p === "kanban") return "scout-campaigns";
     return p || defaultPanelForAgent(agent);
   });
 
@@ -201,6 +213,10 @@ export default function CommandCentralClient() {
       setRightPanel("marni-work");
       return;
     }
+    if (paramAgent === "scout" && paramPanel === "kanban") {
+      setRightPanel("scout-campaigns");
+      return;
+    }
     if (paramAgent === "friday" && paramPanel && FRIDAY_WORK_DASHBOARD_PANELS.has(paramPanel)) {
       setRightPanel("dashboard");
       let tab = fridayTabFromSearchParams(paramAgent, paramPanel);
@@ -213,6 +229,8 @@ export default function CommandCentralClient() {
         setRightPanel("messages");
       } else if (paramAgent === "ghost" && paramPanel === "kanban") {
         setRightPanel("messages");
+      } else if (paramAgent === "scout" && paramPanel === "kanban") {
+        setRightPanel("scout-campaigns");
       } else {
         setRightPanel(paramPanel as RightPanel);
       }
@@ -245,6 +263,7 @@ export default function CommandCentralClient() {
   useEffect(() => {
     if (rightPanel !== "kanban") return;
     if (activeAgent === "tim" || activeAgent === "ghost") setRightPanel("messages");
+    if (activeAgent === "scout") setRightPanel("scout-campaigns");
   }, [activeAgent, rightPanel]);
 
   useEffect(() => {
@@ -407,7 +426,7 @@ export default function CommandCentralClient() {
   const [ghostWorkSelection, setGhostWorkSelection] = useState<GhostWorkQueueSelection | null>(null);
   const [marniWorkSelection, setMarniWorkSelection] = useState<MarniWorkQueueSelection | null>(null);
   const [suziWorkSubTab, setSuziWorkSubTab] = useState<SuziWorkSubTab>(
-    () => parseSuziSubParam(paramSuziSub) ?? "punchlist"
+    () => parseSuziSubParam(paramSuziSub) ?? "dashboard"
   );
   const [suziFocusedIntake, setSuziFocusedIntake] = useState<SuziFocusedIntake | null>(null);
   const [suziFocusedPunchList, setSuziFocusedPunchList] = useState<SuziFocusedPunchList | null>(null);
@@ -1372,7 +1391,7 @@ export default function CommandCentralClient() {
                               <span
                                 className={
                                   agentHasUserWorkItem(a.id, workBellBadges)
-                                    ? "text-[var(--accent-orange)]"
+                                    ? "text-[var(--accent-gold)]"
                                     : "text-[var(--accent-green)]"
                                 }
                                 aria-label={
@@ -1389,7 +1408,7 @@ export default function CommandCentralClient() {
                             </span>
                           </div>
                           {unread > 0 && (
-                            <span className="flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-[var(--accent-orange)] px-1 text-[11px] font-bold text-white">
+                            <span className="flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-[var(--accent-gold)] px-1 text-[11px] font-bold text-[var(--bg-primary)]">
                               {unread > 99 ? "99+" : unread}
                             </span>
                           )}
@@ -1526,7 +1545,8 @@ export default function CommandCentralClient() {
             {agentHasKanban(activeAgent) &&
               activeAgent !== "tim" &&
               activeAgent !== "ghost" &&
-              activeAgent !== "marni" && (
+              activeAgent !== "marni" &&
+              activeAgent !== "scout" && (
               <Link
                 href="/kanban"
                 className="md:hidden p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]"
@@ -1619,21 +1639,16 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Scout — campaign throughput (goals, funnel, targeting)"
+                title="Workspace — campaign throughput (goals, funnel, targeting)"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 19V5" />
-                  <path d="M4 19h16" />
-                  <rect x="7" y="9" width="3" height="7" rx="0.5" />
-                  <rect x="12.5" y="6" width="3" height="10" rx="0.5" />
-                  <rect x="18" y="12" width="2" height="4" rx="0.5" />
-                </svg>
+                <ScoutWorkspaceIcon />
               </button>
             )}
             {agentHasKanban(activeAgent) &&
               activeAgent !== "tim" &&
               activeAgent !== "ghost" &&
-              activeAgent !== "marni" && (
+              activeAgent !== "marni" &&
+              activeAgent !== "scout" && (
               <button
                 type="button"
                 onClick={() => setRightPanel("kanban")}
@@ -1644,11 +1659,7 @@ export default function CommandCentralClient() {
                 }`}
                 title="Pipeline board"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="3" width="5" height="18" rx="1" />
-                  <rect x="10" y="3" width="5" height="12" rx="1" />
-                  <rect x="17" y="3" width="5" height="8" rx="1" />
-                </svg>
+                <PipelineKanbanWorkspaceIcon />
               </button>
             )}
             {activeAgent === "marni" && (
@@ -1660,9 +1671,23 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Work panel — distribution queue"
+                title="Workspace — distribution queue & board"
               >
-                <KnowledgeRagIcon size={18} stroke="currentColor" />
+                <MarniWorkspaceIcon />
+              </button>
+            )}
+            {activeAgent === "penny" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveAgent("friday");
+                  setRightPanel("dashboard");
+                  setFridayDashboardTab("package-kanban");
+                }}
+                className="p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                title="Workspace — service packages & approvals (Friday dashboard › Package Kanban)"
+              >
+                <PennyWorkspaceIcon />
               </button>
             )}
             {activeAgent === "friday" && (
@@ -1680,12 +1705,7 @@ export default function CommandCentralClient() {
                       : "Friday — goals, package kanban, templates & tools"
                   }
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="3" width="7" height="7" rx="1" />
-                    <rect x="14" y="3" width="7" height="7" rx="1" />
-                    <rect x="3" y="14" width="7" height="7" rx="1" />
-                    <rect x="14" y="14" width="7" height="7" rx="1" />
-                  </svg>
+                  <FridayWorkspaceIcon />
                 </button>
                 {fridayCronErrorCount > 0 ? (
                   <span
@@ -1708,14 +1728,7 @@ export default function CommandCentralClient() {
                 }`}
                 title="Tim work panel — Active & Pending queues, CRM directory"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="8" y1="6" x2="21" y2="6" />
-                  <line x1="8" y1="12" x2="21" y2="12" />
-                  <line x1="8" y1="18" x2="21" y2="18" />
-                  <line x1="3" y1="6" x2="3.01" y2="6" />
-                  <line x1="3" y1="12" x2="3.01" y2="12" />
-                  <line x1="3" y1="18" x2="3.01" y2="18" />
-                </svg>
+                <TimWorkspaceIcon />
               </button>
             )}
             {activeAgent === "ghost" && (
@@ -1729,14 +1742,7 @@ export default function CommandCentralClient() {
                 }`}
                 title="Ghost work panel — content queue & workspace"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="8" y1="6" x2="21" y2="6" />
-                  <line x1="8" y1="12" x2="21" y2="12" />
-                  <line x1="8" y1="18" x2="21" y2="18" />
-                  <line x1="3" y1="6" x2="3.01" y2="6" />
-                  <line x1="3" y1="12" x2="3.01" y2="12" />
-                  <line x1="3" y1="18" x2="3.01" y2="18" />
-                </svg>
+                <GhostWorkspaceIcon />
               </button>
             )}
             {activeAgent === "king" && (
@@ -1750,10 +1756,7 @@ export default function CommandCentralClient() {
                 }`}
                 title="Cost-Usage"
               >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="1" x2="12" y2="23" />
-                  <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-                </svg>
+                <KingWorkspaceIcon />
               </button>
             )}
             {activeAgent === "suzi" && (
@@ -1767,12 +1770,7 @@ export default function CommandCentralClient() {
                   }`}
                   title="Suzi work — Punch list, Reminders, Notes"
                 >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                    <line x1="16" y1="2" x2="16" y2="6" />
-                    <line x1="8" y1="2" x2="8" y2="6" />
-                    <line x1="3" y1="10" x2="21" y2="10" />
-                  </svg>
+                  <SuziWorkspaceIcon />
                 </button>
               </>
             )}
@@ -1841,7 +1839,7 @@ export default function CommandCentralClient() {
             />
           ) : rightPanel === "scout-campaigns" && activeAgent === "scout" ? (
             <ScoutCampaignPanel onClose={() => setRightPanel("info")} />
-          ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
+          ) : rightPanel === "kanban" && agentHasKanban(activeAgent) && activeAgent !== "scout" ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
             <FridayDashboardPanel

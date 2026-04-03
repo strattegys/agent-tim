@@ -87,9 +87,18 @@ export default function StatusRailAgentInspector({
 
   return (
     <>
-      <section className="rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] p-2">
-        <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">
-          {activeAgent.name}
+      <section className="rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] p-2 shrink-0 min-w-0">
+        <div className="flex items-start justify-between gap-2 mb-1.5 min-w-0">
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] min-w-0 truncate pt-0.5">
+            {activeAgent.name}
+          </div>
+          <button
+            type="button"
+            onClick={() => setPromptOpen(true)}
+            className="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-[8px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+          >
+            System prompt
+          </button>
         </div>
         <p className="text-[8px] leading-snug text-[var(--text-tertiary)] font-mono mb-2">
           While the work panel is not on full Agent info, cron and tools for the selected agent appear here.
@@ -149,14 +158,6 @@ export default function StatusRailAgentInspector({
             </span>
           ))}
         </div>
-
-        <button
-          type="button"
-          onClick={() => setPromptOpen(true)}
-          className="w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-        >
-          System prompt…
-        </button>
       </section>
 
       {promptOpen ? (

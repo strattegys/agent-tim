@@ -11,7 +11,7 @@
 # **Optional bundled Postgres** (empty dev-only DB — only for DB-schema hacking offline): start with profile:
 #   docker compose --env-file web/.env.local -f docker-compose.dev.yml --profile bundled-crm-postgres up -d
 # Then set COMMAND-CENTRAL/.env: CC_DOCKER_CRM_DB_HOST=crm-db  CC_DOCKER_CRM_DB_PORT=5432
-# or temporarily comment droplet defaults. Host tools: 127.0.0.1:25432 when profile is on.
+# (overrides CC_LOCALPROD_CRM_* / tailnet defaults). Host tools: 127.0.0.1:25432 when profile is on.
 #
 # **Fallback bridge:** .\scripts\dev-docker-up.ps1 -UseRemoteCrm — host 0.0.0.0:5433 + docker-compose.dev-remote-crm.yml
 # (host.docker.internal). Set CC_DOCKER_CRM_DB_HOST=host.docker.internal CC_DOCKER_CRM_DB_PORT=5433 in .env when using that path.
@@ -99,12 +99,16 @@ services:
       - CC_AGENT_CHAT_PROFILE=localdev
       # Full app shell in Docker dev even if web/.env.local copies droplet settings (CC_PUBLIC_APP_UI=backend).
       - CC_PUBLIC_APP_UI=true
+      # Same stack semantics as LOCALPROD (droplet CRM) — not docker-compose.yml bundled crm-db.
+      - CC_RUNTIME_STACK=LOCALDEV
+      - CC_BUNDLED_CRM_SERVICE=0
       # Same as web default (openai/gpt-oss-120b); explicit so Docker dev matches agent-registry without relying on omitting env
       - GROQ_CHAT_MODEL=openai/gpt-oss-120b
-      # Default: production droplet CRM over Tailscale (override with CC_DOCKER_CRM_* in COMMAND-CENTRAL/.env).
-      # Bundled crm-db: --profile bundled-crm-postgres + CC_DOCKER_CRM_DB_HOST=crm-db
-      - CRM_DB_HOST=${CC_DOCKER_CRM_DB_HOST:-100.74.54.12}
-      - CRM_DB_PORT=${CC_DOCKER_CRM_DB_PORT:-5432}
+      # Same DB as LOCALPROD by default: Tailscale droplet IP. Precedence: CC_DOCKER_CRM_* (dev-only override),
+      # then CC_LOCALPROD_CRM_* / CRM_LOCALPROD_DB_* (shared with docker-compose.local-prod-desktop.yml), then 100.74.54.12.
+      # Bundled Postgres: --profile bundled-crm-postgres + CC_DOCKER_CRM_DB_HOST=crm-db
+      - CRM_DB_HOST=${CC_DOCKER_CRM_DB_HOST:-${CC_LOCALPROD_CRM_HOST:-${CRM_LOCALPROD_DB_HOST:-100.74.54.12}}}
+      - CRM_DB_PORT=${CC_DOCKER_CRM_DB_PORT:-${CC_LOCALPROD_CRM_PORT:-${CRM_LOCALPROD_DB_PORT:-5432}}}
       # Windows + bind mounts: file watchers often miss saves; force polling so edits hit Next dev
       - WATCHPACK_POLLING=true
       - CHOKIDAR_USEPOLLING=true

@@ -134,7 +134,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host 'LOCALDEV (Docker Desktop project cc-localdev):'
 Write-Host '  Next:  cc-localdev-p3010  ->  http://localhost:3010'
-Write-Host '  CRM: production droplet Postgres (Tailscale 100.74.54.12:5432) unless .env sets CC_DOCKER_CRM_DB_* or you use -UseRemoteCrm'
+Write-Host '  CRM: same as LOCALPROD (Tailscale droplet) unless .env sets CC_DOCKER_CRM_DB_* / CC_LOCALPROD_CRM_* or you use -UseRemoteCrm'
 Write-Host '  No cc-localdev-crm-db by default (UI dev uses droplet). Old local DB still running?  docker rm -f cc-localdev-crm-db'
 Write-Host '  Optional empty local Postgres only: --profile bundled-crm-postgres (see docker-compose.dev.yml)'
 $downLogs = if (Test-Path -LiteralPath $dotEnv) {

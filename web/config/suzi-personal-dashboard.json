@@ -1,0 +1,25 @@
+{
+  "weather": {
+    "lat": 47.0073,
+    "lon": -122.9093,
+    "label": "Tumwater, WA",
+    "braveQuery": "Tumwater WA weather today"
+  },
+  "ymca": {
+    "scheduleUrl": "https://southsoundymca.org/classes-schedules/#/classes/",
+    "hint": "Use filters for kids/youth, open gym, and open swim."
+  },
+  "eventsSectionSubtitle": "Kid-friendly · ~30 mi · Tumwater area",
+  "eventSearchQueries": [
+    "kid friendly family events Olympia Tumwater this weekend",
+    "Thurston County kids activities"
+  ],
+  "eventLinks": [],
+  "importantLinks": [
+    {
+      "label": "Tumwater School District calendar",
+      "href": "https://www.tumwater.k12.wa.us/calendar"
+    }
+  ],
+  "personalLinks": []
+}

@@ -6,7 +6,7 @@
  * `web/components/suzi/SuziWorkSubTabHeader.tsx` (keep wording agent-first; see PROJECT-MEMORY.md).
  */
 
-export type SuziWorkSubTab = "punchlist" | "reminders" | "notes" | "intake";
+export type SuziWorkSubTab = "dashboard" | "punchlist" | "reminders" | "notes" | "intake";
 
 /** Intake card the user highlighted (green border) — injected into chat context for Suzi. */
 export type SuziFocusedIntake = {
@@ -330,13 +330,22 @@ export function suziHasFocusedWorkEntity(input: {
 
 type TabSpec = {
   uiLabel: string;
-  primaryTool: "punch_list" | "reminders" | "notes" | "intake";
+  primaryTool: "punch_list" | "reminders" | "notes" | "intake" | null;
   purpose: string;
   commands: string;
   ids: string;
 };
 
 const TABS: Record<SuziWorkSubTab, TabSpec> = {
+  dashboard: {
+    uiLabel: "Dashboard",
+    primaryTool: null,
+    purpose:
+      "Personal overview — weather, top punch-list items, upcoming reminders, recent intake, YMCA schedule link, and local events (Brave search + pinned links). Summary view only; changing data uses the same tools as the other tabs.",
+    commands:
+      "Use **punch_list**, **intake**, **reminders**, or **notes** depending on what the user asks to change. **web_search** for questions that need fresh web context.",
+    ids: "Same IDs as the underlying tab (punch item #, intake id, reminder id, note_number).",
+  },
   punchlist: {
     uiLabel: "Punch List",
     primaryTool: "punch_list",
@@ -380,6 +389,7 @@ const TABS: Record<SuziWorkSubTab, TabSpec> = {
  * Commands echo `TABS` tool verbs (see PROJECT-MEMORY for agent-first UI defaults).
  */
 export const SUZI_WORK_TAB_HEADER_HINT: Record<SuziWorkSubTab, string> = {
+  dashboard: "Forecast · Personal Plans · Priorities · Reminders · Intake · Events",
   intake: "List · Add · Search · Archive · Promote To Punch List",
   punchlist: "Add · Update · Done · Inspect · Drag Columns",
   reminders: "List · Add · Search · Update · Delete · Upcoming",
@@ -417,10 +427,30 @@ export function formatSuziWorkPanelContext(input: SuziWorkPanelContextInput): st
       PANEL_CLOSED_HINT,
       "",
       "### Tab ↔ tool (reference)",
+      `- **${TABS.dashboard.uiLabel}** — ${TABS.dashboard.purpose}`,
       `- **${TABS.punchlist.uiLabel}** → \`punch_list\` — ${TABS.punchlist.purpose}`,
       `- **${TABS.intake.uiLabel}** → \`intake\` — ${TABS.intake.purpose}`,
       `- **${TABS.reminders.uiLabel}** → \`reminders\` — ${TABS.reminders.purpose}`,
       `- **${TABS.notes.uiLabel}** → \`notes\` — ${TABS.notes.purpose}`,
+      "",
+      GLOBAL_TOOLS,
+      focusAppend,
+    ].join("\n");
+  }
+
+  if (input.subTab === "dashboard") {
+    const spec = TABS.dashboard;
+    return [
+      "## Suzi — active work panel",
+      `The user has the **${spec.uiLabel}** tab open in the right work panel (personal overview).`,
+      "",
+      spec.purpose,
+      "",
+      "**Tools:**",
+      spec.commands,
+      "",
+      "**IDs:**",
+      spec.ids,
       "",
       GLOBAL_TOOLS,
       focusAppend,
@@ -464,7 +494,7 @@ export function formatSuziWorkPanelContext(input: SuziWorkPanelContextInput): st
     "## Suzi — active work panel",
     `The user has the **${spec.uiLabel}** tab open in the right work panel.`,
     "",
-    `**Primary tool:** \`${spec.primaryTool}\``,
+    `**Primary tool:** \`${spec.primaryTool!}\``,
     spec.purpose,
     ...punchMustUseTool,
     ...intakeMustUseTool,

@@ -4,10 +4,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { panelBus } from "@/lib/events";
-import type { SuziFocusedIntake } from "@/lib/suzi-work-panel";
+import type { SuziFocusedIntake, SuziWorkSubTab } from "@/lib/suzi-work-panel";
+import SuziPersonalDashboardPanel from "@/components/suzi/SuziPersonalDashboardPanel";
 import { MobileSuziIntakeChatStrip } from "./MobileSuziIntakeChatStrip";
 
-type SuziTab = "intake" | "reminders" | "notes" | "punch";
+type SuziTab = "dashboard" | "intake" | "reminders" | "notes" | "punch";
 
 /** SWR + manual fetches: never call `.json()` blindly (HTML login / error pages break parsing). */
 async function fetchJsonRecord(url: string): Promise<Record<string, unknown>> {
@@ -61,7 +62,8 @@ export function MobileSuziPanel() {
   /** URL param is stripped quickly; keep “landed from Share” until we focus + scroll. */
   const shareLandingRef = useRef(false);
 
-  const [tab, setTab] = useState<SuziTab>("intake");
+  const [tab, setTab] = useState<SuziTab>("dashboard");
+  const [punchListSync, setPunchListSync] = useState(0);
   const [focusedIntake, setFocusedIntake] = useState<SuziFocusedIntake | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [noteErr, setNoteErr] = useState<string | null>(null);
@@ -83,9 +85,15 @@ export function MobileSuziPanel() {
     fetchJsonRecord
   );
   const { data: punchData, error: punchError } = useSWR(
-    tab === "punch" ? "/api/punch-list?agentId=suzi&status=open" : null,
+    tab === "punch" ? `/api/punch-list?agentId=suzi&status=open&_=${punchListSync}` : null,
     fetchJsonRecord
   );
+
+  useEffect(() => {
+    return panelBus.on("punch_list", () => {
+      setPunchListSync((n) => n + 1);
+    });
+  }, []);
 
   const intakeItems = useMemo(() => {
     return (intakeData?.items as Record<string, unknown>[]) ?? [];
@@ -94,6 +102,7 @@ export function MobileSuziPanel() {
   useLayoutEffect(() => {
     if (searchParams.get("intakeLatest") !== "1") return;
     shareLandingRef.current = true;
+    setTab("intake");
     highlightAppliedRef.current = false;
     const next = new URLSearchParams(searchParams.toString());
     next.delete("intakeLatest");
@@ -159,11 +168,17 @@ export function MobileSuziPanel() {
   }, [focusedIntake, noteDraft, mutateIntake]);
 
   const tabs: { key: SuziTab; label: string }[] = [
+    { key: "dashboard", label: "Dashboard" },
     { key: "intake", label: "Intake" },
     { key: "reminders", label: "Reminders" },
     { key: "notes", label: "Notes" },
     { key: "punch", label: "Punch" },
   ];
+
+  const mapWorkToMobile = useCallback((t: SuziWorkSubTab): SuziTab => {
+    if (t === "punchlist") return "punch";
+    return t;
+  }, []);
 
   const tabError =
     tab === "intake"
@@ -172,7 +187,9 @@ export function MobileSuziPanel() {
         ? remindersError
         : tab === "notes"
           ? notesError
-          : punchError;
+          : tab === "punch"
+            ? punchError
+            : null;
 
   return (
     <div className="space-y-3">
@@ -197,6 +214,17 @@ export function MobileSuziPanel() {
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           {tabError instanceof Error ? tabError.message : "Could not load data"}
         </p>
+      ) : null}
+
+      {tab === "dashboard" ? (
+        <div className="max-h-[70vh] overflow-y-auto rounded-lg border border-white/10 bg-[#0e1621]">
+          <SuziPersonalDashboardPanel
+            onClose={() => {}}
+            onNavigate={(t) => setTab(mapWorkToMobile(t))}
+            punchListSync={punchListSync}
+            onFocusedIntakeChange={setFocusedIntake}
+          />
+        </div>
       ) : null}
 
       {tab === "intake" ? (

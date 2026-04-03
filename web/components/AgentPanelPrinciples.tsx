@@ -72,13 +72,13 @@ export function AgentPanelPrinciples() {
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="text-[#c9a227]"
+            className="text-[var(--accent-gold)]"
             aria-hidden
           >
             <polygon points="12 3 14.64 5.64 18.36 5.64 18.36 9.36 21 12 18.36 14.64 18.36 18.36 14.64 18.36 12 21 9.36 18.36 5.64 18.36 5.64 14.64 3 12 5.64 9.36 5.64 5.64 9.36 5.64" />
           </svg>
         </div>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-[#c9a227] leading-tight text-center whitespace-nowrap">
+        <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--accent-gold)] leading-tight text-center whitespace-nowrap">
           Optimized
         </span>
       </div>

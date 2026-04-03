@@ -17,6 +17,9 @@
   --accent-blue: #2b5278;
   --accent-purple: #534AB7;
   --accent-orange: #D85A30;
+  /* Optimized principle + work-waiting bells — same gold */
+  --accent-gold: #c9a227;
+  --accent-gold-hover: #d4af37;
 }
 
 * {

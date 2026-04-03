@@ -126,10 +126,22 @@ export function rightPanelToSearchParam(
   return null;
 }
 
-const SUZI_SUB_TABS = new Set<SuziWorkSubTab>(["punchlist", "reminders", "notes", "intake"]);
+const SUZI_SUB_TABS = new Set<SuziWorkSubTab>([
+  "dashboard",
+  "punchlist",
+  "reminders",
+  "notes",
+  "intake",
+]);
 
 export function parseSuziSubParam(raw: string | null): SuziWorkSubTab | null {
-  if (raw === "intake" || raw === "notes" || raw === "punchlist" || raw === "reminders") {
+  if (
+    raw === "dashboard" ||
+    raw === "intake" ||
+    raw === "notes" ||
+    raw === "punchlist" ||
+    raw === "reminders"
+  ) {
     return raw;
   }
   return null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentConfig } from "@/lib/agent-frontend";
 import type { DashboardNotification } from "@/lib/dashboard-sync-types";
 import type { StatusRailAgentRow, StatusRailHeartbeat, StatusRailMemory } from "@/lib/status-rail-agents-types";
@@ -13,8 +13,16 @@ import { isKbStudioAgentId } from "@/lib/kb-studio";
 import TimLabLogDock from "@/components/TimLabLogDock";
 import FridayLabLogDock from "@/components/FridayLabLogDock";
 import StatusRailAgentInspector from "@/components/StatusRailAgentInspector";
+import { WorkBellIcon } from "@/components/icons/WorkBellIcon";
 
 const ALERT_TYPES = ["linkedin_inbound", "linkedin", "campaign", "workflow", "schedule"];
+
+/**
+ * `/api/system-status` runs several probes in parallel (Postgres up to ~16s budget + HTTP).
+ * In `next dev` / Docker LOCALDEV, the **first** request also pays one-off route compilation (often 30s+),
+ * so a short client timeout falsely shows "not reported" for every service.
+ */
+const SYSTEM_STATUS_FETCH_MS = 60_000;
 
 interface NotificationRow {
   type: string;
@@ -278,18 +286,30 @@ function perAgentOverviewTitle(a: AgentConfig, row: StatusRailAgentRow | undefin
   return `${a.name}: ${online} · heartbeat ${row.heartbeat} (${row.heartbeatDetail})`;
 }
 
-function StatusRailNoticesAndAlerts({
+/** Notices + notification alerts — shown inside header bell popover only. */
+function StatusRailAlertsPopoverBody({
   systemNotices,
   alerts,
 }: {
   systemNotices: SystemNotice[];
   alerts: NotificationRow[];
 }) {
+  if (systemNotices.length === 0 && alerts.length === 0) {
+    return (
+      <div className="p-3">
+        <p className="text-[10px] leading-snug text-[#1D9E75] font-medium">No notices or alerts.</p>
+        <p className="text-[9px] leading-snug text-[var(--text-tertiary)] mt-1.5 font-mono">
+          System notices (voice, API keys, …) and workflow alerts appear here when present.
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <>
+    <div className="p-2.5 space-y-3">
       {systemNotices.length > 0 ? (
-        <section>
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
+        <div>
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">
             Notices
           </div>
           <ul className="space-y-2">
@@ -303,31 +323,31 @@ function StatusRailNoticesAndAlerts({
               </li>
             ))}
           </ul>
-        </section>
-      ) : null}
-
-      <section className="min-h-0 flex-1 flex flex-col">
-        <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
-          Alerts
         </div>
-        {alerts.length === 0 ? (
-          <p className="font-mono text-[10px] text-[var(--text-tertiary)]">No alerts</p>
-        ) : (
+      ) : null}
+      {alerts.length > 0 ? (
+        <div>
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1.5">
+            Alerts
+          </div>
           <ul className="font-mono text-[10px] space-y-2">
             {alerts.map((n, i) => (
-              <li key={`${n.timestamp}-${i}`} className="border-b border-[var(--border-color)] pb-2 last:border-0 last:pb-0">
+              <li
+                key={`${n.timestamp}-${i}`}
+                className="border-b border-[var(--border-color)] pb-2 last:border-0 last:pb-0"
+              >
                 <div className="flex justify-between gap-1 text-[var(--text-tertiary)]">
                   <span className="truncate uppercase text-[9px]">{n.type.replace(/_/g, " ")}</span>
                   <span className="shrink-0">{formatAlertTime(n.timestamp)}</span>
                 </div>
                 <div className="text-[var(--text-secondary)] font-medium truncate mt-0.5">{n.title}</div>
-                <div className="text-[var(--text-tertiary)] line-clamp-3 mt-0.5 break-words">{n.message}</div>
+                <div className="text-[var(--text-tertiary)] mt-0.5 break-words">{n.message}</div>
               </li>
             ))}
           </ul>
-        )}
-      </section>
-    </>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -358,7 +378,31 @@ export default function StatusRail({
   const [reconnectBusy, setReconnectBusy] = useState(false);
   const [reconnectNote, setReconnectNote] = useState<string | null>(null);
   const [agentOps, setAgentOps] = useState<Record<string, StatusRailAgentRow> | null>(null);
+  const [alertsPopoverOpen, setAlertsPopoverOpen] = useState(false);
+  const railAlertsRef = useRef<HTMLDivElement>(null);
   const teamAgents = agents.filter((a) => a.category !== "Toys");
+
+  const railAlertCount = systemNotices.length + alerts.length;
+  const railAlertsClear = railAlertCount === 0;
+
+  useEffect(() => {
+    if (!alertsPopoverOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setAlertsPopoverOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [alertsPopoverOpen]);
+
+  useEffect(() => {
+    if (!alertsPopoverOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = railAlertsRef.current;
+      if (el && !el.contains(e.target as Node)) setAlertsPopoverOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [alertsPopoverOpen]);
 
   const consolidatedSystemRows = useMemo(
     () => buildConsolidatedSystemRows(services),
@@ -382,7 +426,7 @@ export default function StatusRail({
 
   const fetchStatus = useCallback(() => {
     const ac = new AbortController();
-    const tid = window.setTimeout(() => ac.abort(), 22_000);
+    const tid = window.setTimeout(() => ac.abort(), SYSTEM_STATUS_FETCH_MS);
     fetch("/api/system-status", { credentials: "include", signal: ac.signal })
       .then(async (r) => {
         let data: { services?: unknown; alerts?: unknown; error?: string } = {};
@@ -431,10 +475,46 @@ export default function StatusRail({
         const aborted = e instanceof DOMException && e.name === "AbortError";
         setSystemStatusFetchHint(
           aborted
-            ? "Status check timed out (22s). Postgres or outbound HTTP may be slow; try Refresh Data Platform or restart dev."
+            ? `Status check timed out (${SYSTEM_STATUS_FETCH_MS / 1000}s). In Docker/LOCALDEV the first run often compiles /api/system-status (slow) — try Refresh Data Platform. If it keeps failing, set CRM_DB_PROBE_TIMEOUT_MS=20000 in web/.env.local.`
             : "Could not reach /api/system-status — is the dev server running?"
         );
-        setServices([]);
+        if (aborted) {
+          setServices([
+            { id: "web", label: "Command Central", status: "ok", ms: 0 },
+            {
+              id: "data_platform",
+              label: "Data Platform",
+              status: "skipped",
+              detail: "status request timed out — try Refresh (first dev compile can be very slow)",
+            },
+            {
+              id: "strattegys",
+              label: "Strattegys",
+              status: "skipped",
+              detail: "not probed — status timed out",
+            },
+            {
+              id: "rainbow",
+              label: "Rainbow",
+              status: "skipped",
+              detail: "not probed — status timed out",
+            },
+            {
+              id: "unipile",
+              label: "Unipile (LinkedIn)",
+              status: "skipped",
+              detail: "not probed — status timed out",
+            },
+            {
+              id: "inworld_tts",
+              label: "Inworld TTS",
+              status: "skipped",
+              detail: "not probed — status timed out",
+            },
+          ]);
+        } else {
+          setServices([]);
+        }
         setSystemNotices([]);
       })
       .finally(() => clearTimeout(tid));
@@ -528,7 +608,7 @@ export default function StatusRail({
   const statusFetchBanner =
     systemStatusFetchHint != null && systemStatusFetchHint !== "" ? (
       <p
-        className="mb-2 rounded border border-amber-500/35 bg-amber-500/10 px-2 py-1.5 text-[9px] leading-snug text-amber-100/95"
+        className="shrink-0 mb-2 rounded border border-amber-500/35 bg-amber-500/10 px-2 py-1.5 text-[9px] leading-snug text-amber-100/95"
         role="status"
       >
         {systemStatusFetchHint}
@@ -536,7 +616,7 @@ export default function StatusRail({
     ) : null;
 
   const systemStatusSection = (
-    <section>
+    <section className="shrink-0 min-w-0">
       <ul className="font-mono text-[10px] space-y-1">
         {consolidatedSystemRows.map((s) => (
           <li key={s.id} className="flex items-start gap-1.5 min-w-0" title={s.detail}>
@@ -572,26 +652,110 @@ export default function StatusRail({
     </section>
   );
 
+  const agentsOverviewSection = (
+    <section className="shrink-0 min-w-0">
+      <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
+        Agents
+      </div>
+      <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mb-1.5 font-mono">
+        Per agent: eye · heartbeat · memory · book (Knowledge — header icon left of info) — work: bell left
+      </p>
+      <ul className="font-mono text-[10px] space-y-2">
+        {teamAgents.map((a) => {
+          const row = agentOps?.[a.id];
+          const hb: StatusRailHeartbeat = row?.heartbeat ?? "none";
+          const mem: StatusRailMemory = row?.memory ?? "none";
+          const hasMemoryTool = getAgentSpec(a.id).tools.includes("memory");
+          const hbTitle = row ? `Heartbeat: ${row.heartbeatDetail}` : "Heartbeat: loading…";
+          const memTitle = hasMemoryTool
+            ? row
+              ? `Memory: ${row.memoryDetail}`
+              : "Memory: loading…"
+            : "Memory tool not enabled for this agent";
+          const eyeTitle = perAgentOverviewTitle(a, row);
+          const kb = knowledgeRailStatus(a.id, services);
+          return (
+            <li key={a.id} className="flex items-center gap-1 min-w-0">
+              <span className="truncate text-[var(--text-secondary)] min-w-0 flex-1 pr-0.5">{a.name}</span>
+              <span className="shrink-0 inline-flex items-center gap-0.5" aria-label={`${a.name} status icons`}>
+                <span className="inline-flex items-center justify-center w-[18px]" title={eyeTitle}>
+                  <AgentsOverviewEyeIcon size={14} stroke={perAgentOverviewStroke(a, agentOps)} />
+                </span>
+                <span className="inline-flex items-center justify-center w-[18px]" title={hbTitle}>
+                  <HeartbeatActivityIcon size={14} stroke={agentOps ? heartbeatStroke(hb) : "#6b7280"} />
+                </span>
+                <span className="inline-flex items-center justify-center w-[18px]" title={memTitle}>
+                  <MemoryBrainIcon
+                    size={14}
+                    stroke={agentOps && hasMemoryTool ? memoryStroke(mem) : "#6b7280"}
+                  />
+                </span>
+                <span className="inline-flex items-center justify-center w-[18px]" title={kb.title}>
+                  <KnowledgeRagIcon size={14} stroke={kb.stroke} />
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+
   return (
     <div
       className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-primary)] text-[var(--text-primary)]"
       aria-label={railTitle}
     >
-      <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3.5 min-w-0">
+      <div className="h-11 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center justify-between gap-2 px-3.5 min-w-0 relative z-30">
         <p
-          className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide truncate min-w-0"
+          className="text-xs font-medium text-[var(--text-tertiary)] leading-tight uppercase tracking-wide truncate min-w-0 flex-1"
           title={railTitle}
         >
           {railTitle}
         </p>
+        <div className="relative shrink-0" ref={railAlertsRef}>
+          <button
+            type="button"
+            onClick={() => setAlertsPopoverOpen((o) => !o)}
+            className={`relative rounded-md p-1 transition-colors ${
+              railAlertsClear
+                ? "text-[#1D9E75] hover:bg-[var(--bg-primary)] hover:text-[#22c55e]"
+                : "text-[var(--accent-gold)] hover:bg-[var(--bg-primary)] hover:text-[var(--accent-gold-hover)]"
+            }`}
+            aria-label={
+              railAlertsClear
+                ? "Alerts and notices — all clear"
+                : `Alerts and notices (${railAlertCount} item${railAlertCount === 1 ? "" : "s"})`
+            }
+            aria-expanded={alertsPopoverOpen}
+            title={railAlertsClear ? "No notices or alerts — click for details" : "Open notices and alerts"}
+          >
+            <WorkBellIcon size={13} className="block" />
+            {!railAlertsClear ? (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-0.5 rounded-full bg-red-500 text-[7px] font-bold text-white flex items-center justify-center leading-none tabular-nums">
+                {railAlertCount > 99 ? "99+" : railAlertCount}
+              </span>
+            ) : null}
+          </button>
+          {alertsPopoverOpen ? (
+            <div
+              className="absolute right-0 top-[calc(100%+4px)] z-[200] w-[min(20rem,calc(100vw-1.5rem))] max-h-[min(22rem,72vh)] overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] shadow-2xl"
+              role="dialog"
+              aria-label="Alerts and notices"
+            >
+              <StatusRailAlertsPopoverBody systemNotices={systemNotices} alerts={alerts} />
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col min-w-0 overflow-hidden">
         {labMode === "tim" ? (
           <>
-            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2 space-y-2">
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2 space-y-2 overflow-hidden min-h-0">
               {statusFetchBanner}
               {systemStatusSection}
+              {agentsOverviewSection}
               <StatusRailAgentInspector
                 activeAgent={activeAgent}
                 hidden={workPanelShowsFullAgentInfo}
@@ -601,103 +765,44 @@ export default function StatusRail({
           </>
         ) : labMode === "friday" ? (
           <div className="flex flex-1 min-h-0 min-w-0 flex-col overflow-hidden">
-            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2 space-y-2">
+            <div className="shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-primary)] p-2 space-y-2 overflow-hidden min-h-0">
               {statusFetchBanner}
               {systemStatusSection}
+              {agentsOverviewSection}
               <StatusRailAgentInspector
                 activeAgent={activeAgent}
                 hidden={workPanelShowsFullAgentInfo}
               />
             </div>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              <div className="max-h-36 shrink-0 overflow-y-auto border-b border-[var(--border-color)] p-2">
-                <p className="mb-2 font-mono text-[9px] leading-snug text-[var(--text-tertiary)]">
+              <div className="shrink-0 border-b border-[var(--border-color)] p-2 overflow-hidden">
+                <p className="font-mono text-[9px] leading-snug text-[var(--text-tertiary)]">
                   Workflow traces below (Kanban moves, package activate, workflow stage, cron). Data Platform
-                  above must be OK for live CRM — Refresh Data Platform if needed.
+                  above must be OK for live CRM — Refresh Data Platform if needed. Notices and alerts: bell in the
+                  rail header.
                 </p>
-                <StatusRailNoticesAndAlerts systemNotices={systemNotices} alerts={alerts} />
               </div>
               <FridayLabLogDock fillRail />
             </div>
           </div>
         ) : (
-        <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3 p-2">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col gap-3 p-2">
         {statusFetchBanner}
         {systemStatusSection}
 
         {labMode === "devNeutral" ? (
-          <p className="text-[9px] leading-snug text-[var(--text-tertiary)] font-mono">
+          <p className="text-[9px] leading-snug text-[var(--text-tertiary)] font-mono shrink-0">
             System monitor — no agent-specific lab logs for this workspace. Use Tim or Friday with Dev
             when you need Unipile or workflow traces.
           </p>
         ) : null}
 
+        {agentsOverviewSection}
+
         <StatusRailAgentInspector
           activeAgent={activeAgent}
           hidden={workPanelShowsFullAgentInfo}
         />
-
-        <section>
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
-            Agents
-          </div>
-          <p className="text-[8px] text-[var(--text-tertiary)] leading-snug mb-1.5 font-mono">
-            Per agent: eye · heartbeat · memory · book (Knowledge — header icon left of info) — work: bell left
-          </p>
-          <ul className="font-mono text-[10px] space-y-2">
-            {teamAgents.map((a) => {
-              const row = agentOps?.[a.id];
-              const hb: StatusRailHeartbeat = row?.heartbeat ?? "none";
-              const mem: StatusRailMemory = row?.memory ?? "none";
-              const hasMemoryTool = getAgentSpec(a.id).tools.includes("memory");
-              const hbTitle = row
-                ? `Heartbeat: ${row.heartbeatDetail}`
-                : "Heartbeat: loading…";
-              const memTitle = hasMemoryTool
-                ? row
-                  ? `Memory: ${row.memoryDetail}`
-                  : "Memory: loading…"
-                : "Memory tool not enabled for this agent";
-              const eyeTitle = perAgentOverviewTitle(a, row);
-              const kb = knowledgeRailStatus(a.id, services);
-              return (
-                <li key={a.id} className="flex items-center gap-1 min-w-0">
-                  <span className="truncate text-[var(--text-secondary)] min-w-0 flex-1 pr-0.5">{a.name}</span>
-                  <span className="shrink-0 inline-flex items-center gap-0.5" aria-label={`${a.name} status icons`}>
-                    <span className="inline-flex items-center justify-center w-[18px]" title={eyeTitle}>
-                      <AgentsOverviewEyeIcon
-                        size={14}
-                        stroke={perAgentOverviewStroke(a, agentOps)}
-                      />
-                    </span>
-                    <span className="inline-flex items-center justify-center w-[18px]" title={hbTitle}>
-                      <HeartbeatActivityIcon
-                        size={14}
-                        stroke={agentOps ? heartbeatStroke(hb) : "#6b7280"}
-                      />
-                    </span>
-                    <span className="inline-flex items-center justify-center w-[18px]" title={memTitle}>
-                      <MemoryBrainIcon
-                        size={14}
-                        stroke={
-                          agentOps && hasMemoryTool ? memoryStroke(mem) : "#6b7280"
-                        }
-                      />
-                    </span>
-                    <span
-                      className="inline-flex items-center justify-center w-[18px]"
-                      title={kb.title}
-                    >
-                      <KnowledgeRagIcon size={14} stroke={kb.stroke} />
-                    </span>
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-
-        <StatusRailNoticesAndAlerts systemNotices={systemNotices} alerts={alerts} />
         </div>
         )}
       </div>

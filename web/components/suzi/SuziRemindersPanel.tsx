@@ -8,6 +8,7 @@ import SuziPunchListPanel from "./SuziPunchListPanel";
 import SuziNotesPanel from "./SuziNotesPanel";
 import SuziIntakePanel from "./SuziIntakePanel";
 import SuziWorkSubTabHeader from "./SuziWorkSubTabHeader";
+import SuziPersonalDashboardPanel from "./SuziPersonalDashboardPanel";
 import IntakeAddModal from "./IntakeAddModal";
 import PunchListInspectSheet from "./PunchListInspectSheet";
 import { panelBus } from "@/lib/events";
@@ -25,15 +26,22 @@ import {
 
 type SubTab = SuziWorkSubTab;
 
-/** First paint must match URL (then localStorage) so we do not call onSubTabChange("punchlist") before suziSub applies — that fought CommandCentralClient URL sync and caused suziSub to flip. */
+/** First paint must match URL (then localStorage) so we do not call onSubTabChange before suziSub applies — that fought CommandCentralClient URL sync and caused suziSub to flip. */
 function initialSuziPanelSubTab(searchSnapshot: string): SubTab {
   const p = new URLSearchParams(searchSnapshot).get("suziSub");
-  if (p === "intake" || p === "notes" || p === "punchlist" || p === "reminders") {
+  if (
+    p === "dashboard" ||
+    p === "intake" ||
+    p === "notes" ||
+    p === "punchlist" ||
+    p === "reminders"
+  ) {
     return p;
   }
   if (typeof window !== "undefined") {
     const saved = localStorage.getItem("suzi_panel_subtab");
     if (
+      saved === "dashboard" ||
       saved === "reminders" ||
       saved === "notes" ||
       saved === "punchlist" ||
@@ -42,7 +50,7 @@ function initialSuziPanelSubTab(searchSnapshot: string): SubTab {
       return saved as SubTab;
     }
   }
-  return "punchlist";
+  return "dashboard";
 }
 
 const FILTERS = [
@@ -141,24 +149,16 @@ export default function SuziRemindersPanel({
   const [punchListSync, setPunchListSync] = useState(0);
 
   const suziSubParam = searchParams.get("suziSub");
+  /** URL is canonical for sub-tab once mounted. Do **not** re-read localStorage when `suziSub` is missing — during `router.replace` the param can disappear for a frame and fighting localStorage vs parent `suziWorkSubTab` caused punch list ↔ intake oscillation. */
   useEffect(() => {
     if (
+      suziSubParam === "dashboard" ||
       suziSubParam === "intake" ||
       suziSubParam === "notes" ||
       suziSubParam === "punchlist" ||
       suziSubParam === "reminders"
     ) {
       setSubTab(suziSubParam as SubTab);
-      return;
-    }
-    const saved = localStorage.getItem("suzi_panel_subtab");
-    if (
-      saved === "reminders" ||
-      saved === "notes" ||
-      saved === "punchlist" ||
-      saved === "intake"
-    ) {
-      setSubTab(saved as SubTab);
     }
   }, [suziSubParam]);
 
@@ -377,6 +377,22 @@ export default function SuziRemindersPanel({
       fallbackAction={subTabHeaderFallback}
     />
   );
+
+  if (subTab === "dashboard") {
+    return (
+      <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
+        {renderSubTabHeader()}
+        <SuziPersonalDashboardPanel
+          onClose={onClose}
+          onNavigate={setSubTab}
+          punchListSync={punchListSync}
+          onFocusedIntakeChange={onFocusedIntakeChange}
+          onFocusedPunchListChange={onFocusedPunchListChange}
+          onFocusedReminderChange={onFocusedReminderChange}
+        />
+      </div>
+    );
+  }
 
   if (subTab === "notes") {
     return (

@@ -102,12 +102,6 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   }
 
   if (rightPanel === "kanban" && agentHasKanban(agentId)) {
-    if (agentId === "scout") {
-      return (
-        "## Scout — UI (this message only)\n" +
-        "Pipeline board is open (research-pipeline). Use workflow_items / CRM tools to advance handoffs toward Tim as usual."
-      );
-    }
     if (agentId === "ghost") {
       return (
         "## Ghost — UI (this message only)\n" +

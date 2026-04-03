@@ -19,19 +19,24 @@ export async function fetchDashboardSyncPayload(
 ): Promise<DashboardSyncResponse> {
   const h = { cookie: cookieHeader } as HeadersInit;
 
-  const [rTim, rGhost, rNotif, rSuziDue] = await Promise.all([
+  const [rTim, rGhost, rMarni, rNotif, rSuziDue] = await Promise.all([
     fetch(`${origin}/api/crm/human-tasks?ownerAgent=tim&summary=1`, { headers: h, cache: "no-store" }),
     fetch(
       `${origin}/api/crm/human-tasks?ownerAgent=ghost&sourceType=content&excludePackageStages=DRAFT,PENDING_APPROVAL`,
       { headers: h, cache: "no-store" }
     ),
+    fetch(`${origin}/api/crm/human-tasks?ownerAgent=marni&distributionOnly=1&limit=150&offset=0`, {
+      headers: h,
+      cache: "no-store",
+    }),
     fetch(`${origin}/api/notifications`, { headers: h, cache: "no-store" }),
     fetch(`${origin}/api/reminders?dueSummary=1&agentId=suzi`, { headers: h, cache: "no-store" }),
   ]);
 
-  const [dTim, dGhost, dNotif, dSuziDue] = await Promise.all([
+  const [dTim, dGhost, dMarni, dNotif, dSuziDue] = await Promise.all([
     readJson(rTim),
     readJson(rGhost),
+    readJson(rMarni),
     readJson(rNotif),
     readJson(rSuziDue),
   ]);
@@ -57,6 +62,19 @@ export async function fetchDashboardSyncPayload(
 
   const ghostContentTaskCount = typeof dGhost?.count === "number" ? dGhost.count : 0;
 
+  let marniWorkQueueCount = 0;
+  const marniTasks = Array.isArray(dMarni?.tasks) ? (dMarni.tasks as { humanTaskOpen?: boolean; stage?: string; dueDate?: string | null }[]) : [];
+  const nowMs = Date.now();
+  for (const t of marniTasks) {
+    if (t.humanTaskOpen !== true) continue;
+    const st = String(t.stage || "").trim().toUpperCase();
+    if (st === "POSTED" && t.dueDate) {
+      const ms = new Date(String(t.dueDate)).getTime();
+      if (Number.isFinite(ms) && ms > nowMs) continue;
+    }
+    marniWorkQueueCount += 1;
+  }
+
   const suziDueReminderCount =
     typeof dSuziDue?.dueCount === "number" ? dSuziDue.dueCount : 0;
 
@@ -69,6 +87,7 @@ export async function fetchDashboardSyncPayload(
       timPendingQueueCount,
       timUnifiedMessagingCount,
       ghostContentTaskCount,
+      marniWorkQueueCount,
       suziDueReminderCount,
     },
     notifications,

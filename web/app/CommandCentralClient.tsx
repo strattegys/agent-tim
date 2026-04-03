@@ -42,6 +42,10 @@ import {
   type GhostWorkQueueSelection,
 } from "@/lib/ghost-work-context";
 import {
+  formatMarniWorkQueueContext,
+  type MarniWorkQueueSelection,
+} from "@/lib/marni-work-context";
+import {
   formatSuziWorkPanelContext,
   suziHasFocusedWorkEntity,
   type SuziFocusedIntake,
@@ -52,6 +56,7 @@ import {
 } from "@/lib/suzi-work-panel";
 import {
   SESSION_HISTORY_FOCUS_GHOST_WORK,
+  SESSION_HISTORY_FOCUS_MARNI_WORK,
   SESSION_HISTORY_FOCUS_SUZI_WORK,
   SESSION_HISTORY_FOCUS_TIM_WORK_ITEM,
 } from "@/lib/chat-stream-options";
@@ -285,6 +290,7 @@ export default function CommandCentralClient() {
   const [timMessagingTaskCount, setTimMessagingTaskCount] = useState(0);
   const [timUnifiedMessagingCount, setTimUnifiedMessagingCount] = useState(0);
   const [ghostContentTaskCount, setGhostContentTaskCount] = useState(0);
+  const [marniWorkQueueCount, setMarniWorkQueueCount] = useState(0);
   const [suziDueReminderCount, setSuziDueReminderCount] = useState(0);
   const [dashboardNotifications, setDashboardNotifications] = useState<DashboardNotification[]>([]);
 
@@ -293,9 +299,16 @@ export default function CommandCentralClient() {
       timMessagingTaskCount,
       timUnifiedMessagingCount,
       ghostContentTaskCount,
+      marniWorkQueueCount,
       suziDueReminderCount,
     }),
-    [timMessagingTaskCount, timUnifiedMessagingCount, ghostContentTaskCount, suziDueReminderCount]
+    [
+      timMessagingTaskCount,
+      timUnifiedMessagingCount,
+      ghostContentTaskCount,
+      marniWorkQueueCount,
+      suziDueReminderCount,
+    ]
   );
 
   const applyDashboardSync = useCallback((data: DashboardSyncResponse) => {
@@ -306,6 +319,9 @@ export default function CommandCentralClient() {
       typeof b.timUnifiedMessagingCount === "number" ? b.timUnifiedMessagingCount : 0
     );
     setGhostContentTaskCount(b.ghostContentTaskCount);
+    setMarniWorkQueueCount(
+      typeof b.marniWorkQueueCount === "number" ? b.marniWorkQueueCount : 0
+    );
     setSuziDueReminderCount(
       typeof b.suziDueReminderCount === "number" ? b.suziDueReminderCount : 0
     );
@@ -378,6 +394,7 @@ export default function CommandCentralClient() {
 
   const [timWorkSelection, setTimWorkSelection] = useState<TimWorkQueueSelection | null>(null);
   const [ghostWorkSelection, setGhostWorkSelection] = useState<GhostWorkQueueSelection | null>(null);
+  const [marniWorkSelection, setMarniWorkSelection] = useState<MarniWorkQueueSelection | null>(null);
   const [suziWorkSubTab, setSuziWorkSubTab] = useState<SuziWorkSubTab>(
     () => parseSuziSubParam(paramSuziSub) ?? "punchlist"
   );
@@ -851,6 +868,10 @@ export default function CommandCentralClient() {
     if (activeAgent !== "ghost") setGhostWorkSelection(null);
   }, [activeAgent]);
 
+  useEffect(() => {
+    if (activeAgent !== "marni") setMarniWorkSelection(null);
+  }, [activeAgent]);
+
   // Load last messages for all agents on mount + initialize lastSeenCounts
   useEffect(() => {
     AGENTS.forEach((a) => {
@@ -1032,6 +1053,9 @@ export default function CommandCentralClient() {
         if (activeAgent === "ghost" && ghostWorkSelection) {
           body.workQueueContext = formatGhostWorkQueueContext(ghostWorkSelection);
         }
+        if (activeAgent === "marni" && marniWorkSelection) {
+          body.workQueueContext = formatMarniWorkQueueContext(marniWorkSelection);
+        }
         if (activeAgent === "suzi") {
           body.uiContext = formatSuziWorkPanelContext({
             workPanelOpen: rightPanel === "reminders",
@@ -1049,6 +1073,10 @@ export default function CommandCentralClient() {
               activeAgent === "tim" && timWorkSelection != null,
             ghostHasWorkQueueSelection:
               activeAgent === "ghost" && ghostWorkSelection != null,
+            marniHasWorkQueueSelection:
+              activeAgent === "marni" &&
+              rightPanel === "marni-work" &&
+              marniWorkSelection != null,
             fridayTab: fridayDashboardTab,
             fridayArchitecturePane:
               activeAgent === "friday" && fridayDashboardTab === "architecture"
@@ -1070,6 +1098,12 @@ export default function CommandCentralClient() {
           body.sessionHistoryMaxMessages = SESSION_HISTORY_FOCUS_TIM_WORK_ITEM;
         } else if (activeAgent === "ghost" && ghostWorkSelection) {
           body.sessionHistoryMaxMessages = SESSION_HISTORY_FOCUS_GHOST_WORK;
+        } else if (
+          activeAgent === "marni" &&
+          rightPanel === "marni-work" &&
+          marniWorkSelection
+        ) {
+          body.sessionHistoryMaxMessages = SESSION_HISTORY_FOCUS_MARNI_WORK;
         } else if (
           activeAgent === "suzi" &&
           suziHasFocusedWorkEntity({
@@ -1237,6 +1271,7 @@ export default function CommandCentralClient() {
       agent.ttsVoice,
       timWorkSelection,
       ghostWorkSelection,
+      marniWorkSelection,
       rightPanel,
       suziWorkSubTab,
       suziFocusedIntake,
@@ -1432,6 +1467,7 @@ export default function CommandCentralClient() {
           timMessagingTaskCount={timMessagingTaskCount}
           timUnifiedMessagingCount={timUnifiedMessagingCount}
           ghostContentTaskCount={ghostContentTaskCount}
+          marniWorkQueueCount={marniWorkQueueCount}
           suziDueReminderCount={suziDueReminderCount}
           onSelect={(id) => selectAgent(id)}
         />
@@ -1768,7 +1804,10 @@ export default function CommandCentralClient() {
               onGhostWorkSelectionChange={setGhostWorkSelection}
             />
           ) : rightPanel === "marni-work" && activeAgent === "marni" ? (
-            <MarniWorkPanel onClose={() => setRightPanel("info")} />
+            <MarniWorkPanel
+              onClose={() => setRightPanel("info")}
+              onMarniWorkSelectionChange={setMarniWorkSelection}
+            />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (

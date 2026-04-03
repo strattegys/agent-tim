@@ -5,6 +5,7 @@ export type WorkBadgeCounts = {
   /** Tim unified queue (workflow + inbound receipts); drives work bell when set. */
   timUnifiedMessagingCount: number;
   ghostContentTaskCount: number;
+  marniWorkQueueCount: number;
   suziDueReminderCount: number;
 };
 
@@ -21,6 +22,8 @@ export function agentHasUserWorkItem(agentId: string, b: WorkBadgeCounts): boole
       );
     case "ghost":
       return b.ghostContentTaskCount > 0;
+    case "marni":
+      return (typeof b.marniWorkQueueCount === "number" ? b.marniWorkQueueCount : 0) > 0;
     case "suzi":
       return b.suziDueReminderCount > 0;
     default:

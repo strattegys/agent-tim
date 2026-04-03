@@ -16,6 +16,8 @@ export type DashboardSyncBadges = {
   /** Tim: active + pending follow-up + LinkedIn inbound receipt rows (approx. unified list size). */
   timUnifiedMessagingCount: number;
   ghostContentTaskCount: number;
+  /** Marni: distribution items with humanTaskOpen (needs review), excluding scheduled POSTED-only rows. */
+  marniWorkQueueCount: number;
   /** Suzi: CRM reminders currently due (same rule as heartbeat); drives sidebar work bell. */
   suziDueReminderCount: number;
 };

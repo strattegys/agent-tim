@@ -23,6 +23,9 @@ export const SESSION_HISTORY_FOCUS_SUZI_WORK = 14;
 /** Ghost: content-queue row selected. */
 export const SESSION_HISTORY_FOCUS_GHOST_WORK = 24;
 
+/** Marni: distribution-queue row selected. */
+export const SESSION_HISTORY_FOCUS_MARNI_WORK = 24;
+
 /** Server-side clamp for client-supplied sessionHistoryMaxMessages. */
 export const SESSION_HISTORY_MAX_CAP = 500;
 

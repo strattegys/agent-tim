@@ -166,6 +166,9 @@ export default function SuziIntakePanel({
         url: item.url,
         body: item.body,
         source: item.source,
+        publicRef:
+          item.publicRef?.trim() ||
+          (item.itemNumber != null && item.itemNumber > 0 ? `IN${item.itemNumber}` : undefined),
         itemNumber: item.itemNumber,
         filterQuery: appliedSearch.trim() || undefined,
       });

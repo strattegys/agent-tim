@@ -123,7 +123,7 @@ export default function PunchListInspectSheet({
                   : "text-[var(--text-primary)]"
               }`}
             >
-              <span className="tabular-nums">#{item.itemNumber}</span>
+              <span className="tabular-nums font-mono">{item.publicRef}</span>
               <span className="text-[var(--text-tertiary)] font-normal"> · </span>
               {item.title}
             </h2>

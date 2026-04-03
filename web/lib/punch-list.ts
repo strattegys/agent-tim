@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { query } from "./db";
+import { punchDigitsFromToken, punchPublicRef } from "./public-ref";
 
 export interface PunchListNote {
   id: string;
@@ -25,6 +26,8 @@ export interface PunchListAction {
 export interface PunchListItem {
   id: string;
   itemNumber: number;
+  /** Human-facing id, e.g. PL1040 (matches DB `publicRef` when migrated). */
+  publicRef: string;
   agentId: string;
   title: string;
   description: string | null;
@@ -117,6 +120,16 @@ export async function getPunchListItemByItemNumber(
   );
   if (rows.length === 0) return null;
   return rowToItem(rows[0]);
+}
+
+/** Resolve by public ref (e.g. PL1040) or legacy plain item number. */
+export async function getPunchListItemByPublicRef(
+  agentId: string,
+  ref: string
+): Promise<PunchListItem | null> {
+  const n = punchDigitsFromToken(ref);
+  if (n == null) return null;
+  return getPunchListItemByItemNumber(agentId, n);
 }
 
 export async function getPunchListItemById(
@@ -444,9 +457,20 @@ function rowToItem(row: Record<string, unknown>): PunchListItem {
 
   const actions = parseEmbeddedActions(row.actions, row.id as string);
 
+  const itemNumber =
+    typeof row.itemNumber === "number" && Number.isFinite(row.itemNumber)
+      ? row.itemNumber
+      : typeof row.itemNumber === "string" && /^\d+$/.test(row.itemNumber)
+        ? parseInt(row.itemNumber, 10)
+        : 0;
+
   return {
     id: row.id as string,
-    itemNumber: row.itemNumber as number,
+    itemNumber,
+    publicRef: punchPublicRef({
+      publicRef: row.publicRef as string | undefined,
+      itemNumber,
+    }),
     agentId: row.agentId as string,
     title: row.title as string,
     description: (row.description as string) || null,

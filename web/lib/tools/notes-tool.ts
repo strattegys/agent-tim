@@ -1,4 +1,12 @@
-import { listNotes, addNote, updateNote, deleteNote, findByNoteNumber } from "../notes";
+import {
+  listNotes,
+  addNote,
+  updateNote,
+  deleteNote,
+  findByNoteNumberForAgent,
+  getNoteByIdForAgent,
+} from "../notes";
+import { noteDigitsFromToken } from "../public-ref";
 import type { ToolModule } from "./types";
 
 const tool: ToolModule = {
@@ -15,7 +23,7 @@ const tool: ToolModule = {
   declaration: {
     name: "notes",
     description:
-      "The **only** tool for durable reference notes shown in Suzi's **Notes** work tab (not the reminders tool). Govind browses and searches these in the UI — this is NOT vector/memory tool. Each note has a persistent #number (e.g. #5001). Commands: list (optional tag filter), add, update (note_number), delete (note_number), search. For birthdays, due dates, or recurring pings use **reminders**. For task cards use **punch_list**. Never claim you saved a note without calling this tool.",
+      "The **only** tool for durable reference notes shown in Suzi's **Notes** work tab (not the reminders tool). Govind browses and searches these in the UI — this is NOT vector/memory tool. Each note has a stable ref like **NT5001** (or legacy plain number). Commands: list (optional tag filter), add, update (note_number), delete (note_number), search. For birthdays, due dates, or recurring pings use **reminders**. For task cards use **punch_list**. Never claim you saved a note without calling this tool.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -38,7 +46,7 @@ const tool: ToolModule = {
         },
         note_number: {
           type: "string",
-          description: "Persistent note number like 5001, 5002 (for update/delete)",
+          description: "Stable note ref: NT5001 or plain 5001 (for update/delete)",
         },
         id: {
           type: "string",
@@ -60,14 +68,15 @@ const tool: ToolModule = {
   async execute(args, { agentId }) {
     const cmd = args.command;
 
-    // Resolve note_number to UUID
     let resolvedId = args.id;
+    let resolvedLabel = "";
     if (args.note_number && !resolvedId) {
-      const num = parseInt(args.note_number);
-      if (!isNaN(num)) {
-        const note = await findByNoteNumber(num);
-        if (!note) return `Error: Note #${args.note_number} not found.`;
+      const num = noteDigitsFromToken(args.note_number);
+      if (num != null) {
+        const note = await findByNoteNumberForAgent(agentId, num);
+        if (!note) return `Error: Note ${args.note_number} not found.`;
         resolvedId = note.id;
+        resolvedLabel = note.publicRef;
       }
     }
 
@@ -77,7 +86,7 @@ const tool: ToolModule = {
       return notes
         .map(
           (n) =>
-            `${n.pinned ? "📌 " : ""}#${n.noteNumber} ${n.title}${n.tag ? ` #${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
+            `${n.pinned ? "📌 " : ""}${n.publicRef} ${n.title}${n.tag ? ` tag:${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
         )
         .join("\n");
     }
@@ -90,7 +99,7 @@ const tool: ToolModule = {
         tag: args.tag,
         pinned: args.pinned === "true",
       });
-      return `Note added: #${note.noteNumber} "${note.title}"${note.tag ? ` #${note.tag}` : ""}`;
+      return `Note added: ${note.publicRef} "${note.title}"${note.tag ? ` tag:${note.tag}` : ""}`;
     }
 
     if (cmd === "update") {
@@ -101,13 +110,21 @@ const tool: ToolModule = {
         tag: args.tag,
         pinned: args.pinned === "true" ? true : args.pinned === "false" ? false : undefined,
       });
-      return `Note #${args.note_number || ""} updated.`;
+      const label =
+        resolvedLabel ||
+        (await getNoteByIdForAgent(agentId, resolvedId))?.publicRef ||
+        resolvedId;
+      return `Note ${label} updated.`;
     }
 
     if (cmd === "delete") {
       if (!resolvedId) return "Error: note_number or id is required for delete";
+      const label =
+        resolvedLabel ||
+        (await getNoteByIdForAgent(agentId, resolvedId))?.publicRef ||
+        resolvedId;
       await deleteNote(resolvedId);
-      return `Note #${args.note_number || ""} deleted.`;
+      return `Note ${label} deleted.`;
     }
 
     if (cmd === "search") {
@@ -118,7 +135,7 @@ const tool: ToolModule = {
       return notes
         .map(
           (n) =>
-            `${n.pinned ? "📌 " : ""}#${n.noteNumber} ${n.title}${n.tag ? ` #${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
+            `${n.pinned ? "📌 " : ""}${n.publicRef} ${n.title}${n.tag ? ` tag:${n.tag}` : ""}${n.content ? `\n   ${n.content.slice(0, 100)}` : ""}`
         )
         .join("\n");
     }

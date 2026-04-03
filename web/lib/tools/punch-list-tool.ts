@@ -15,6 +15,7 @@ import {
   punchListColumnLabel,
   punchListColumnsSummary,
 } from "../punch-list-columns";
+import { punchDigitsFromToken, punchPublicRef } from "../public-ref";
 import type { ToolModule } from "./types";
 
 const RANK_HELP = `Column (rank 1–6): ${punchListColumnsSummary()}. You may pass a number or a name like "now", "later", "next", "sometime", "backlog", "idea" (also "some time").`;
@@ -52,7 +53,7 @@ function normalizePunchListArgs(raw: Record<string, string>): Record<string, str
   const idish = args.item_id || args.itemId;
   if (idish && !args.item_number && !args.id) {
     const s = String(idish).replace(/^#/, "").trim();
-    if (/^\d+$/.test(s)) args.item_number = s;
+    if (punchDigitsFromToken(s) != null) args.item_number = s;
     else args.id = s;
   }
   const rawCmd = (args.command || "")
@@ -90,14 +91,14 @@ function normalizePunchListArgs(raw: Record<string, string>): Record<string, str
   return args;
 }
 
-/** Comma/space-separated #numbers from item_number and optional item_numbers. */
+/** Comma/space-separated refs (1040, #1040, PL1040) from item_number and optional item_numbers. */
 function itemNumberTokens(args: Record<string, string>): string[] {
   const combined = [args.item_number, args.item_numbers].filter(Boolean).join(",");
   if (!combined.trim()) return [];
   return combined
     .split(/[\s,]+/)
     .map((s) => s.replace(/^#/, "").trim())
-    .filter(Boolean);
+    .filter((s) => punchDigitsFromToken(s) != null);
 }
 
 const tool: ToolModule = {
@@ -207,7 +208,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
           (item) => {
             const latestNote = item.notes?.[0];
             const col = punchListColumnLabel(item.rank);
-            let line = `#${item.itemNumber} [${col}]${item.category ? ` [${item.category}]` : ""} ${item.status === "done" ? "DONE " : ""}${item.title}`;
+            let line = `${item.publicRef} [${col}]${item.category ? ` [${item.category}]` : ""} ${item.status === "done" ? "DONE " : ""}${item.title}`;
             line += `\n   id: ${item.id}`;
             if (item.description) line += ` — ${item.description}`;
             if (latestNote) line += `\n   Latest note: "${latestNote.content}"`;
@@ -247,7 +248,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
         rank,
         category: args.category,
       });
-      return `Punch list item created: #${item.itemNumber} id=${item.id} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}]`;
+      return `Punch list item created: ${item.publicRef} id=${item.id} "${item.title}" [${punchListColumnLabel(item.rank)}] [${item.category}]`;
     }
 
     const tokens = itemNumberTokens(args);
@@ -257,25 +258,25 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
     ) {
       const lines: string[] = [];
       for (const t of tokens) {
-        const itemNum = parseInt(t, 10);
-        if (Number.isNaN(itemNum)) {
-          lines.push(`Error: Invalid item number "${t}".`);
+        const itemNum = punchDigitsFromToken(t);
+        if (itemNum == null) {
+          lines.push(`Error: Invalid item ref "${t}".`);
           continue;
         }
         const match = await getPunchListItemByItemNumber(agentId, itemNum);
         if (!match) {
-          lines.push(`Error: Item #${t} not found.`);
+          lines.push(`Error: Item ${t} not found.`);
           continue;
         }
         if (cmd === "done") {
           await updatePunchListItem(match.id, { status: "done" });
-          lines.push(`Punch list item #${itemNum} marked done.`);
+          lines.push(`Punch list item ${match.publicRef} marked done.`);
         } else if (cmd === "reopen") {
           await updatePunchListItem(match.id, { status: "open" });
-          lines.push(`Punch list item #${itemNum} reopened.`);
+          lines.push(`Punch list item ${match.publicRef} reopened.`);
         } else {
           await archivePunchListItem(match.id);
-          lines.push(`Punch list item #${itemNum} archived.`);
+          lines.push(`Punch list item ${match.publicRef} archived.`);
         }
       }
       return lines.join("\n");
@@ -294,8 +295,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
     const rawId = args.id?.trim() || "";
     let resolvedId: string | undefined;
     const firstToken = tokens.length === 1 ? tokens[0] : undefined;
-    const singleNum =
-      firstToken && /^\d+$/.test(firstToken) ? parseInt(firstToken, 10) : null;
+    const singleNum = firstToken ? punchDigitsFromToken(firstToken) : null;
     const rowById = rawId ? await getPunchListItemById(agentId, rawId) : null;
     const rowByNum =
       singleNum !== null ? await getPunchListItemByItemNumber(agentId, singleNum) : null;
@@ -310,7 +310,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
       !resolvedId &&
       ["update", "done", "reopen", "archive", "note", "action_add"].includes(cmd || "")
     ) {
-      if (singleNum !== null) return `Error: Item #${firstToken} not found.`;
+      if (singleNum !== null) return `Error: Item ${firstToken} not found.`;
       if (rawId) return "Error: Item id not found.";
     }
 
@@ -350,7 +350,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
         const col = punchListColumnLabel(after.rank);
         parts.push(`moved to column [${col}]`);
       }
-      return `Updated punch list #${after.itemNumber}: ${parts.join("; ")}.`;
+      return `Updated punch list ${after.publicRef}: ${parts.join("; ")}.`;
     }
 
     if (cmd === "done") {
@@ -358,9 +358,8 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
       const before = await getPunchListItemById(agentId, resolvedId);
       if (!before) return "Error: Item not found.";
       await updatePunchListItem(resolvedId, { status: "done" });
-      const num = before.itemNumber;
       const title = before.title ? ` "${before.title}"` : "";
-      return `Punch list item #${num}${title} marked done.`;
+      return `Punch list item ${before.publicRef}${title} marked done.`;
     }
 
     if (cmd === "reopen") {
@@ -368,7 +367,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
       const before = await getPunchListItemById(agentId, resolvedId);
       if (!before) return "Error: Item not found.";
       await updatePunchListItem(resolvedId, { status: "open" });
-      return `Punch list item #${before.itemNumber} reopened.`;
+      return `Punch list item ${before.publicRef} reopened.`;
     }
 
     if (cmd === "archive") {
@@ -376,7 +375,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
       const before = await getPunchListItemById(agentId, resolvedId);
       if (!before) return "Error: Item not found.";
       await archivePunchListItem(resolvedId);
-      return `Punch list item #${before.itemNumber} archived.`;
+      return `Punch list item ${before.publicRef} archived.`;
     }
 
     if (cmd === "archive_done") {
@@ -390,7 +389,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
       const row = await getPunchListItemById(agentId, resolvedId);
       if (!row) return "Error: Item not found.";
       await addNote(resolvedId, args.content);
-      return `Note added to punch list item #${row.itemNumber}.`;
+      return `Note added to punch list item ${row.publicRef}.`;
     }
 
     if (cmd === "action_add") {
@@ -400,7 +399,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
       if (!rowBefore) return "Error: Item not found.";
       try {
         const inserted = await insertPunchListItemAction(agentId, resolvedId, args.content);
-        return `Subtask added to punch list #${rowBefore.itemNumber}. action_id=${inserted.id}`;
+        return `Subtask added to punch list ${rowBefore.publicRef}. action_id=${inserted.id}`;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "Failed to add subtask";
         return msg === "Item not found" ? "Error: Item not found." : `Error: ${msg}`;
@@ -421,7 +420,7 @@ Batch mark done: item_number "1032,1033" (or separate calls with **id**). ${RANK
       const done = doneStr === "true";
       const result = await patchPunchListItemAction(agentId, actionId, { done });
       if (!result) return "Error: Subtask not found.";
-      return `Subtask on punch list #${result.itemNumber} marked ${done ? "done" : "open"}.`;
+      return `Subtask on punch list ${punchPublicRef({ itemNumber: result.itemNumber })} marked ${done ? "done" : "open"}.`;
     }
 
     return "Unknown punch_list command. Use: list, add, update, done, reopen, archive, archive_done, note, action_add, action_toggle";

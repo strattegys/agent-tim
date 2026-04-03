@@ -14,6 +14,7 @@ import {
   type SuziWorkSubTab,
 } from "@/lib/suzi-work-panel";
 import { wmoWeatherBrief, wmoWeatherEmoji, wmoWeatherLabel } from "@/lib/wmo-weather";
+import { reminderRefUiLabel } from "@/lib/public-ref";
 import type { Reminder } from "./ReminderCard";
 
 const OUTLOOK_TZ = "America/Los_Angeles";
@@ -59,14 +60,65 @@ function rowToFocusedIntake(row: Record<string, unknown>): SuziFocusedIntake {
       : typeof n === "string" && /^\d+$/.test(n)
         ? parseInt(n, 10)
         : undefined;
+  const publicRef =
+    typeof row.publicRef === "string" && row.publicRef.trim()
+      ? row.publicRef.trim()
+      : itemNumber && itemNumber > 0
+        ? `IN${itemNumber}`
+        : undefined;
+
   return {
     id: String(row.id ?? ""),
     title: String(row.title ?? ""),
     url: row.url != null ? String(row.url) : null,
     body: row.body != null ? String(row.body) : null,
     source: typeof row.source === "string" ? row.source : "share",
+    publicRef,
     itemNumber: itemNumber && itemNumber > 0 ? itemNumber : undefined,
   };
+}
+
+function intakeListRowRef(row: Record<string, unknown>): string | null {
+  const pr = row.publicRef;
+  if (typeof pr === "string" && pr.trim()) return pr.trim();
+  const n = row.itemNumber;
+  const num =
+    typeof n === "number" && n > 0
+      ? n
+      : typeof n === "string" && /^\d+$/.test(n)
+        ? parseInt(n, 10)
+        : 0;
+  return num > 0 ? `IN${num}` : null;
+}
+
+function reminderListRef(r: Reminder): string {
+  return reminderRefUiLabel(r);
+}
+
+/** Date + local time for dashboard rows (matches ReminderCard: no separate time when midnight / date-only). */
+function reminderDashboardDueParts(nextDueAt: string | null): {
+  dateLabel: string;
+  timeLabel: string | null;
+} | null {
+  if (!nextDueAt) return null;
+  const dueDate = new Date(nextDueAt);
+  if (Number.isNaN(dueDate.getTime())) {
+    return { dateLabel: nextDueAt.slice(0, 10), timeLabel: null };
+  }
+  const dateLabel = dueDate.toLocaleDateString("en-US", {
+    timeZone: OUTLOOK_TZ,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const t = dueDate.toLocaleTimeString("en-US", {
+    timeZone: OUTLOOK_TZ,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const timeLabel = t === "12:00 AM" ? null : t;
+  return { dateLabel, timeLabel };
 }
 
 function cToF(c: number): number {
@@ -119,7 +171,7 @@ export default function SuziPersonalDashboardPanel({
           startLabel: string;
           endLabel: string;
           weatherCode: number;
-          avgTempC: number;
+          tempC: number;
         }[];
         dailyOutlook?: { date: string; maxC: number; minC: number; weatherCode: number }[];
         braveWeb?: { title: string; snippet: string; url: string } | null;
@@ -287,49 +339,52 @@ export default function SuziPersonalDashboardPanel({
                 </div>
 
                 {(weather.hourlyBuckets24h?.length ?? 0) > 0 ? (
-                  <div
-                    className="flex flex-row gap-0.5 pt-1 justify-start"
-                    role="list"
-                    aria-label="Next 24 hours in 6-hour periods"
-                  >
-                    {weather.hourlyBuckets24h!.map((b, i) => (
-                      <div
-                        key={i}
-                        role="listitem"
-                        className="flex w-[2.65rem] shrink-0 flex-col items-center justify-center rounded border border-[var(--border-color)]/50 bg-[var(--bg-primary)]/40 py-0.5 px-0.5"
-                        title={`${b.startLabel}–${b.endLabel} · ${wmoWeatherLabel(b.weatherCode)} · ${cToF(b.avgTempC)}°F`}
-                      >
-                        <span className="text-[7px] leading-tight text-center text-[var(--text-tertiary)] tabular-nums">
-                          {b.startLabel}–{b.endLabel}
-                        </span>
-                        <span className="text-base leading-none select-none my-0.5" aria-hidden>
-                          {wmoWeatherEmoji(b.weatherCode)}
-                        </span>
-                        <span className="text-[9px] font-medium tabular-nums text-[var(--text-primary)]">
-                          {cToF(b.avgTempC)}°
-                        </span>
-                      </div>
-                    ))}
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain pt-1 -mx-0.5 px-0.5 [scrollbar-width:thin]">
+                    <div
+                      className="grid w-full min-w-[17.5rem] gap-1.5 [grid-template-columns:repeat(8,minmax(0,1fr))]"
+                      role="list"
+                      aria-label="Next 24 hours in 3-hour periods"
+                    >
+                      {weather.hourlyBuckets24h!.map((b, i) => (
+                        <div
+                          key={i}
+                          role="listitem"
+                          className="flex min-w-0 max-w-full flex-col items-center justify-center rounded border border-[var(--border-color)]/50 bg-[var(--bg-primary)]/40 py-0.5 px-0.5"
+                          title={`${b.startLabel}–${b.endLabel} · ${wmoWeatherLabel(b.weatherCode)} · ${cToF(b.tempC)}°F`}
+                        >
+                          <span className="w-full min-w-0 text-center text-[9px] leading-snug text-[var(--text-tertiary)] tabular-nums">
+                            {b.startLabel}–{b.endLabel}
+                          </span>
+                          <span className="text-base leading-none select-none my-0.5 shrink-0" aria-hidden>
+                            {wmoWeatherEmoji(b.weatherCode)}
+                          </span>
+                          <span className="text-[8px] font-medium tabular-nums text-[var(--text-primary)] shrink-0">
+                            {cToF(b.tempC)}°
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
 
                 {(weather.dailyOutlook?.length ?? 0) > 0 ? (
-                  <ul className="space-y-2 pt-0.5 border-t border-[var(--border-color)]/40 text-left">
+                  <ul className="space-y-1.5 pt-0.5 border-t border-[var(--border-color)]/40 text-left">
                     {weather.dailyOutlook!.map((day) => (
-                      <li key={day.date} className="space-y-0.5">
-                        <div className="text-[11px] text-[var(--text-secondary)]">
+                      <li
+                        key={day.date}
+                        className="flex flex-wrap items-baseline gap-x-2 gap-y-0 text-[11px]"
+                      >
+                        <span className="text-[var(--text-secondary)] shrink-0">
                           {outlookDayLabel(day.date)}
-                        </div>
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
-                          <span className="text-[11px] tabular-nums font-medium text-[var(--text-primary)]">
-                            {cToF(day.maxC)}° / {cToF(day.minC)}°
+                        </span>
+                        <span className="tabular-nums font-medium text-[var(--text-primary)] shrink-0">
+                          {cToF(day.maxC)}° / {cToF(day.minC)}°
+                        </span>
+                        {typeof day.weatherCode === "number" ? (
+                          <span className="text-[10px] text-[var(--text-tertiary)] capitalize shrink-0">
+                            {wmoWeatherBrief(day.weatherCode)}
                           </span>
-                          {typeof day.weatherCode === "number" ? (
-                            <span className="text-[10px] text-[var(--text-tertiary)] capitalize">
-                              {wmoWeatherBrief(day.weatherCode)}
-                            </span>
-                          ) : null}
-                        </div>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -417,58 +472,79 @@ export default function SuziPersonalDashboardPanel({
         </div>
       </div>
 
-      {sectionTitle("Top punch priorities")}
-      {cardShell(
-        priorityPunch.length === 0 ? (
-          <p className="text-xs text-[var(--text-tertiary)]">No items in Now, Later, or Next.</p>
-        ) : (
-          <ul className="space-y-1">
-            {priorityPunch.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  onClick={() => openPunchItem(item)}
-                  className="w-full text-left rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border-color)]"
-                >
-                  <span className="font-bold tabular-nums text-[#1D9E75] mr-1.5">#{item.itemNumber}</span>
-                  <span className="text-[10px] text-[var(--text-tertiary)] mr-1">
-                    {punchListColumnLabel(item.rank)}
-                  </span>
-                  {item.title}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )
-      )}
-
-      {sectionTitle("Upcoming reminders")}
-      {cardShell(
-        upcomingReminders.length === 0 ? (
-          <p className="text-xs text-[var(--text-tertiary)]">No upcoming reminders.</p>
-        ) : (
-          <ul className="space-y-1">
-            {upcomingReminders.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  onClick={() => openReminder(r)}
-                  className="w-full text-left rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
-                >
-                  <span className="font-medium">{r.title}</span>
-                  {r.nextDueAt ? (
-                    <span className="block text-[10px] text-[var(--text-tertiary)]">
-                      {r.nextDueAt.slice(0, 10)} · {r.category}
-                    </span>
-                  ) : (
-                    <span className="block text-[10px] text-[var(--text-tertiary)]">{r.category}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )
-      )}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+        <div className="min-w-0">
+          {cardShell(
+            priorityPunch.length === 0 ? (
+              <p className="text-xs text-[var(--text-tertiary)]">No items in Now, Later, or Next.</p>
+            ) : (
+              <ul className="space-y-1">
+                {priorityPunch.map((item) => (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => openPunchItem(item)}
+                      className="w-full text-left rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border-color)]"
+                    >
+                      <span className="font-bold tabular-nums font-mono text-[#1D9E75] mr-1.5">
+                        {item.publicRef}
+                      </span>
+                      <span className="text-[10px] text-[var(--text-tertiary)] mr-1">
+                        {punchListColumnLabel(item.rank)}
+                      </span>
+                      {item.title}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+        </div>
+        <div className="min-w-0">
+          {cardShell(
+            upcomingReminders.length === 0 ? (
+              <p className="text-xs text-[var(--text-tertiary)]">No upcoming reminders.</p>
+            ) : (
+              <ul className="space-y-1">
+                {upcomingReminders.map((r) => {
+                  const rmRef = reminderListRef(r);
+                  const due = reminderDashboardDueParts(r.nextDueAt);
+                  return (
+                    <li key={r.id}>
+                      <button
+                        type="button"
+                        onClick={() => openReminder(r)}
+                        className="w-full text-left rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] border border-transparent hover:border-[var(--border-color)]"
+                      >
+                        {rmRef ? (
+                          <span className="font-bold tabular-nums font-mono text-[#1D9E75] mr-1.5">
+                            {rmRef}
+                          </span>
+                        ) : null}
+                        <span className="font-medium">{r.title}</span>
+                        {due ? (
+                          <span className="block text-[10px] text-[var(--text-tertiary)] tabular-nums">
+                            {due.dateLabel}
+                            {due.timeLabel ? (
+                              <>
+                                {" "}
+                                <span className="text-[var(--text-secondary)]">{due.timeLabel}</span>
+                              </>
+                            ) : null}
+                            <span> · {r.category}</span>
+                          </span>
+                        ) : (
+                          <span className="block text-[10px] text-[var(--text-tertiary)]">{r.category}</span>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )
+          )}
+        </div>
+      </div>
 
       {sectionTitle("Recent intake")}
       {cardShell(
@@ -478,6 +554,7 @@ export default function SuziPersonalDashboardPanel({
           <ul className="space-y-1">
             {recentIntake.map((row, i) => {
               const id = String(row.id ?? i);
+              const intakeRef = intakeListRowRef(row);
               return (
                 <li key={id}>
                   <button
@@ -485,8 +562,10 @@ export default function SuziPersonalDashboardPanel({
                     onClick={() => openIntakeRow(row)}
                     className="w-full text-left rounded-md px-2 py-1.5 text-xs text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
                   >
-                    {typeof row.itemNumber === "number" && row.itemNumber > 0 ? (
-                      <span className="font-bold tabular-nums text-[#1D9E75] mr-1">#{row.itemNumber}</span>
+                    {intakeRef ? (
+                      <span className="font-bold tabular-nums font-mono text-[#1D9E75] mr-1">
+                        {intakeRef}
+                      </span>
                     ) : null}
                     <span className="line-clamp-2">{String(row.title ?? "")}</span>
                   </button>

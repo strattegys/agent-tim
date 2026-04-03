@@ -45,12 +45,20 @@ function rowToFocused(row: Record<string, unknown>): SuziFocusedIntake {
       : typeof n === "string" && /^\d+$/.test(n)
         ? parseInt(n, 10)
         : undefined;
+  const publicRef =
+    typeof row.publicRef === "string" && row.publicRef.trim()
+      ? row.publicRef.trim()
+      : itemNumber && itemNumber > 0
+        ? `IN${itemNumber}`
+        : undefined;
+
   return {
     id: String(row.id ?? ""),
     title: String(row.title ?? ""),
     url: row.url != null ? String(row.url) : null,
     body: row.body != null ? String(row.body) : null,
     source: typeof row.source === "string" ? row.source : "share",
+    publicRef,
     itemNumber: itemNumber && itemNumber > 0 ? itemNumber : undefined,
   };
 }
@@ -172,7 +180,7 @@ export function MobileSuziPanel() {
     { key: "intake", label: "Intake" },
     { key: "reminders", label: "Reminders" },
     { key: "notes", label: "Notes" },
-    { key: "punch", label: "Punch" },
+    { key: "punch", label: "Work Board" },
   ];
 
   const mapWorkToMobile = useCallback((t: SuziWorkSubTab): SuziTab => {
@@ -240,9 +248,13 @@ export function MobileSuziPanel() {
               <h3 className="text-[10px] font-semibold uppercase tracking-wide text-[#6b8a9e]">
                 This capture
               </h3>
-              {typeof focusedIntake.itemNumber === "number" && focusedIntake.itemNumber > 0 ? (
-                <p className="text-[10px] font-bold tabular-nums text-[#1D9E75]">
-                  #{focusedIntake.itemNumber}
+              {focusedIntake.publicRef?.trim() ||
+              (typeof focusedIntake.itemNumber === "number" && focusedIntake.itemNumber > 0) ? (
+                <p className="text-[10px] font-bold tabular-nums font-mono text-[#1D9E75]">
+                  {focusedIntake.publicRef?.trim() ||
+                    (focusedIntake.itemNumber != null && focusedIntake.itemNumber > 0
+                      ? `IN${focusedIntake.itemNumber}`
+                      : "")}
                 </p>
               ) : null}
               <p className="text-sm font-medium text-[#f5f5f5]">{focusedIntake.title}</p>

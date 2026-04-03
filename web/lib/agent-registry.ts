@@ -88,7 +88,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
       "workflow_items",
     ],
     capabilities: [
-      "Work queue drafts",
+      "Work Queue Drafts",
       "CRM search",
       "Workflow artifacts",
       "Follow-ups",
@@ -192,7 +192,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     connections: [
       { label: "Workflows", connected: true, toolId: "workflow_manager" },
       { label: "Packages", connected: true, toolId: "package_manager" },
-      { label: "Workflow templates", connected: true, toolId: "workflow_type_definitions" },
+      { label: "Workflow Templates", connected: true, toolId: "workflow_type_definitions" },
       { label: "Web search", connected: true, toolId: "web_search" },
     ],
     routines: [
@@ -423,8 +423,7 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     name: "King",
     role: "Seasoned Money Guy",
     description:
-      "Handles pricing, invoicing, and financial tracking. " +
-      "Currently a placeholder — tools and capabilities coming soon.",
+      "Handles pricing, invoicing, and financial tracking. Uses cost_summary for usage telemetry.",
     category: "FinOps",
     // Mid slate — readable on sidebar / header vs --bg-secondary (#17212b); old #1A1A2E blended away
     color: "#5a6d7a",
@@ -435,8 +434,8 @@ export const AGENT_REGISTRY: Record<string, AgentSpec> = {
     sessionFile: R("/root/.kingbot/sessions/web_govind.jsonl"),
     systemPromptFile: R("/root/.kingbot/system-prompt.md"),
     memoryDir: R("/root/.kingbot/memory"),
-    tools: ["web_search", "memory"],
-    capabilities: ["Pricing (coming soon)", "Invoicing (coming soon)"],
+    tools: ["web_search", "memory", "cost_summary"],
+    capabilities: ["Usage & cost summary (cost_summary)", "Pricing / invoicing (planned)"],
     connections: [
       { label: "Web search", connected: true, toolId: "web_search" },
     ],

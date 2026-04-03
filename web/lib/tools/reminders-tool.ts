@@ -4,6 +4,7 @@ import {
   addReminder,
   updateReminder,
   deleteReminder,
+  getReminderByPublicRef,
 } from "../reminders";
 import type { ToolModule } from "./types";
 
@@ -21,7 +22,7 @@ const tool: ToolModule = {
   declaration: {
     name: "reminders",
     description:
-      "Scheduled and due-date reminders only: birthdays, holidays, recurring events, one-time tasks with a when. Commands: list (optional category filter), search, add, update, delete, upcoming. Categories for new items: birthday, holiday, recurring, one-time. Recurrence: yearly, monthly, weekly, daily. For arbitrary reference facts, preferences, or snippets without a schedule, use the **notes** tool (Notes tab) — do not use this tool for that. Legacy DB rows may still have category `note`; prefer **notes** tool for new reference content.",
+      "Scheduled and due-date reminders only: birthdays, holidays, recurring events, one-time tasks with a when. Commands: list (optional category filter), search, add, update, delete, upcoming. Each row has a stable **public_ref** (e.g. RM0012) in list output — use **public_ref** or **id** for update/delete. Categories for new items: birthday, holiday, recurring, one-time. Recurrence: yearly, monthly, weekly, daily. For arbitrary reference facts, preferences, or snippets without a schedule, use the **notes** tool (Notes tab) — do not use this tool for that. Legacy DB rows may still have category `note`; prefer **notes** tool for new reference content.",
     parameters: {
       type: "object" as const,
       properties: {
@@ -65,6 +66,10 @@ const tool: ToolModule = {
           type: "string",
           description: "Reminder UUID (for update/delete)",
         },
+        public_ref: {
+          type: "string",
+          description: "Stable ref like RM0012 (alternative to id for update/delete)",
+        },
       },
       required: ["command"],
     },
@@ -79,7 +84,7 @@ const tool: ToolModule = {
       return items
         .map(
           (r) =>
-            `[${r.category}] ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}${r.recurrence ? ` (${r.recurrence})` : ""}${r.description ? ` — ${r.description}` : ""} (id: ${r.id})`
+            `[${r.category}] ${r.publicRef} ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}${r.recurrence ? ` (${r.recurrence})` : ""}${r.description ? ` — ${r.description}` : ""} (id: ${r.id})`
         )
         .join("\n");
     }
@@ -91,7 +96,7 @@ const tool: ToolModule = {
       return items
         .map(
           (r) =>
-            `[${r.category}] ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric" })}` : ""} (id: ${r.id})`
+            `[${r.category}] ${r.publicRef} ${r.title}${r.nextDueAt ? ` — due: ${new Date(r.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric" })}` : ""} (id: ${r.id})`
         )
         .join("\n");
     }
@@ -147,11 +152,17 @@ const tool: ToolModule = {
         recurrenceAnchor: anchor,
         advanceNoticeDays: args.advance_days ? parseInt(args.advance_days) : 0,
       });
-      return `Reminder created: "${reminder.title}" [${reminder.category}]${reminder.nextDueAt ? ` due ${new Date(reminder.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric" })}` : ""}${reminder.recurrence ? ` (${reminder.recurrence})` : ""} (id: ${reminder.id})`;
+      return `Reminder created: ${reminder.publicRef} "${reminder.title}" [${reminder.category}]${reminder.nextDueAt ? ` due ${new Date(reminder.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric", year: "numeric" })}` : ""}${reminder.recurrence ? ` (${reminder.recurrence})` : ""} (id: ${reminder.id})`;
     }
 
     if (cmd === "update") {
-      if (!args.id) return "Error: id is required for update";
+      let targetId = args.id?.trim() || "";
+      if (!targetId && args.public_ref?.trim()) {
+        const row = await getReminderByPublicRef(agentId, args.public_ref.trim());
+        if (!row) return `Error: Reminder ${args.public_ref} not found.`;
+        targetId = row.id;
+      }
+      if (!targetId) return "Error: id or public_ref is required for update";
       const updates: Record<string, unknown> = {};
       if (args.title) updates.title = args.title;
       if (args.description) updates.description = args.description;
@@ -164,14 +175,20 @@ const tool: ToolModule = {
       if (args.recurrence) updates.recurrence = args.recurrence;
       if (args.advance_days)
         updates.advanceNoticeDays = parseInt(args.advance_days);
-      await updateReminder(args.id, updates);
-      return `Reminder ${args.id} updated successfully.`;
+      await updateReminder(targetId, updates);
+      return `Reminder updated.`;
     }
 
     if (cmd === "delete") {
-      if (!args.id) return "Error: id is required for delete";
-      await deleteReminder(args.id);
-      return `Reminder ${args.id} deleted.`;
+      let targetId = args.id?.trim() || "";
+      if (!targetId && args.public_ref?.trim()) {
+        const row = await getReminderByPublicRef(agentId, args.public_ref.trim());
+        if (!row) return `Error: Reminder ${args.public_ref} not found.`;
+        targetId = row.id;
+      }
+      if (!targetId) return "Error: id or public_ref is required for delete";
+      await deleteReminder(targetId);
+      return `Reminder deleted.`;
     }
 
     if (cmd === "upcoming") {
@@ -180,7 +197,7 @@ const tool: ToolModule = {
       return items
         .map(
           (r) =>
-            `[${r.category}] ${r.title} — ${r.nextDueAt ? new Date(r.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", month: "short", day: "numeric" }) : "no date"}${r.advanceNoticeDays > 0 ? ` (${r.advanceNoticeDays}d advance notice)` : ""}${r.description ? ` — ${r.description}` : ""}`
+            `[${r.category}] ${r.publicRef} ${r.title} — ${r.nextDueAt ? new Date(r.nextDueAt).toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", month: "short", day: "numeric" }) : "no date"}${r.advanceNoticeDays > 0 ? ` (${r.advanceNoticeDays}d advance notice)` : ""}${r.description ? ` — ${r.description}` : ""}`
         )
         .join("\n");
     }

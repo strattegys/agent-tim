@@ -3,6 +3,8 @@
 export interface Note {
   id: string;
   noteNumber: number;
+  /** e.g. NT5001 */
+  publicRef?: string;
   agentId: string;
   title: string;
   content: string | null;
@@ -64,7 +66,9 @@ export default function NoteCard({
           {/* Title with note number */}
           <div className="flex items-start justify-between gap-1">
             <span className="text-xs font-semibold text-[var(--text-primary)]">
-              <span className="text-[var(--text-tertiary)] font-mono mr-1">#{note.noteNumber}</span>
+              <span className="text-[var(--text-tertiary)] font-mono mr-1">
+                {note.publicRef?.trim() || `NT${note.noteNumber}`}
+              </span>
               {note.title}
             </span>
             {onDelete && (

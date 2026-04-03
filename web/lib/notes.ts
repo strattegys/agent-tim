@@ -1,8 +1,11 @@
 import { query } from "./db";
+import { notePublicRef } from "./public-ref";
 
 export interface Note {
   id: string;
   noteNumber: number;
+  /** Human-facing id, e.g. NT5001 (matches DB `publicRef` when migrated). */
+  publicRef: string;
   agentId: string;
   title: string;
   content: string | null;
@@ -101,6 +104,25 @@ export async function findByNoteNumber(noteNumber: number): Promise<Note | null>
   return rows.length > 0 ? rowToNote(rows[0]) : null;
 }
 
+export async function findByNoteNumberForAgent(
+  agentId: string,
+  noteNumber: number
+): Promise<Note | null> {
+  const rows = await query<Record<string, unknown>>(
+    `SELECT * FROM "_note" WHERE "agentId" = $1 AND "noteNumber" = $2 AND "deletedAt" IS NULL LIMIT 1`,
+    [agentId, noteNumber]
+  );
+  return rows.length > 0 ? rowToNote(rows[0]) : null;
+}
+
+export async function getNoteByIdForAgent(agentId: string, id: string): Promise<Note | null> {
+  const rows = await query<Record<string, unknown>>(
+    `SELECT * FROM "_note" WHERE id = $1 AND "agentId" = $2 AND "deletedAt" IS NULL LIMIT 1`,
+    [id, agentId]
+  );
+  return rows.length > 0 ? rowToNote(rows[0]) : null;
+}
+
 export async function deleteNote(id: string): Promise<void> {
   await query(
     `UPDATE "_note" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = $1`,
@@ -119,9 +141,21 @@ export async function listTags(agentId: string): Promise<string[]> {
 }
 
 function rowToNote(row: Record<string, unknown>): Note {
+  const rawNn = row.noteNumber;
+  const noteNumber =
+    typeof rawNn === "number" && Number.isFinite(rawNn)
+      ? rawNn
+      : typeof rawNn === "string" && /^\d+$/.test(rawNn)
+        ? parseInt(rawNn, 10)
+        : 0;
+
   return {
     id: row.id as string,
-    noteNumber: row.noteNumber as number,
+    noteNumber,
+    publicRef: notePublicRef({
+      publicRef: row.publicRef as string | undefined,
+      noteNumber,
+    }),
     agentId: row.agentId as string,
     title: row.title as string,
     content: (row.content as string) || null,

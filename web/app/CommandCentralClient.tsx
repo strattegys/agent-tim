@@ -11,6 +11,7 @@ import type { MarniKnowledgeFocus } from "@/components/marni/MarniKnowledgePanel
 import StatusRail, { type StatusRailLabMode } from "@/components/StatusRail";
 import { AgentPanelPrinciples } from "@/components/AgentPanelPrinciples";
 import FridayDashboardPanel from "@/components/friday/FridayDashboardPanel";
+import AgentPlaceholderDashboard from "@/components/agents/AgentPlaceholderDashboard";
 
 const AgentInfoPanel = dynamic(() => import("@/components/AgentInfoPanel"), { loading: () => <PanelSkeleton /> });
 const KanbanInlinePanel = dynamic(() => import("@/components/kanban/KanbanInlinePanel"), { loading: () => <PanelSkeleton /> });
@@ -21,6 +22,9 @@ const MarniWorkPanel = dynamic(() => import("@/components/marni/MarniWorkPanel")
 const AgentKnowledgePanel = dynamic(() => import("@/components/agents/AgentKnowledgePanel"), { loading: () => <PanelSkeleton /> });
 const KingCostPanel = dynamic(() => import("@/components/king/KingCostPanel"), { loading: () => <PanelSkeleton /> });
 const ScoutCampaignPanel = dynamic(() => import("@/components/scout/ScoutCampaignPanel"), {
+  loading: () => <PanelSkeleton />,
+});
+const PennyWorkspacePanel = dynamic(() => import("@/components/penny/PennyWorkspacePanel"), {
   loading: () => <PanelSkeleton />,
 });
 
@@ -68,6 +72,7 @@ import {
   type SuziFocusedNote,
   type SuziWorkSubTab,
 } from "@/lib/suzi-work-panel";
+import { reminderPublicRef } from "@/lib/public-ref";
 import {
   SESSION_HISTORY_FOCUS_GHOST_WORK,
   SESSION_HISTORY_FOCUS_MARNI_WORK,
@@ -109,7 +114,7 @@ const VALID_RIGHT_PANELS = VALID_COMMAND_CENTRAL_RIGHT_PANELS;
 
 function defaultPanelForAgent(agentId: string): RightPanel {
   if (agentId === "friday") return "dashboard";
-  if (agentId === "penny") return "info";
+  if (agentId === "penny") return "penny-work";
   if (agentId === "suzi") return "reminders";
   if (agentId === "tim") return "messages";
   if (agentId === "ghost") return "messages";
@@ -153,6 +158,12 @@ export default function CommandCentralClient() {
   const [activeAgent, setActiveAgent] = useState(() =>
     timLabLayout ? "tim" : fridayLabLayout ? "friday" : paramAgent || "suzi"
   );
+  /**
+   * After the user picks an agent (or similar in-app navigation), React state updates immediately but
+   * `useSearchParams()` can still show the old `?agent=` until `router.replace` lands. Without this,
+   * the URL→state effect briefly reapplies the stale agent (e.g. Scout) and fights the new one (Suzi).
+   */
+  const suppressUrlAgentSyncRef = useRef(false);
   const [rightPanel, setRightPanel] = useState<RightPanel>(() => {
     if (timLabLayout) return "messages";
     if (fridayLabLayout) return "dashboard";
@@ -168,6 +179,14 @@ export default function CommandCentralClient() {
     if (agent === "ghost" && p === "kanban") return "messages";
     if (agent === "marni" && p === "kanban") return "marni-work";
     if (agent === "scout" && p === "kanban") return "scout-campaigns";
+    if (agent === "tim" && p === "dashboard") return "messages";
+    if (agent === "ghost" && p === "dashboard") return "messages";
+    if (agent === "marni" && p === "dashboard") return "marni-work";
+    if (agent === "suzi" && p === "dashboard") return "reminders";
+    if (agent === "penny" && p === "dashboard") return "penny-work";
+    if (agent === "king" && p === "dashboard") return "costs";
+    if (agent === "scout" && p === "dashboard") return "scout-campaigns";
+    if (p === "penny-work") return "penny-work";
     return p || defaultPanelForAgent(agent);
   });
 
@@ -196,18 +215,51 @@ export default function CommandCentralClient() {
       setFridayDashboardTab("package-kanban");
       return;
     }
-    if (paramAgent === "penny" && paramPanel === "dashboard") {
-      setActiveAgent("friday");
-      setRightPanel("dashboard");
-      setFridayDashboardTab("package-kanban");
-      return;
-    }
     if (paramAgent && AGENTS.some((a) => a.id === paramAgent)) {
-      setActiveAgent(paramAgent);
+      if (paramAgent === activeAgent) {
+        suppressUrlAgentSyncRef.current = false;
+      } else if (suppressUrlAgentSyncRef.current) {
+        // Address bar still shows the previous agent; skip (panel logic would use the wrong agent too).
+        return;
+      } else {
+        setActiveAgent(paramAgent);
+        return;
+      }
     }
     if (paramPanel === "knowledge") {
       setRightPanel("agent-knowledge");
       return;
+    }
+    if (paramPanel === "dashboard") {
+      if (paramAgent === "tim") {
+        setRightPanel("messages");
+        return;
+      }
+      if (paramAgent === "ghost") {
+        setRightPanel("messages");
+        return;
+      }
+      if (paramAgent === "marni") {
+        setRightPanel("marni-work");
+        return;
+      }
+      if (paramAgent === "suzi") {
+        setRightPanel("reminders");
+        setSuziWorkSubTab("dashboard");
+        return;
+      }
+      if (paramAgent === "penny") {
+        setRightPanel("penny-work");
+        return;
+      }
+      if (paramAgent === "king") {
+        setRightPanel("costs");
+        return;
+      }
+      if (paramAgent === "scout") {
+        setRightPanel("scout-campaigns");
+        return;
+      }
     }
     if (paramAgent === "marni" && paramPanel === "kanban") {
       setRightPanel("marni-work");
@@ -235,7 +287,7 @@ export default function CommandCentralClient() {
         setRightPanel(paramPanel as RightPanel);
       }
     }
-  }, [timLabLayout, fridayLabLayout, paramAgent, paramPanel]);
+  }, [timLabLayout, fridayLabLayout, paramAgent, paramPanel, activeAgent]);
 
   useEffect(() => {
     if (timLabLayout || fridayLabLayout) return;
@@ -289,6 +341,13 @@ export default function CommandCentralClient() {
 
   useEffect(() => {
     if (rightPanel === "scout-campaigns" && activeAgent !== "scout") {
+      setRightPanel(defaultPanelForAgent(activeAgent));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgent, rightPanel]);
+
+  useEffect(() => {
+    if (rightPanel === "penny-work" && activeAgent !== "penny") {
       setRightPanel(defaultPanelForAgent(activeAgent));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -536,12 +595,6 @@ export default function CommandCentralClient() {
     }
   }, [rightPanel, activeAgent]);
 
-  useEffect(() => {
-    if (activeAgent === "penny" && rightPanel === "dashboard") {
-      setRightPanel("info");
-    }
-  }, [activeAgent, rightPanel]);
-
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [replyTo, setReplyTo] = useState<ReplyContext | null>(null);
@@ -571,12 +624,14 @@ export default function CommandCentralClient() {
           : typeof p.displayNumber === "number"
             ? p.displayNumber
             : undefined;
+      const storedRef = typeof p.publicRef === "string" && p.publicRef.trim() ? p.publicRef.trim() : "";
       setSuziFocusedIntake({
         id: p.id,
         title: p.title,
         url: typeof p.url === "string" ? p.url : null,
         body: typeof p.body === "string" ? p.body : null,
         source: typeof p.source === "string" ? p.source : "ui",
+        publicRef: storedRef || (legacyNum != null && legacyNum > 0 ? `IN${legacyNum}` : undefined),
         itemNumber: legacyNum,
         filterQuery: typeof p.filterQuery === "string" && p.filterQuery.trim() ? p.filterQuery.trim() : undefined,
       });
@@ -603,9 +658,14 @@ export default function CommandCentralClient() {
       if (!raw) return;
       const p = JSON.parse(raw) as Record<string, unknown>;
       if (typeof p.id !== "string" || typeof p.itemNumber !== "number" || typeof p.title !== "string") return;
+      const punchRef =
+        typeof p.publicRef === "string" && p.publicRef.trim()
+          ? p.publicRef.trim()
+          : `PL${p.itemNumber}`;
       setSuziFocusedPunchList({
         id: p.id,
         itemNumber: p.itemNumber,
+        publicRef: punchRef,
         title: p.title,
         description: typeof p.description === "string" ? p.description : null,
         category: typeof p.category === "string" ? p.category : null,
@@ -660,8 +720,18 @@ export default function CommandCentralClient() {
       if (!raw) return;
       const p = JSON.parse(raw) as Record<string, unknown>;
       if (typeof p.id !== "string" || typeof p.title !== "string") return;
+      const rn =
+        typeof p.reminderNumber === "number" && Number.isFinite(p.reminderNumber)
+          ? Math.floor(p.reminderNumber)
+          : 0;
+      const rmRef = reminderPublicRef({
+        publicRef: typeof p.publicRef === "string" ? p.publicRef : undefined,
+        reminderNumber: rn,
+      });
       setSuziFocusedReminder({
         id: p.id,
+        reminderNumber: rn,
+        publicRef: rmRef,
         title: p.title,
         description: typeof p.description === "string" ? p.description : null,
         category: typeof p.category === "string" ? p.category : "one-time",
@@ -700,9 +770,14 @@ export default function CommandCentralClient() {
         typeof p.noteNumber !== "number"
       )
         return;
+      const noteRef =
+        typeof p.publicRef === "string" && p.publicRef.trim()
+          ? p.publicRef.trim()
+          : `NT${p.noteNumber}`;
       setSuziFocusedNote({
         id: p.id,
         noteNumber: p.noteNumber,
+        publicRef: noteRef,
         title: p.title,
         content: typeof p.content === "string" ? p.content : null,
         tag: typeof p.tag === "string" ? p.tag : null,
@@ -766,6 +841,7 @@ export default function CommandCentralClient() {
 
   const selectAgent = useCallback((id: string, openMobileChat?: boolean) => {
     if (id !== activeAgent) {
+      suppressUrlAgentSyncRef.current = true;
       loadedAgentRef.current = null;
       setReplyTo(null);
       setActiveAgent(id);
@@ -1679,13 +1755,13 @@ export default function CommandCentralClient() {
             {activeAgent === "penny" && (
               <button
                 type="button"
-                onClick={() => {
-                  setActiveAgent("friday");
-                  setRightPanel("dashboard");
-                  setFridayDashboardTab("package-kanban");
-                }}
-                className="p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                title="Workspace — service packages & approvals (Friday dashboard › Package Kanban)"
+                onClick={() => setRightPanel("penny-work")}
+                className={`p-1 rounded-lg cursor-pointer hover:bg-[var(--bg-primary)] ${
+                  rightPanel === "penny-work"
+                    ? "text-[var(--accent-green)]"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                title="Workspace — Dashboard & Package Kanban (Friday)"
               >
                 <PennyWorkspaceIcon />
               </button>
@@ -1702,7 +1778,7 @@ export default function CommandCentralClient() {
                   title={
                     fridayCronErrorCount > 0
                       ? `Friday work — ${fridayCronErrorCount} cron job(s) last run failed (open panel → Cron tab)`
-                      : "Friday — goals, package kanban, templates & tools"
+                      : "Friday — dashboard, package kanban, templates & tools"
                   }
                 >
                   <FridayWorkspaceIcon />
@@ -1754,7 +1830,7 @@ export default function CommandCentralClient() {
                     ? "text-[var(--accent-green)]"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
-                title="Cost-Usage"
+                title="Cost Usage"
               >
                 <KingWorkspaceIcon />
               </button>
@@ -1824,21 +1900,35 @@ export default function CommandCentralClient() {
             />
           ) : activeAgent === "tim" && rightPanel === "messages" ? (
             <TimAgentPanel
+              agent={agent}
               unifiedMessagingCount={timUnifiedMessagingCount}
               onTimWorkSelectionChange={setTimWorkSelection}
             />
           ) : activeAgent === "ghost" && rightPanel === "messages" ? (
             <GhostAgentPanel
+              agent={agent}
               contentQueueCount={ghostContentTaskCount}
               onGhostWorkSelectionChange={setGhostWorkSelection}
             />
           ) : rightPanel === "marni-work" && activeAgent === "marni" ? (
             <MarniWorkPanel
+              agent={agent}
               onClose={() => setRightPanel("info")}
               onMarniWorkSelectionChange={setMarniWorkSelection}
             />
+          ) : rightPanel === "penny-work" && activeAgent === "penny" ? (
+            <PennyWorkspacePanel
+              agent={agent}
+              onClose={() => setRightPanel("info")}
+              onOpenPackageKanban={() => {
+                suppressUrlAgentSyncRef.current = true;
+                setActiveAgent("friday");
+                setRightPanel("dashboard");
+                setFridayDashboardTab("package-kanban");
+              }}
+            />
           ) : rightPanel === "scout-campaigns" && activeAgent === "scout" ? (
-            <ScoutCampaignPanel onClose={() => setRightPanel("info")} />
+            <ScoutCampaignPanel agent={agent} onClose={() => setRightPanel("info")} />
           ) : rightPanel === "kanban" && agentHasKanban(activeAgent) && activeAgent !== "scout" ? (
             <KanbanInlinePanel onClose={() => setRightPanel("info")} agentId={activeAgent} />
           ) : rightPanel === "dashboard" && activeAgent === "friday" ? (
@@ -1850,6 +1940,8 @@ export default function CommandCentralClient() {
               architecturePane={fridayArchitecturePane}
               onArchitecturePaneChange={setFridayArchitecturePane}
             />
+          ) : rightPanel === "dashboard" ? (
+            <AgentPlaceholderDashboard agent={agent} onClose={() => setRightPanel("info")} />
           ) : rightPanel === "reminders" && activeAgent === "suzi" ? (
             <SuziRemindersPanel
               onClose={() => setRightPanel("info")}
@@ -1892,7 +1984,7 @@ export default function CommandCentralClient() {
               }}
             />
           ) : rightPanel === "costs" && activeAgent === "king" ? (
-            <KingCostPanel />
+            <KingCostPanel agent={agent} />
           ) : (
             <AgentInfoPanel agent={agent} onAvatarChange={handleAvatarChange} />
           )}

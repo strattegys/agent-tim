@@ -114,7 +114,7 @@ export default function FridayPackageBuilderModal({
     if (step === 2) {
       for (const d of deliverables) {
         if (!workflowIds.includes(d.workflowType)) {
-          setError(`Unknown workflow type: ${d.workflowType}. Add it under Workflow templates first.`);
+          setError(`Unknown workflow type: ${d.workflowType}. Add it under Workflow Templates first.`);
           return;
         }
       }

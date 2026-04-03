@@ -28,6 +28,7 @@ import articleBuilder from "./article-builder";
 import knowledgeSearchTool from "./knowledge-search-tool";
 import knowledgeTopicCreateTool from "./knowledge-topic-create-tool";
 import workflowTypeDefinitions from "./workflow-type-definitions";
+import costSummary from "./cost-summary";
 
 // ── Registry (keyed by tool name) ─────────────────────────────────────────
 /** Exported for providers that need to validate recovered / malformed tool names. */
@@ -50,6 +51,7 @@ export const TOOL_REGISTRY: Record<string, ToolModule> = {
   knowledge_search: knowledgeSearchTool,
   knowledge_topic_create: knowledgeTopicCreateTool,
   workflow_type_definitions: workflowTypeDefinitions,
+  cost_summary: costSummary,
 };
 
 // ── Backward-compatible exports ───────────────────────────────────────────

@@ -16,9 +16,10 @@ export type AgentUiRightPanel =
   | "costs"
   | "marni-work"
   | "agent-knowledge"
-  | "scout-campaigns";
+  | "scout-campaigns"
+  | "penny-work";
 
-/** Friday work panel — flat top-level tabs (goals, package kanban, workflow templates, tools, cron, architecture). */
+/** Friday work panel — flat top-level tabs (dashboard / throughput, package kanban, workflow templates, tools, cron, architecture). */
 export type FridayDashboardTab =
   | "goals"
   | "package-kanban"
@@ -74,7 +75,7 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
     if (rightPanel === "agent-knowledge") {
       const lines = [
         "## Tim — UI (this message only)",
-        "**Knowledge base** panel is open (book icon): Knowledge Studio topics and RAG chunks for **Tim’s** corpus (separate from Marni). Use **knowledge_search** so answers stay grounded. Work queue stays on the list icon.",
+        "**Knowledge base** panel is open (book icon): Knowledge Studio topics and RAG chunks for **Tim’s** corpus (separate from Marni). Use **knowledge_search** so answers stay grounded. Work Queue stays on the list icon.",
       ];
       const t = input.timKnowledgeTopic;
       if (t?.name) {
@@ -96,8 +97,16 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   if (rightPanel === "scout-campaigns" && agentId === "scout") {
     return (
       "## Scout — UI (this message only)\n" +
-      "**Campaign throughput** panel is open: package cards, daily goals, funnel counts. Use **Open board** on a card for the kanban. " +
-      "Use workflow_items / CRM tools to move research-pipeline items toward Tim as usual."
+      "**Workspace** is open: **Dashboard** tab (campaign summary, pace, top packages) or **Campaign Throughput** — full package cards, daily goals, funnel counts. " +
+      "Use **Open board** on a card for the kanban. Use workflow_items / CRM tools to move research-pipeline items toward Tim as usual."
+    );
+  }
+
+  if (rightPanel === "penny-work" && agentId === "penny") {
+    return (
+      "## Penny — UI (this message only)\n" +
+      "**Workspace** is open: **Accounts** (company list + detail from `/api/penny/accounts`), **Pipeline** (derived stages), **Products** (templates). " +
+      "**Friday · Package Kanban** jumps to Friday for approvals and planner."
     );
   }
 
@@ -132,7 +141,14 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   if (rightPanel === "marni-work" && agentId === "marni") {
     return (
       "## Marni — UI (this message only)\n" +
-      "Work panel is open — **Work queue** tab lists distribution items; **Board** is the Kanban. With **no** row selected, pick a queue item to ground LinkedIn draft work. Knowledge base: **book** icon. Use workflow_items for content-distribution as in your prompt."
+      "Work panel is open — **Dashboard** (throughput + queue depth + KB topic count), **Work Queue** (distribution items), **Board** (Kanban). With **no** queue row selected, pick one to ground LinkedIn draft work. Knowledge base: **book** icon. Use workflow_items for content-distribution as in your prompt."
+    );
+  }
+
+  if (rightPanel === "dashboard" && agentId !== "friday") {
+    return (
+      "## UI (this message only)\n" +
+      `**Dashboard** (placeholder) is open for **${agentId}** — reserved for a future overview; follow the agent’s normal tools and system prompt.`
     );
   }
 
@@ -140,23 +156,23 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
     const tab = input.fridayTab ?? "goals";
     let label: string;
     if (tab === "goals") {
-      label = "Goals (workflow throughput vs targets)";
+      label = "Dashboard (workflow throughput vs targets)";
     } else if (tab === "package-kanban") {
       label = "Package Kanban (draft → completed; details in overlay)";
     } else if (tab === "wf-templates") {
-      label = "Workflow templates";
+      label = "Workflow Templates";
     } else if (tab === "tools") {
-      label = "Tools registry";
+      label = "Tools Registry";
     } else if (tab === "cron") {
       label = "Cron hub (all scheduled jobs, status, last run)";
     } else if (tab === "architecture") {
       const sub =
         input.fridayArchitecturePane === "code"
-          ? "Code graph (visual import map: overview + lib)"
+          ? "Code Graph (visual import map: overview + lib)"
           : "Infrastructure (high-level deploy and services diagram)";
       label = `Architecture — ${sub}`;
     } else {
-      label = "Goals (workflow throughput vs targets)";
+      label = "Dashboard (workflow throughput vs targets)";
     }
     return (
       "## Friday — UI (this message only)\n" +
@@ -167,7 +183,7 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   if (rightPanel === "costs" && agentId === "king") {
     return (
       "## King — UI (this message only)\n" +
-      "Cost-Usage panel is open. Use **cost_summary** (command=summary) for the same data in chat when asked."
+      "**Workspace** is open: **Dashboard** tab (7-day headline costs + agent breakdown) or **Cost Usage** (full table, refresh, Anthropic sync). Use **cost_summary** (command=summary, optional days_back) in chat when asked."
     );
   }
 

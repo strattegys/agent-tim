@@ -2,21 +2,25 @@
 
 import { useState } from "react";
 import type { TimWorkQueueSelection } from "@/lib/tim-work-context";
+import type { AgentConfig } from "@/lib/agent-frontend";
+import TimDashboardPanel from "./TimDashboardPanel";
 import TimCrmPanel from "./TimCrmPanel";
 import TimMessagesPanel from "./TimMessagesPanel";
 
-export type TimWorkPanelTab = "messaging" | "crm";
+export type TimWorkPanelTab = "dashboard" | "messaging" | "crm";
 
 interface TimAgentPanelProps {
+  agent: AgentConfig;
   /** Active workflow rows + pending follow-up + inbound receipt rows (dashboard unified count). */
   unifiedMessagingCount?: number;
   onTimWorkSelectionChange?: (selection: TimWorkQueueSelection | null) => void;
 }
 
 /**
- * Tim’s work panel: unified messaging queue + **CRM** directory tab (see `AGENT_UI_ARCHITECTURE.md`).
+ * Tim’s work panel: dashboard, work queue (messaging), CRM.
  */
 export default function TimAgentPanel({
+  agent,
   unifiedMessagingCount = 0,
   onTimWorkSelectionChange,
 }: TimAgentPanelProps) {
@@ -25,17 +29,18 @@ export default function TimAgentPanel({
   return (
     <div className="flex-1 bg-[var(--bg-primary)] flex flex-col overflow-hidden min-w-0">
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-2 gap-0.5">
-        {(["messaging", "crm"] as const).map((key) => {
-          const label = key === "messaging" ? "Messaging" : "CRM";
+        {(["dashboard", "messaging", "crm"] as const).map((key) => {
+          const label =
+            key === "dashboard" ? "Dashboard" : key === "messaging" ? "Work Queue" : "CRM";
           const isActive = tab === key;
           const count = key === "messaging" ? unifiedMessagingCount : 0;
-          const showBadge = count > 0 && key !== "crm";
+          const showBadge = count > 0 && key === "messaging";
           return (
             <button
               key={key}
               type="button"
               onClick={() => setTab(key)}
-              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors inline-flex items-center gap-1.5 max-sm:max-w-[48%] ${
+              className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors inline-flex items-center gap-1.5 max-sm:max-w-[32%] ${
                 isActive
                   ? "font-semibold text-[var(--text-primary)]"
                   : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
@@ -57,6 +62,8 @@ export default function TimAgentPanel({
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {tab === "crm" ? (
           <TimCrmPanel />
+        ) : tab === "dashboard" ? (
+          <TimDashboardPanel />
         ) : (
           <TimMessagesPanel embedded onWorkSelectionChange={onTimWorkSelectionChange} />
         )}

@@ -1,7 +1,12 @@
 import { query, transaction } from "./db";
+import { reminderDigitsFromToken, reminderPublicRef } from "./public-ref";
 
 export interface Reminder {
   id: string;
+  /** Stable display / tool id (sequence); never changes for this row. */
+  reminderNumber: number;
+  /** Human-facing id, e.g. RM0012 (padded display; DB `publicRef` may be shorter). */
+  publicRef: string;
   agentId: string;
   category: "birthday" | "holiday" | "recurring" | "one-time" | "note";
   title: string;
@@ -169,6 +174,30 @@ export async function deleteReminder(id: string): Promise<void> {
     `UPDATE "_reminder" SET "deletedAt" = NOW(), "updatedAt" = NOW() WHERE id = $1`,
     [id]
   );
+}
+
+export async function getReminderByReminderNumber(
+  agentId: string,
+  reminderNumber: number
+): Promise<Reminder | null> {
+  const rows = await query<Record<string, unknown>>(
+    `SELECT * FROM "_reminder"
+     WHERE "agentId" = $1 AND "reminderNumber" = $2 AND "deletedAt" IS NULL
+     LIMIT 1`,
+    [agentId, reminderNumber]
+  );
+  if (rows.length === 0) return null;
+  return rowToReminder(rows[0]);
+}
+
+/** Resolve by public ref (e.g. RM12 or RM0012). */
+export async function getReminderByPublicRef(
+  agentId: string,
+  ref: string
+): Promise<Reminder | null> {
+  const n = reminderDigitsFromToken(ref);
+  if (n == null) return null;
+  return getReminderByReminderNumber(agentId, n);
 }
 
 /** Soft-delete every inactive (already toggled off) row for an agent — bulk cleanup. */
@@ -339,8 +368,21 @@ function computeNextOccurrence(
 }
 
 function rowToReminder(row: Record<string, unknown>): Reminder {
+  const rawRn = row.reminderNumber;
+  const reminderNumber =
+    typeof rawRn === "number" && Number.isFinite(rawRn)
+      ? Math.floor(rawRn)
+      : typeof rawRn === "string" && /^\d+$/.test(rawRn)
+        ? parseInt(rawRn, 10)
+        : 0;
+
   return {
     id: row.id as string,
+    reminderNumber,
+    publicRef: reminderPublicRef({
+      publicRef: row.publicRef as string | undefined,
+      reminderNumber,
+    }),
     agentId: row.agentId as string,
     category: row.category as Reminder["category"],
     title: row.title as string,

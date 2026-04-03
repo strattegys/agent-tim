@@ -87,15 +87,15 @@ export default function StatusRailAgentInspector({
 
   return (
     <>
-      <section className="rounded border border-[var(--border-color)] bg-[var(--bg-secondary)] p-2 shrink-0 min-w-0">
-        <div className="flex items-start justify-between gap-2 mb-1.5 min-w-0">
-          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] min-w-0 truncate pt-0.5">
+      <section className="shrink-0 min-w-0 mt-4">
+        <div className="flex items-start justify-between gap-2 mb-2.5 min-w-0">
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] min-w-0 truncate">
             {activeAgent.name}
           </div>
           <button
             type="button"
             onClick={() => setPromptOpen(true)}
-            className="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-2 py-1 text-[8px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+            className="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-2 py-1 text-[8px] font-semibold uppercase tracking-wide text-[var(--text-secondary)] hover:bg-[var(--bg-primary)] hover:text-[var(--text-primary)] transition-colors"
           >
             System prompt
           </button>
@@ -148,11 +148,11 @@ export default function StatusRailAgentInspector({
         <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
           Tools
         </div>
-        <div className="flex flex-wrap gap-0.5 mb-2">
+        <div className="flex flex-wrap gap-0.5 mb-0.5">
           {tools.map((t) => (
             <span
               key={t}
-              className="rounded border border-[var(--border-color)] bg-[var(--bg-primary)] px-1 py-0.5 font-mono text-[8px] text-[var(--text-primary)]"
+              className="rounded px-1 py-0.5 font-mono text-[8px] text-[var(--text-secondary)] bg-[var(--bg-tertiary)]/80"
             >
               {t}
             </span>

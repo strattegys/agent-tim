@@ -5,19 +5,29 @@ import { getSuziPersonalDashboardConfig } from "@/lib/suzi-personal-dashboard-co
 
 const TZ = "America/Los_Angeles";
 const FORECAST_DAYS = 5;
-const BUCKET_MS = 6 * 60 * 60 * 1000;
+const BUCKET_COUNT = 8;
+const BUCKET_MS = 3 * 60 * 60 * 1000;
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 
-function modeWeatherCode(codes: number[]): number {
-  if (codes.length === 0) return 0;
-  const counts = new Map<number, number>();
-  for (const c of codes) counts.set(c, (counts.get(c) ?? 0) + 1);
-  let best = codes[0]!;
-  let n = 0;
-  for (const [c, cnt] of counts) {
-    if (cnt > n) {
-      n = cnt;
-      best = c;
+/** Last hourly timestep inside [bucketStart, bucketEnd) — value at end of that 3h window. */
+function pickEndOfBucketSample(
+  times: string[],
+  hTemps: (number | null | undefined)[],
+  hCodes: (number | null | undefined)[],
+  bucketStart: number,
+  bucketEnd: number
+): { tempC: number; weatherCode: number } | null {
+  let best: { inst: number; tempC: number; weatherCode: number } | null = null;
+  for (let i = 0; i < times.length; i++) {
+    const t = times[i];
+    if (typeof t !== "string") continue;
+    const inst = new Date(t).getTime();
+    if (Number.isNaN(inst) || inst < bucketStart || inst >= bucketEnd) continue;
+    const wc = hCodes[i];
+    const tc = hTemps[i];
+    if (typeof wc !== "number" || typeof tc !== "number") continue;
+    if (!best || inst >= best.inst) {
+      best = { inst, tempC: tc, weatherCode: wc };
     }
   }
   return best;
@@ -111,45 +121,24 @@ export async function GET() {
     const hTemps = data.hourly?.temperature_2m ?? [];
     const hCodes = data.hourly?.weather_code ?? [];
 
-    const bucketData: { codes: number[]; temps: number[] }[] = Array.from({ length: 4 }, () => ({
-      codes: [],
-      temps: [],
-    }));
-
-    for (let i = 0; i < times.length; i++) {
-      const t = times[i];
-      if (typeof t !== "string") continue;
-      const inst = new Date(t).getTime();
-      if (Number.isNaN(inst) || inst < startMs || inst >= windowEnd) continue;
-      const wc = hCodes[i];
-      const tc = hTemps[i];
-      if (typeof wc !== "number") continue;
-      const idx = Math.min(3, Math.max(0, Math.floor((inst - startMs) / BUCKET_MS)));
-      bucketData[idx]!.codes.push(wc);
-      if (typeof tc === "number") bucketData[idx]!.temps.push(tc);
-    }
-
     const hourlyBuckets24h: {
       startLabel: string;
       endLabel: string;
       weatherCode: number;
-      avgTempC: number;
+      tempC: number;
     }[] = [];
 
-    for (let k = 0; k < 4; k++) {
+    for (let k = 0; k < BUCKET_COUNT; k++) {
       const bucketStart = startMs + k * BUCKET_MS;
       const bucketEnd = startMs + (k + 1) * BUCKET_MS;
-      const codes = bucketData[k]!.codes;
-      const temps = bucketData[k]!.temps;
+      const end = Math.min(bucketEnd, windowEnd);
+      const sample = pickEndOfBucketSample(times, hTemps, hCodes, bucketStart, end);
       const code =
-        codes.length > 0
-          ? modeWeatherCode(codes)
-          : typeof weatherCode === "number"
-            ? weatherCode
-            : 2;
-      const avgTempC =
-        temps.length > 0
-          ? Math.round((temps.reduce((a, b) => a + b, 0) / temps.length) * 10) / 10
+        sample?.weatherCode ??
+        (typeof weatherCode === "number" ? weatherCode : 2);
+      const tempC =
+        sample != null
+          ? Math.round(sample.tempC * 10) / 10
           : typeof currentTempC === "number"
             ? Math.round(currentTempC * 10) / 10
             : 15;
@@ -158,7 +147,7 @@ export async function GET() {
         startLabel: hourCompact(bucketStart),
         endLabel: hourCompact(bucketEnd - 1),
         weatherCode: code,
-        avgTempC,
+        tempC,
       });
     }
 

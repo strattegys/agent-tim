@@ -155,7 +155,7 @@ export default function PunchListCard({
         className="text-[11px] font-semibold shrink-0 opacity-80 tabular-nums"
         style={{ color: rankColor }}
       >
-        {item.itemNumber}
+        {item.publicRef}
       </span>
       {hasChrome ? chrome : null}
     </div>

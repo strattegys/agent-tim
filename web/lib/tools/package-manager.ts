@@ -173,7 +173,7 @@ const tool: ToolModule = {
       const reg = await getWorkflowTypeRegistry();
       for (const d of dels) {
         if (!d?.workflowType || !reg.get(d.workflowType)) {
-          return `Error: unknown workflow type "${d?.workflowType ?? ""}" in deliverable "${d?.label ?? ""}". Use workflow_type_definitions list or Friday → Workflow templates.`;
+          return `Error: unknown workflow type "${d?.workflowType ?? ""}" in deliverable "${d?.label ?? ""}". Use workflow_type_definitions list or Friday → Workflow Templates.`;
         }
       }
 

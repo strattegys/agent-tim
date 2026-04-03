@@ -28,7 +28,8 @@ export type ToolId =
   | "publish_article"
   | "article_builder"
   | "knowledge_search"
-  | "knowledge_topic_create";
+  | "knowledge_topic_create"
+  | "cost_summary";
 
 // ─── Agent Categories ───
 

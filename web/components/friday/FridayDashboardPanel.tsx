@@ -32,7 +32,11 @@ export default function FridayDashboardPanel({
 
   const TABS: { key: FridayDashboardTab; label: string; title?: string }[] = useMemo(() => {
     const all: { key: FridayDashboardTab; label: string; title?: string }[] = [
-      { key: "goals", label: "Goals", title: "Throughput vs daily/weekly targets (from workflow type registry)" },
+      {
+        key: "goals",
+        label: "Dashboard",
+        title: "Throughput vs daily/weekly targets (from workflow type registry)",
+      },
       {
         key: "package-kanban",
         label: "Package Kanban",
@@ -40,7 +44,7 @@ export default function FridayDashboardPanel({
       },
       {
         key: "wf-templates",
-        label: "Workflow templates",
+        label: "Workflow Templates",
         title: "Workflow types — stages, transitions, people vs content",
       },
       { key: "tools", label: "Tools", title: "Internal tools registry" },

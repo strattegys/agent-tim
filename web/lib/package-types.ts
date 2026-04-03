@@ -124,6 +124,28 @@ export interface PackageSpec {
   warmOutreachDiscovery?: WarmOutreachDiscoverySpec;
   /** Optional — Scout campaign queue + discovery prompts (see lib/scout-queue.ts). */
   scoutTargeting?: ScoutTargetingSpec;
+  /** Optional — pricing & billing (Penny / King margin). */
+  commercial?: {
+    contractPriceUsd?: number;
+    currency?: string;
+    billingType?: "one-time" | "monthly" | "milestone" | "custom";
+    billingNotes?: string;
+    internalCostBudgetUsd?: number;
+  };
+  /** Optional — how the package was created (manual vs Stripe vs self-serve). */
+  source?: {
+    type?: "manual" | "stripe" | "self-serve";
+    sessionId?: string;
+    referral?: string;
+    notes?: string;
+  };
+  /** Optional — customer-facing proposal link lifecycle. */
+  proposal?: {
+    token?: string;
+    sentAt?: string;
+    viewedAt?: string;
+    acceptedAt?: string;
+  };
 }
 
 export interface PackageTemplateSpec {

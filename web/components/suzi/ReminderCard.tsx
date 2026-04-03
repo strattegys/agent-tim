@@ -1,9 +1,13 @@
 "use client";
 
+import { reminderRefUiLabel } from "@/lib/public-ref";
+
 export interface Reminder {
   id: string;
+  reminderNumber?: number;
+  publicRef?: string;
   agentId: string;
-  category: "birthday" | "holiday" | "recurring" | "one-time" | "fact";
+  category: "birthday" | "holiday" | "recurring" | "one-time" | "fact" | "note";
   title: string;
   description: string | null;
   nextDueAt: string | null;
@@ -22,6 +26,7 @@ const CATEGORY_ICONS: Record<string, string> = {
   recurring: "\uD83D\uDD01",
   "one-time": "\uD83D\uDCCC",
   fact: "\uD83D\uDCA1",
+  note: "\uD83D\uDCDD",
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -30,6 +35,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   recurring: "#5B8DEF",
   "one-time": "#1D9E75",
   fact: "#A78BFA",
+  note: "#A78BFA",
 };
 
 interface ReminderCardProps {
@@ -77,6 +83,8 @@ export default function ReminderCard({
   const isOverdue =
     reminder.nextDueAt && new Date(reminder.nextDueAt) < new Date();
 
+  const reminderRefLabel = reminderRefUiLabel(reminder);
+
   const selectable = Boolean(onToggleSuziFocus);
 
   return (
@@ -103,7 +111,12 @@ export default function ReminderCard({
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {reminderRefLabel ? (
+              <span className="text-[10px] font-bold font-mono tabular-nums px-1.5 py-0.5 rounded border border-[var(--border-color)] text-[var(--accent-green)] shrink-0">
+                {reminderRefLabel}
+              </span>
+            ) : null}
             <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
               {reminder.title}
             </span>

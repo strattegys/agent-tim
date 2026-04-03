@@ -5,17 +5,12 @@ import {
   deleteIntake,
   getIntakeByItemNumber,
 } from "../intake";
+import { intakeDigitsFromToken } from "../public-ref";
 import type { ToolModule } from "./types";
 
 function parseItemNumber(v: unknown): number | null {
   if (typeof v === "number" && Number.isInteger(v) && v >= 1) return v;
-  if (typeof v === "string") {
-    const t = v.trim();
-    if (/^\d+$/.test(t)) {
-      const n = parseInt(t, 10);
-      if (n >= 1) return n;
-    }
-  }
+  if (typeof v === "string") return intakeDigitsFromToken(v);
   return null;
 }
 
@@ -31,7 +26,7 @@ async function resolveIntakeTarget(
   if (n == null) {
     return {
       error:
-        "Provide either id (UUID from list) or itemNumber (stable # on the card, same as intake list output).",
+        "Provide either id (UUID from list) or itemNumber (stable id: IN2001 or plain 2001, same as list output).",
     };
   }
   const row = await getIntakeByItemNumber(agentId, n);
@@ -82,9 +77,9 @@ const tool: ToolModule = {
           description: "Intake item UUID for update/delete/archive (alternative to itemNumber)",
         },
         itemNumber: {
-          type: "number",
+          type: "string",
           description:
-            "Stable **itemNumber** on the Intake card (e.g. 2001). Same value as list/search output. Use for update/delete/archive when the user cites that number.",
+            "Stable intake ref: **IN2001** or plain **2001** (same as the badge on the card and list output). Use for update/delete/archive when the user cites that id.",
         },
         filterQuery: {
           type: "string",
@@ -109,7 +104,7 @@ const tool: ToolModule = {
       return items
         .map(
           (it) =>
-            `#${it.itemNumber} ${it.title}${it.url ? ` — ${it.url}` : ""}${it.body ? `\n  ${it.body.slice(0, 120)}${it.body.length > 120 ? "…" : ""}` : ""}\n  id: ${it.id}  source: ${it.source}`
+            `${it.publicRef} ${it.title}${it.url ? ` — ${it.url}` : ""}${it.body ? `\n  ${it.body.slice(0, 120)}${it.body.length > 120 ? "…" : ""}` : ""}\n  id: ${it.id}  source: ${it.source}`
         )
         .join("\n\n");
     }
@@ -122,7 +117,7 @@ const tool: ToolModule = {
         body: args.body?.trim() || undefined,
         source: "agent",
       });
-      return `Intake item added: "${item.title}" (id: ${item.id})`;
+      return `Intake item added: ${item.publicRef} "${item.title}" (id: ${item.id})`;
     }
 
     if (cmd === "update") {
@@ -151,7 +146,7 @@ const tool: ToolModule = {
       return items
         .map(
           (it) =>
-            `#${it.itemNumber} ${it.title}${it.url ? ` — ${it.url}` : ""}\n  id: ${it.id}`
+            `${it.publicRef} ${it.title}${it.url ? ` — ${it.url}` : ""}\n  id: ${it.id}`
         )
         .join("\n\n");
     }

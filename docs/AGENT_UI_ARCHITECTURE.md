@@ -2,6 +2,8 @@
 
 This document describes the **consistent UX model** for every agent in the main chat layout (`CommandCentralClient`). Follow it when adding or extending agent surfaces so behavior stays predictable and easy to copy.
 
+**Related:** [`docs/PHASE-1-AGENT-READINESS.md`](PHASE-1-AGENT-READINESS.md) (consolidated operational plan) | [`docs/PENNY-PACKAGE-SALES-PLAN.md`](PENNY-PACKAGE-SALES-PLAN.md) (Penny workspace wireframes + account data model)
+
 ## Three layers
 
 Each agent uses the same structural stack in the **right column**:
@@ -50,6 +52,8 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 2. If it is a **new top-level surface** (replacing the whole work panel), add a `RightPanel` value in `CommandCentralClient.tsx` and wire routing in the `rightPanel` / `activeAgent` switch.
 3. Add a **new header icon** only when it is a **distinct top-level entry** (e.g. first open to the work panel from Agent info), not for every sub-screen.
 
+**Chat context for work panels:** Each agent's work panel can inject context into the LLM chat (e.g. Suzi's `formatSuziWorkPanelContext`, Penny's planned `formatPennyWorkPanelContext`). This enables the agent to give contextually relevant suggestions based on what the user is looking at.
+
 ## Knowledge panel (book icon)
 
 - **Component:** `web/components/agents/AgentKnowledgePanel.tsx` — switches on `activeAgent` (Marni → `MarniKnowledgePanel`, Tim → placeholder / future Govind+corpus UI, others → empty state).
@@ -60,12 +64,14 @@ The **work panel** is the **space underneath the agent header** when a **work-re
 
 | Agent  | Work entry (header shortcut)     | Work panel component        | Work tabs (examples)                                      | Knowledge (book)        |
 |--------|----------------------------------|-----------------------------|-----------------------------------------------------------|-------------------------|
-| Friday | Dashboard (grid icon)            | `FridayDashboardPanel`      | Queue, Planner, Package templates, Workflow templates, Tools | Placeholder             |
-| Penny  | _(no work panel)_                | —                           | Use **Friday** dashboard for queue / planner / templates | Placeholder             |
+| Friday | Dashboard (grid icon)            | `FridayDashboardPanel`      | Goals, Package Kanban, Workflow templates, Tools, Cron     | Placeholder             |
+| Penny  | Account hub (building icon)      | `PennyWorkPanel`            | **Accounts**, Pipeline, Health, Products                  | Placeholder             |
 | Tim    | Work panel (list icon)           | `TimAgentPanel`             | Active Work Queue, Pending Work Queue                     | Tim KB placeholder      |
 | Marni  | Work panel (list icon)         | `MarniWorkPanel` → Kanban   | _(none — single queue)_                                   | Full Marni KB           |
 | Suzi   | Reminders (calendar icon)      | `SuziRemindersPanel`        | Punch List, Reminders, Notes, Intake                       | Placeholder             |
 | Others | Kanban where `agentHasKanban`  | `KanbanInlinePanel` or info | As needed                                                 | Placeholder             |
+
+**Penny's workspace** is designed as an **account-centric** hub (vs Friday's ops-centric dashboard). An **account** = a `company` row in the CRM; the account stage is **derived** from aggregate package/workflow state (Lead → Proposal → Customer → Delivered). See [`docs/PENNY-PACKAGE-SALES-PLAN.md`](PENNY-PACKAGE-SALES-PLAN.md) for the full workspace design including wireframes, data sources, and implementation plan. Routing: `CommandCentralRightPanel = "penny-work"`, sub-tab param `pennySub`, default panel for Penny changes from `info` → `penny-work`.
 
 ## Key files
 
@@ -76,7 +82,9 @@ The **work panel** is the **space underneath the agent header** when a **work-re
   `web/components/friday/FridayDashboardPanel.tsx`  
   `web/components/friday/FridayPackageAdminPanel.tsx` (content for Queue / Planner / template tabs)  
   `web/components/tim/TimAgentPanel.tsx`  
-  `web/components/suzi/SuziRemindersPanel.tsx` (or equivalent Suzi panel path in repo)
+  `web/components/suzi/SuziRemindersPanel.tsx` (or equivalent Suzi panel path in repo)  
+  `web/components/penny/PennyWorkPanel.tsx` (planned — Clients, Pipeline, Health, Products)
+- **Penny workspace design:** `docs/PENNY-PACKAGE-SALES-PLAN.md`
 
 ## Deep links
 

@@ -11,6 +11,7 @@ const SKIP_DASHBOARD_NOTIFY = new Set<string>([
   "web_search",
   "memory",
   "knowledge_search",
+  "cost_summary",
 ]);
 
 export async function executeTool(

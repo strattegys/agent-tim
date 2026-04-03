@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import ScoutDashboardPanel from "@/components/scout/ScoutDashboardPanel";
 import ScoutTargetingModal from "@/components/scout/ScoutTargetingModal";
+import type { AgentConfig } from "@/lib/agent-frontend";
 import { panelBus } from "@/lib/events";
 import type { ScoutQueueCampaign, ScoutQueueResponse } from "@/lib/scout-queue";
 
@@ -13,7 +15,10 @@ const KanbanInlinePanel = dynamic(() => import("@/components/kanban/KanbanInline
   ),
 });
 
+type ScoutWorkTab = "dashboard" | "campaigns";
+
 interface ScoutCampaignPanelProps {
+  agent: AgentConfig;
   onClose: () => void;
 }
 
@@ -81,7 +86,8 @@ function FunnelBar({ c }: { c: ScoutQueueCampaign }) {
   );
 }
 
-export default function ScoutCampaignPanel({ onClose }: ScoutCampaignPanelProps) {
+export default function ScoutCampaignPanel({ agent: _agent, onClose }: ScoutCampaignPanelProps) {
+  const [workTab, setWorkTab] = useState<ScoutWorkTab>("dashboard");
   const [data, setData] = useState<ScoutQueueResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,13 +156,8 @@ export default function ScoutCampaignPanel({ onClose }: ScoutCampaignPanelProps)
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[var(--bg-secondary)]">
-      <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-[var(--text-primary)]">Campaign throughput</h2>
-          <p className="text-[11px] text-[var(--text-tertiary)] mt-0.5">
-            Active packages with Scout research pipelines — pace vs handoffs
-          </p>
-        </div>
+      <div className="shrink-0 px-3 py-2 border-b border-[var(--border-color)] flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">Scout workspace</h2>
         <button
           type="button"
           onClick={onClose}
@@ -166,7 +167,38 @@ export default function ScoutCampaignPanel({ onClose }: ScoutCampaignPanelProps)
         </button>
       </div>
 
+      <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
+        <button
+          type="button"
+          onClick={() => setWorkTab("dashboard")}
+          className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+            workTab === "dashboard"
+              ? "font-semibold text-[var(--text-primary)]"
+              : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          }`}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
+          onClick={() => setWorkTab("campaigns")}
+          className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+            workTab === "campaigns"
+              ? "font-semibold text-[var(--text-primary)]"
+              : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          }`}
+        >
+          Campaign Throughput
+        </button>
+      </div>
+
+      {workTab === "dashboard" ? <ScoutDashboardPanel /> : null}
+
+      {workTab === "campaigns" ? (
       <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+        <p className="text-[11px] text-[var(--text-tertiary)] -mt-1 mb-1">
+          Active packages with Scout research pipelines — pace vs handoffs
+        </p>
         {loading && (
           <p className="text-[12px] text-[var(--text-tertiary)]">Loading campaigns…</p>
         )}
@@ -290,6 +322,7 @@ export default function ScoutCampaignPanel({ onClose }: ScoutCampaignPanelProps)
           </article>
         ))}
       </div>
+      ) : null}
 
       {targetingCampaign && (
         <ScoutTargetingModal

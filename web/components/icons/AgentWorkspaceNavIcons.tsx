@@ -39,7 +39,7 @@ export function MarniWorkspaceIcon() {
   );
 }
 
-/** Friday — work dashboard (goals, package kanban, tools, cron, …). */
+/** Friday — work dashboard (throughput dashboard, package kanban, tools, cron, …). */
 export function FridayWorkspaceIcon() {
   return (
     <svg {...svgProps}>

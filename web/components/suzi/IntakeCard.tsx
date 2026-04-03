@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 /** Mirrors API / DB shape; keep free of `@/lib/intake` so the client bundle does not pull `db`. */
 export interface IntakeCardItem {
   id: string;
+  /** Stable ref e.g. IN2001 (from API); optional for older cached payloads. */
+  publicRef?: string;
   /** Stable DB itemNumber (same as intake tool); omit or 0 if pre-migration row. */
   itemNumber?: number;
   title: string;
@@ -87,6 +89,9 @@ export default function IntakeCard({
   onToggleFocus,
 }: IntakeCardProps) {
   const stableNum = item.itemNumber != null && item.itemNumber > 0 ? item.itemNumber : null;
+  const refLabel =
+    item.publicRef?.trim() ||
+    (stableNum != null ? `IN${stableNum}` : null);
   const src = item.source || "ui";
   const label = SOURCE_LABEL[src] || src;
   const color = SOURCE_COLOR[src] || "#8b9199";
@@ -108,12 +113,12 @@ export default function IntakeCard({
     >
       <div className="flex items-start gap-1.5 shrink-0">
         <div className="flex items-start gap-1.5 min-w-0 flex-1">
-          {stableNum != null && (
+          {refLabel != null && (
             <span
               className="shrink-0 text-xs font-bold tabular-nums px-1.5 py-0.5 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--accent-green)] leading-none"
-              title={`Intake #${stableNum} — stable record id; use intake tool itemNumber ${stableNum}, or archive here`}
+              title={`Intake ${refLabel} — stable id; intake tool itemNumber ${refLabel}${stableNum != null ? ` or ${stableNum}` : ""}; archive here`}
             >
-              #{stableNum}
+              {refLabel}
             </span>
           )}
           <h3 className="text-sm font-medium text-[var(--text-chat-body)] leading-snug flex-1 min-w-0 break-words">

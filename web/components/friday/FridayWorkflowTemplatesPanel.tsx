@@ -470,7 +470,7 @@ export default function FridayWorkflowTemplatesPanel() {
 
       <div className="shrink-0 px-2 py-1.5 border-b border-[var(--border-color)] flex items-center justify-between gap-2 bg-[var(--bg-secondary)]/40">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
-          Workflow templates
+          Workflow Templates
         </h3>
         <button
           type="button"

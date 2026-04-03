@@ -92,7 +92,7 @@ export default function FridayArchitecturePanel({
 
   const subTabs: { key: FridayArchitecturePane; label: string }[] = [
     { key: "infra", label: "Infrastructure" },
-    { key: "code", label: "Code graph" },
+    { key: "code", label: "Code Graph" },
   ];
 
   const codeSubTabs: { key: CodeVisual; label: string; hint: string }[] = [

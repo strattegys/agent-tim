@@ -6,6 +6,8 @@
  * `web/components/suzi/SuziWorkSubTabHeader.tsx` (keep wording agent-first; see PROJECT-MEMORY.md).
  */
 
+import { reminderPublicRef } from "./public-ref";
+
 export type SuziWorkSubTab = "dashboard" | "punchlist" | "reminders" | "notes" | "intake";
 
 /** Intake card the user highlighted (green border) — injected into chat context for Suzi. */
@@ -15,7 +17,9 @@ export type SuziFocusedIntake = {
   url: string | null;
   body: string | null;
   source: string;
-  /** Stable DB itemNumber on the card (same as `intake` tool `itemNumber`). */
+  /** Stable ref on the card (e.g. IN2001); same as intake tool `itemNumber` string. */
+  publicRef?: string;
+  /** Legacy numeric part; kept for storage and tools that still pass plain digits. */
   itemNumber?: number;
   /** Same string as the Intake tab search box when applied — pass as intake tool `filterQuery` with `itemNumber` if needed. */
   filterQuery?: string;
@@ -36,9 +40,12 @@ function formatFocusedIntakeSection(f: SuziFocusedIntake): string {
     "Treat questions like “what is this?”, “summarize this”, “what’s this about?”, or “what’s that link?” as referring to **this** item unless the user clearly means something else.",
     `- **id:** \`${f.id}\``,
   ];
-  if (f.itemNumber != null) {
+  const ref =
+    f.publicRef?.trim() ||
+    (f.itemNumber != null && f.itemNumber > 0 ? `IN${f.itemNumber}` : "");
+  if (ref) {
     lines.push(
-      `- **itemNumber (stable id):** ${f.itemNumber} (same as the # on the Intake card and intake tool \`itemNumber\`${f.filterQuery ? `; search box text for context: \`${f.filterQuery.replace(/`/g, "'")}\`` : ""}).`
+      `- **publicRef (stable id):** ${ref} (same as the badge on the Intake card; intake tool \`itemNumber\` — use **${ref}** or plain digits${f.filterQuery ? `; search box text for context: \`${f.filterQuery.replace(/`/g, "'")}\`` : ""}).`
     );
   }
   lines.push(`- **title:** ${f.title}`);
@@ -57,7 +64,7 @@ function formatFocusedIntakeSection(f: SuziFocusedIntake): string {
     "   - **description:** Preserve context — include a line **Intake title:** with the original title, then the **body** (and a **URL:** line if present). Nothing important should be lost.",
     "   - **rank:** **now** (or `1`) unless Govind names another column (Later, Next, …).",
     "   - **category:** Pick the best short tag from the content (`content`, `research`, `infra`, `ui`, `personal`, `agent`, …) unless Govind specified one.",
-    "2. Then call **intake** **archive** with **id** from above (preferred), or **itemNumber** matching the card #.",
+    "2. Then call **intake** **archive** with **id** from above (preferred), or **itemNumber** matching the card ref (e.g. IN2001).",
     "Do **both** tool calls in order; do not say “done” without executing them. Do not leave the capture in Intake after a successful promote.",
     "",
     "**How to help:** Summarize and explain from title/body. If the user wants detail from the link, use **web_search** when helpful. Use **intake** for **other** rows; this item’s text is above."
@@ -69,6 +76,8 @@ function formatFocusedIntakeSection(f: SuziFocusedIntake): string {
 export type SuziFocusedPunchList = {
   id: string;
   itemNumber: number;
+  /** e.g. PL1040 */
+  publicRef: string;
   title: string;
   description: string | null;
   category: string | null;
@@ -114,13 +123,14 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
     "",
     "### ACTIVE PUNCH LIST TARGET — Kanban selection (green ring) and Suzi context",
     "**If this section appears in context, Govind has that row selected for punch-list work** (green border / green ring on the Kanban card). **The Punch List Inspect panel, when open, is always for this same row** — the UI keeps them in sync. Phrases like **this card**, **the highlighted one**, **the green one**, **the one I have selected**, **the one in Inspect**, **this on screen**, **this item** mean **the row below** (use its **`id`** for **punch_list**), not some other card from chat history.",
-    "**This block is authoritative:** Do not infer focus from older messages or tool output. The **id** and **item_number** below describe the current punch target unless Govind explicitly names a different card.",
-    `**Default target for punch_list tools:** If the user says **this item**, **this card**, **this task**, **close this out**, **close it out**, **close this item**, **mark this done**, **mark it complete**, **finish this**, **it's a duplicate** (meaning dismiss this card), **the one I selected**, **the one I have open**, **correct that**, **update this title**, or similar **without** naming a different card number, pass **id**=\`${p.id}\` (preferred) or **item_number**="${p.itemNumber}". Do not substitute a # from chat history, a misread digit, or a **list** result — and **do not** ask “which number?” when this block is present unless they clearly mean a **different** card.`,
-    "**If they override the card:** When they clearly name a different item (e.g. “item 125”, “#125”, “work on one-two-five” meaning digits 1-2-5), use **that** \`item_number\` (or **list** then **id**) for that turn — not the focused **id**.",
-    "**Spoken digits (voice / casual):** “one two five” / “item one two five” means card **#125** (concatenate: 1, 2, 5). It does **not** mean #1025. “One oh two five” / “one zero two five” / “ten twenty-five” may mean **#1025**. If still ambiguous, ask once which # is on their card.",
+    "**This block is authoritative:** Do not infer focus from older messages or tool output. The **id**, **publicRef**, and **item_number** below describe the current punch target unless Govind explicitly names a different card.",
+    `**Default target for punch_list tools:** If the user says **this item**, **this card**, **this task**, **close this out**, **close it out**, **close this item**, **mark this done**, **mark it complete**, **finish this**, **it's a duplicate** (meaning dismiss this card), **the one I selected**, **the one I have open**, **correct that**, **update this title**, or similar **without** naming a different card ref, pass **id**=\`${p.id}\` (preferred) or **item_number**="${p.publicRef}" (or plain **${p.itemNumber}**). Do not substitute a ref from chat history, a misread digit, or a **list** result — and **do not** ask "which number?" when this block is present unless they clearly mean a **different** card.`,
+    "**If they override the card:** When they clearly name a different item (e.g. “PL125”, “item 125”, “#125”, “work on one-two-five” meaning digits 1-2-5), use **that** \`item_number\` (or **list** then **id**) for that turn — not the focused **id**.",
+    "**Spoken digits (voice / casual):** “one two five” / “item one two five” means card **PL125** / **125** (concatenate: 1, 2, 5). It does **not** mean 1025. “One oh two five” / “one zero two five” / “ten twenty-five” may mean **PL1025**. If still ambiguous, ask once which ref is on their card.",
     "Treat questions like “what is this task?”, “what should I do here?”, “expand on this”, or “what do the notes say?” as referring to **this** row unless the user clearly means another item.",
     `- **id:** \`${p.id}\``,
-    `- **item_number (focused):** ${p.itemNumber} — the **green-highlighted** card on the board is #${p.itemNumber}`,
+    `- **publicRef:** ${p.publicRef} — the **green-highlighted** card on the board`,
+    `- **item_number (numeric, same row):** ${p.itemNumber}`,
     `- **title:** ${p.title}`,
     `- **column:** ${p.columnLabel} (rank ${p.rank})`,
     `- **status:** ${p.status}`,
@@ -148,6 +158,8 @@ function formatFocusedPunchListSection(p: SuziFocusedPunchList): string {
 /** Reminder row highlighted in the Reminders tab — injected into chat context for Suzi. */
 export type SuziFocusedReminder = {
   id: string;
+  reminderNumber: number;
+  publicRef: string;
   title: string;
   description: string | null;
   category: string;
@@ -170,6 +182,7 @@ function formatFocusedReminderSection(r: SuziFocusedReminder): string {
     "### Focused Reminder (green border — selected row in Reminders tab)",
     "Treat “this reminder,” “the one I selected,” or “change the date on this” as **this** row unless the user names another.",
     `- **id:** \`${r.id}\` (use with **reminders** **update** / **delete**).`,
+    `- **public_ref:** ${r.publicRef} (same as **reminders** tool **public_ref**).`,
     `- **title:** ${r.title}`,
     `- **category:** ${r.category}`,
     r.nextDueAt
@@ -181,7 +194,7 @@ function formatFocusedReminderSection(r: SuziFocusedReminder): string {
       ? `- **description:**\n\`\`\`\n${descShown}\n\`\`\``
       : "- **description:** (empty)",
     "",
-    "**How to help:** Use **reminders** with **id** above for edits; do not guess another id.",
+    "**How to help:** Use **reminders** with **id** or **public_ref** above for edits; do not guess another id.",
   ].join("\n");
 }
 
@@ -189,6 +202,7 @@ function formatFocusedReminderSection(r: SuziFocusedReminder): string {
 export type SuziFocusedNote = {
   id: string;
   noteNumber: number;
+  publicRef: string;
   title: string;
   content: string | null;
   tag: string | null;
@@ -207,9 +221,9 @@ function formatFocusedNoteSection(n: SuziFocusedNote): string {
   return [
     "",
     "### Focused Note (green border — selected card in Notes tab)",
-    "Treat “this note,” “update this,” or “what does # say” as **this** note unless the user names another **note_number**.",
+    "Treat “this note,” “update this,” or “what does NT say” as **this** note unless the user names another ref.",
     `- **id:** \`${n.id}\``,
-    `- **note_number:** ${n.noteNumber} (use with **notes** **update** / **delete**).`,
+    `- **publicRef:** ${n.publicRef} (use as **notes** tool **note_number**; legacy numeric: ${n.noteNumber}).`,
     `- **title:** ${n.title}`,
     n.tag ? `- **tag:** ${n.tag}` : "- **tag:** (none)",
     `- **pinned:** ${n.pinned}`,
@@ -217,13 +231,15 @@ function formatFocusedNoteSection(n: SuziFocusedNote): string {
       ? `- **content:**\n\`\`\`\n${bodyShown}\n\`\`\``
       : "- **content:** (empty)",
     "",
-    "**How to help:** Use **notes** with **note_number** or **id** above; prefer **note_number** when editing.",
+    "**How to help:** Use **notes** with **note_number** (**publicRef** or plain digits) or **id** above.",
   ].join("\n");
 }
 
 /** Build focused context from a Reminders API row. */
 export function reminderToFocusedContext(r: {
   id: string;
+  reminderNumber?: number;
+  publicRef?: string;
   title: string;
   description: string | null;
   category: string;
@@ -231,8 +247,18 @@ export function reminderToFocusedContext(r: {
   recurrence: string | null;
   isActive: boolean;
 }): SuziFocusedReminder {
+  const reminderNumber =
+    typeof r.reminderNumber === "number" && Number.isFinite(r.reminderNumber)
+      ? Math.floor(r.reminderNumber)
+      : 0;
+  const publicRef = reminderPublicRef({
+    publicRef: r.publicRef,
+    reminderNumber,
+  });
   return {
     id: r.id,
+    reminderNumber,
+    publicRef,
     title: r.title,
     description: r.description,
     category: r.category,
@@ -246,14 +272,18 @@ export function reminderToFocusedContext(r: {
 export function noteToFocusedContext(n: {
   id: string;
   noteNumber: number;
+  publicRef?: string;
   title: string;
   content: string | null;
   tag: string | null;
   pinned: boolean;
 }): SuziFocusedNote {
+  const publicRef =
+    n.publicRef?.trim() || (n.noteNumber > 0 ? `NT${n.noteNumber}` : "NT0");
   return {
     id: n.id,
     noteNumber: n.noteNumber,
+    publicRef,
     title: n.title,
     content: n.content,
     tag: n.tag,
@@ -266,6 +296,7 @@ export function punchListItemToFocusedContext(
   item: {
     id: string;
     itemNumber: number;
+    publicRef?: string;
     title: string;
     description: string | null;
     category: string | null;
@@ -276,9 +307,11 @@ export function punchListItemToFocusedContext(
   },
   columnLabel: string
 ): SuziFocusedPunchList {
+  const publicRef = item.publicRef?.trim() || `PL${item.itemNumber}`;
   return {
     id: item.id,
     itemNumber: item.itemNumber,
+    publicRef,
     title: item.title,
     description: item.description,
     category: item.category,
@@ -347,7 +380,7 @@ const TABS: Record<SuziWorkSubTab, TabSpec> = {
     ids: "Same IDs as the underlying tab (punch item #, intake id, reminder id, note_number).",
   },
   punchlist: {
-    uiLabel: "Punch List",
+    uiLabel: "Work Board",
     primaryTool: "punch_list",
     purpose:
       "Engineering / ops tasks in Kanban columns (Now, Later, Next, Sometime, Backlog, Idea). Not calendar reminders, not reference notes, not Intake captures.",
@@ -462,7 +495,7 @@ export function formatSuziWorkPanelContext(input: SuziWorkPanelContextInput): st
     input.subTab === "punchlist"
       ? [
           "",
-          "**Execution rule (Punch List tab):** When the user asks to add, move, complete, archive, or list punch-list items, you must complete a **real** `punch_list` tool call in this turn (via the API). Do not only describe or show JSON — that does not change the board.",
+          "**Execution rule (Work Board tab):** When the user asks to add, move, complete, archive, or list punch-list items, you must complete a **real** `punch_list` tool call in this turn (via the API). Do not only describe or show JSON — that does not change the board.",
         ]
       : [];
 

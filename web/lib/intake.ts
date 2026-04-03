@@ -1,4 +1,5 @@
 import { query } from "./db";
+import { intakeDigitsFromToken, intakePublicRef } from "./public-ref";
 
 export type IntakeSource = "ui" | "agent" | "share" | "email";
 
@@ -6,6 +7,8 @@ export interface IntakeItem {
   id: string;
   /** Stable display / tool id (sequence); never changes for this row. */
   itemNumber: number;
+  /** Human-facing id, e.g. IN2001 (matches DB `publicRef` when migrated). */
+  publicRef: string;
   agentId: string;
   title: string;
   url: string | null;
@@ -90,6 +93,16 @@ export async function getIntakeByItemNumber(
   );
   if (rows.length === 0) return null;
   return rowToIntake(rows[0]);
+}
+
+/** Resolve by public ref (e.g. IN2001) or legacy plain item number string. */
+export async function getIntakeByPublicRef(
+  agentId: string,
+  ref: string
+): Promise<IntakeItem | null> {
+  const n = intakeDigitsFromToken(ref);
+  if (n == null) return null;
+  return getIntakeByItemNumber(agentId, n);
 }
 
 export async function addIntake(
@@ -188,6 +201,10 @@ function rowToIntake(row: Record<string, unknown>): IntakeItem {
   return {
     id: row.id as string,
     itemNumber,
+    publicRef: intakePublicRef({
+      publicRef: row.publicRef as string | undefined,
+      itemNumber,
+    }),
     agentId: row.agentId as string,
     title: row.title as string,
     url: (row.url as string) || null,

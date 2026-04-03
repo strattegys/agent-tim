@@ -2,13 +2,15 @@
 
 import { useCallback, useState } from "react";
 import useSWR from "swr";
+import type { AgentConfig } from "@/lib/agent-frontend";
+import KingDashboardPanel from "./KingDashboardPanel";
 import type {
   CostSummaryResponse,
   UsageWarehouseCoverage,
 } from "@/lib/usage-event-summary-types";
 
-/** Work tabs inside King’s work panel — extend when adding surfaces (e.g. invoices). */
-export type KingWorkTab = "cost-usage";
+/** Work tabs inside King’s work panel — Dashboard first (like Suzi), then Cost Usage. */
+export type KingWorkTab = "dashboard" | "cost-usage";
 
 /** Hours between warehouse min and max occurredAt (null if unknown). */
 function warehouseSpanHours(coverage: {
@@ -46,8 +48,8 @@ function KingWarehouseCoverage({ coverage }: { coverage: UsageWarehouseCoverage 
   );
 }
 
-export default function KingCostPanel() {
-  const [workTab, setWorkTab] = useState<KingWorkTab>("cost-usage");
+export default function KingCostPanel({ agent: _agent }: { agent: AgentConfig }) {
+  const [workTab, setWorkTab] = useState<KingWorkTab>("dashboard");
   const [days, setDays] = useState(30);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
@@ -105,6 +107,17 @@ export default function KingCostPanel() {
       <div className="h-10 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] flex items-center px-3 gap-2">
         <button
           type="button"
+          onClick={() => setWorkTab("dashboard")}
+          className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
+            workTab === "dashboard"
+              ? "font-semibold text-[var(--text-primary)]"
+              : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+          }`}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
           onClick={() => setWorkTab("cost-usage")}
           className={`text-xs px-2 py-1 rounded cursor-pointer transition-colors ${
             workTab === "cost-usage"
@@ -112,9 +125,11 @@ export default function KingCostPanel() {
               : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
           }`}
         >
-          Cost-Usage
+          Cost Usage
         </button>
       </div>
+
+      {workTab === "dashboard" && <KingDashboardPanel />}
 
       {/* Active tab: toolbar + content (additional tabs render their own blocks here) */}
       {workTab === "cost-usage" && (

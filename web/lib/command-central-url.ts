@@ -17,7 +17,8 @@ export type CommandCentralRightPanel =
   | "costs"
   | "marni-work"
   | "agent-knowledge"
-  | "scout-campaigns";
+  | "scout-campaigns"
+  | "penny-work";
 
 export const VALID_COMMAND_CENTRAL_RIGHT_PANELS: CommandCentralRightPanel[] = [
   "info",
@@ -31,6 +32,7 @@ export const VALID_COMMAND_CENTRAL_RIGHT_PANELS: CommandCentralRightPanel[] = [
   "marni-work",
   "agent-knowledge",
   "scout-campaigns",
+  "penny-work",
 ];
 
 export const FRIDAY_WORK_DASHBOARD_PANELS = new Set<string>([
@@ -113,6 +115,7 @@ export function rightPanelToSearchParam(
   if (agent === "friday" && rp === "dashboard") {
     return fridayDashboardTabToPanelParam(fridayTab);
   }
+  if (rp === "dashboard") return "dashboard";
   if (rp === "info") return "info";
   if (rp === "messages") return "messages";
   if (rp === "reminders") return "reminders";
@@ -123,6 +126,7 @@ export function rightPanelToSearchParam(
   if (rp === "agent-knowledge") return "knowledge";
   if (rp === "kanban") return "kanban";
   if (rp === "scout-campaigns") return "scout-campaigns";
+  if (rp === "penny-work") return "penny-work";
   return null;
 }
 

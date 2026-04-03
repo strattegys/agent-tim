@@ -9,7 +9,7 @@ const TAB_ORDER: SuziWorkSubTab[] = ["dashboard", "punchlist", "intake", "remind
 const TAB_LABEL: Record<SuziWorkSubTab, string> = {
   dashboard: "Dashboard",
   intake: "Intake",
-  punchlist: "Punch List",
+  punchlist: "Work Board",
   reminders: "Reminders",
   notes: "Notes",
 };

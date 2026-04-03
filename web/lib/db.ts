@@ -1,6 +1,7 @@
 import fs from "fs";
 import { getLocalRuntimeLabel } from "./app-brand";
 import { devQuery, devTransaction } from "./dev-store";
+import { recordDbLatency } from "./perf-metrics";
 
 function isInsideLinuxDocker(): boolean {
   try {
@@ -99,6 +100,7 @@ function crmPoolOptions(): {
   database: string;
   user: string;
   password: string | undefined;
+  options: string;
   max: number;
   connectionTimeoutMillis: number;
   keepAlive: boolean;
@@ -123,6 +125,7 @@ function crmPoolOptions(): {
       database: process.env.CRM_DB_NAME || "default",
       user: process.env.CRM_DB_USER || "postgres",
       password: process.env.CRM_DB_PASSWORD,
+      options: `-c search_path=${SCHEMA},public`,
       max: Number.isFinite(max) && max > 0 ? max : 5,
       connectionTimeoutMillis:
         Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
@@ -157,6 +160,7 @@ function crmPoolOptions(): {
       database: process.env.CRM_DB_NAME || "default",
       user: process.env.CRM_DB_USER || "postgres",
       password: process.env.CRM_DB_PASSWORD,
+      options: `-c search_path=${SCHEMA},public`,
       max: Number.isFinite(max) && max > 0 ? max : 5,
       connectionTimeoutMillis:
         Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
@@ -183,6 +187,7 @@ function crmPoolOptions(): {
       database: process.env.CRM_DB_NAME || "default",
       user: process.env.CRM_DB_USER || "postgres",
       password: process.env.CRM_DB_PASSWORD,
+      options: `-c search_path=${SCHEMA},public`,
       max: Number.isFinite(max) && max > 0 ? max : 5,
       connectionTimeoutMillis:
         Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
@@ -230,6 +235,7 @@ function crmPoolOptions(): {
     database: process.env.CRM_DB_NAME || "default",
     user: process.env.CRM_DB_USER || "postgres",
     password: process.env.CRM_DB_PASSWORD,
+    options: `-c search_path=${SCHEMA},public`,
     max: Number.isFinite(max) && max > 0 ? max : 5,
     connectionTimeoutMillis:
       Number.isFinite(connectionTimeoutMillis) && connectionTimeoutMillis > 0
@@ -383,7 +389,6 @@ async function runPooledQuery<T extends Record<string, unknown>>(
 ): Promise<T[]> {
   const client = await connectCrmClient();
   try {
-    await client.query(`SET search_path TO "${SCHEMA}", public`);
     const result = await client.query(sql, params);
     return result.rows as T[];
   } finally {
@@ -393,6 +398,7 @@ async function runPooledQuery<T extends Record<string, unknown>>(
 
 const CRM_TRANSIENT_MAX_RETRIES = 3;
 const CRM_TRANSIENT_BASE_DELAY_MS = 500;
+const DB_SLOW_QUERY_MS = Math.max(50, parseInt(process.env.CC_DB_SLOW_QUERY_MS || "700", 10) || 700);
 
 /** True when CRM `query()` uses `.dev-store` JSON (no `CRM_DB_PASSWORD`). */
 export function crmUsesJsonDevStore(): boolean {
@@ -403,6 +409,7 @@ export async function query<T extends Record<string, unknown> = Record<string, u
   sql: string,
   params?: unknown[]
 ): Promise<T[]> {
+  const t0 = Date.now();
   if (USE_DEV_STORE) {
     if (
       process.env.NODE_ENV === "development" &&
@@ -414,15 +421,35 @@ export async function query<T extends Record<string, unknown> = Record<string, u
           "Add CRM_DB_* to web/.env.local (and restart `next dev`) to use the same database as `npm run db:exec`."
       );
     }
-    return devQuery(sql, params) as Promise<T[]>;
+    try {
+      const rows = (await devQuery(sql, params)) as T[];
+      const ms = Date.now() - t0;
+      recordDbLatency(ms, true);
+      if (ms >= DB_SLOW_QUERY_MS) {
+        console.info(`[perf][db] slow (dev-store) ${ms}ms :: ${sql.replace(/\s+/g, " ").slice(0, 140)}`);
+      }
+      return rows;
+    } catch (e) {
+      recordDbLatency(Date.now() - t0, false);
+      throw e;
+    }
   }
 
   let lastError: unknown;
   for (let attempt = 0; attempt <= CRM_TRANSIENT_MAX_RETRIES; attempt++) {
     try {
-      return await runPooledQuery<T>(sql, params);
+      const rows = await runPooledQuery<T>(sql, params);
+      const ms = Date.now() - t0;
+      recordDbLatency(ms, true);
+      if (ms >= DB_SLOW_QUERY_MS) {
+        console.info(`[perf][db] slow ${ms}ms :: ${sql.replace(/\s+/g, " ").slice(0, 140)}`);
+      }
+      return rows;
     } catch (e) {
-      if (!isTransientCrmConnectionError(e)) throw e;
+      if (!isTransientCrmConnectionError(e)) {
+        recordDbLatency(Date.now() - t0, false);
+        throw e;
+      }
       lastError = e;
       await resetCrmPoolForReconnect();
       if (attempt < CRM_TRANSIENT_MAX_RETRIES) {
@@ -431,6 +458,7 @@ export async function query<T extends Record<string, unknown> = Record<string, u
       }
     }
   }
+  recordDbLatency(Date.now() - t0, false);
   throw lastError;
 }
 
@@ -442,7 +470,6 @@ export async function transaction<T>(
 
   const client = await connectCrmClient();
   try {
-    await client.query(`SET search_path TO "${SCHEMA}", public`);
     await client.query("BEGIN");
     const result = await fn((sql, params) => client.query(sql, params));
     await client.query("COMMIT");

@@ -31,6 +31,7 @@ import {
   fetchTimLinkedInInboundFeedRows,
   type TimLinkedInInboundFeedRow,
 } from "@/lib/tim-linkedin-inbound-feed";
+import { recordUiLatency } from "@/lib/perf-metrics";
 
 /**
  * GET /api/crm/human-tasks?packageStage=ACTIVE&ownerAgent=tim&messagingOnly=true
@@ -900,6 +901,8 @@ async function buildTimLinkedinInboundFeedTaskPayloads(
 }
 
 export async function GET(req: NextRequest) {
+  const reqStartedAt = Date.now();
+  let reqOk = true;
   const packageStageFilter = req.nextUrl.searchParams.get("packageStage");
   const ownerAgentFilter = req.nextUrl.searchParams.get("ownerAgent")?.trim().toLowerCase() || null;
   const sourceTypeFilter = req.nextUrl.searchParams.get("sourceType")?.trim().toLowerCase() || null;
@@ -938,6 +941,9 @@ export async function GET(req: NextRequest) {
     linkedinInboundFeedParam == null ||
     linkedinInboundFeedParam === "1" ||
     linkedinInboundFeedParam.toLowerCase() === "true";
+  const fastQueueMode =
+    req.nextUrl.searchParams.get("fast") === "1" ||
+    req.nextUrl.searchParams.get("fast")?.toLowerCase() === "true";
   const messagingInboundOnly =
     ownerAgentFilter === "tim" &&
     (req.nextUrl.searchParams.get("messagingInboundOnly") === "1" ||
@@ -1137,22 +1143,24 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
-      const stageKeyR = row.stage?.trim().toUpperCase() || "";
-      if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyR)) continue;
-      const workflowTypeIdR =
-        resolveWorkflowRegistryForQueueWithCustomMap(
-          row.spec,
-          {
-            packageSpec: row.packageId ? packageSpecs[row.packageId] : undefined,
-            ownerAgent: row.ownerAgent,
-            boardStages: row.board_stages,
-          },
-          customWfMap
-        ) || "";
-      const patched = await repairWarmAwaitingDiscoveryRow(row, workflowTypeIdR);
-      if (patched) rows[i] = patched;
+    if (!fastQueueMode) {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const stageKeyR = row.stage?.trim().toUpperCase() || "";
+        if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyR)) continue;
+        const workflowTypeIdR =
+          resolveWorkflowRegistryForQueueWithCustomMap(
+            row.spec,
+            {
+              packageSpec: row.packageId ? packageSpecs[row.packageId] : undefined,
+              ownerAgent: row.ownerAgent,
+              boardStages: row.board_stages,
+            },
+            customWfMap
+          ) || "";
+        const patched = await repairWarmAwaitingDiscoveryRow(row, workflowTypeIdR);
+        if (patched) rows[i] = patched;
+      }
     }
 
     const personSourceIds = [
@@ -1181,37 +1189,39 @@ export async function GET(req: NextRequest) {
       ]);
 
     const personIdsToRefetch = new Set<string>();
-    for (const item of rows) {
-      const stageKeyPre = item.stage?.trim().toUpperCase() || "";
-      if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyPre)) continue;
-      if (item.sourceType !== "person" || !item.sourceId) continue;
-      const workflowTypeIdPre =
-        resolveWorkflowRegistryForQueueWithCustomMap(
-          item.spec,
-          {
-            packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
-            ownerAgent: item.ownerAgent,
-            boardStages: item.board_stages,
-          },
-          customWfMap
-        ) || "";
-      const pPre = personRowsMap.get(item.sourceId);
-      if (!pPre) continue;
-      const fnPre = (pPre.firstName || "").trim();
-      const lnPre = (pPre.lastName || "").trim();
-      if (
-        itemLooksLikeWarmOutreachResolved(workflowTypeIdPre, item) &&
-        fnPre === "Next" &&
-        lnPre === "Contact"
-      ) {
-        const healLogs: string[] = [];
-        const healed = await tryHealWarmPersonFromAwaitingArtifact(item.id, item.sourceId, healLogs);
-        if (healed) personIdsToRefetch.add(item.sourceId);
-        if (healLogs.length) console.info("[human-tasks] warm heal:", healLogs.join(" "));
+    if (!fastQueueMode) {
+      for (const item of rows) {
+        const stageKeyPre = item.stage?.trim().toUpperCase() || "";
+        if (messagingOnly && !MESSAGING_ITEM_STAGES.has(stageKeyPre)) continue;
+        if (item.sourceType !== "person" || !item.sourceId) continue;
+        const workflowTypeIdPre =
+          resolveWorkflowRegistryForQueueWithCustomMap(
+            item.spec,
+            {
+              packageSpec: item.packageId ? packageSpecs[item.packageId] : undefined,
+              ownerAgent: item.ownerAgent,
+              boardStages: item.board_stages,
+            },
+            customWfMap
+          ) || "";
+        const pPre = personRowsMap.get(item.sourceId);
+        if (!pPre) continue;
+        const fnPre = (pPre.firstName || "").trim();
+        const lnPre = (pPre.lastName || "").trim();
+        if (
+          itemLooksLikeWarmOutreachResolved(workflowTypeIdPre, item) &&
+          fnPre === "Next" &&
+          lnPre === "Contact"
+        ) {
+          const healLogs: string[] = [];
+          const healed = await tryHealWarmPersonFromAwaitingArtifact(item.id, item.sourceId, healLogs);
+          if (healed) personIdsToRefetch.add(item.sourceId);
+          if (healLogs.length) console.info("[human-tasks] warm heal:", healLogs.join(" "));
+        }
       }
     }
 
-    if (ownerAgentFilter === "tim" && messagingOnly) {
+    if (!fastQueueMode && ownerAgentFilter === "tim" && messagingOnly) {
       const linkedInHealStages = new Set(["CONNECTION_ACCEPTED", "LINKEDIN_INBOUND"]);
       const firstItemIdByPerson = new Map<string, string>();
       for (const item of rows) {
@@ -1689,6 +1699,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ tasks, count });
   } catch (error) {
+    reqOk = false;
     if (errCode(error) === "42P01" && errMsg(error).includes("_workflow_item")) {
       console.warn(
         "[human-tasks] _workflow_item missing — run web/scripts/migrate-workflows.sql on the CRM database"
@@ -1701,5 +1712,11 @@ export async function GET(req: NextRequest) {
     }
     console.error("[human-tasks] GET error:", error);
     return NextResponse.json({ error: "Failed to fetch human tasks" }, { status: 500 });
+  } finally {
+    const ms = Date.now() - reqStartedAt;
+    recordUiLatency(ms, reqOk);
+    console.info(
+      `[perf][api/human-tasks] ${reqOk ? "ok" : "error"} ${ms}ms query="${req.nextUrl.searchParams.toString()}"`
+    );
   }
 }

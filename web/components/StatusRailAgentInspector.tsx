@@ -4,16 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import type { AgentConfig } from "@/lib/agent-frontend";
 import { getAgentSpec } from "@/lib/agent-registry";
 
-type CronJobRow = {
-  id: string;
-  name: string;
-  schedule: string;
-  description: string;
-  lastRun: string | null;
-  lastResult: string | null;
-  enabled: boolean;
-};
-
 /**
  * Compact agent ops in the status rail when the main work column is not showing AgentInfoPanel.
  */
@@ -25,31 +15,12 @@ export default function StatusRailAgentInspector({
   /** When true (e.g. work panel is on full Agent info), omit this block to avoid duplication. */
   hidden: boolean;
 }) {
-  const [jobs, setJobs] = useState<CronJobRow[]>([]);
-  const [cronLoading, setCronLoading] = useState(true);
   const [promptOpen, setPromptOpen] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [promptLoading, setPromptLoading] = useState(false);
   const [promptError, setPromptError] = useState<string | null>(null);
 
   const closePrompt = useCallback(() => setPromptOpen(false), []);
-
-  useEffect(() => {
-    if (hidden) return;
-    const ac = new AbortController();
-    setCronLoading(true);
-    fetch(`/api/cron-status?agent=${encodeURIComponent(activeAgent.id)}`, {
-      credentials: "include",
-      signal: ac.signal,
-    })
-      .then((r) => r.json())
-      .then((data: { jobs?: CronJobRow[] }) => {
-        setJobs(Array.isArray(data.jobs) ? data.jobs : []);
-      })
-      .catch(() => setJobs([]))
-      .finally(() => setCronLoading(false));
-    return () => ac.abort();
-  }, [activeAgent.id, hidden]);
 
   useEffect(() => {
     if (!promptOpen) return;
@@ -101,49 +72,8 @@ export default function StatusRailAgentInspector({
           </button>
         </div>
         <p className="text-[8px] leading-snug text-[var(--text-tertiary)] font-mono mb-2">
-          While the work panel is not on full Agent info, cron and tools for the selected agent appear here.
+          While the work panel is not on full Agent info, tool connections for the selected agent appear here.
         </p>
-
-        <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
-          Cron
-        </div>
-        {cronLoading ? (
-          <p className="font-mono text-[9px] text-[var(--text-tertiary)] mb-2">Loading…</p>
-        ) : jobs.length === 0 ? (
-          <p className="font-mono text-[9px] text-[var(--text-tertiary)] mb-2">No jobs for this agent</p>
-        ) : (
-          <ul className="mb-2 max-h-40 overflow-y-auto space-y-1.5 font-mono text-[9px] leading-snug">
-            {jobs.map((job) => (
-              <li key={job.id} className="border-b border-[var(--border-color)] pb-1.5 last:border-0 last:pb-0">
-                <div className="flex items-start gap-1 min-w-0">
-                  <span
-                    className="w-1.5 h-1.5 rounded-full shrink-0 mt-0.5"
-                    style={{
-                      background: !job.lastRun
-                        ? "#6b7280"
-                        : job.lastResult === "success"
-                          ? "#1D9E75"
-                          : "#E54D2E",
-                    }}
-                    title={job.lastResult || "Not yet run"}
-                  />
-                  <span className="min-w-0 flex-1 text-[var(--text-secondary)]">
-                    <span className="text-[var(--text-primary)] font-medium">{job.name}</span>
-                    <span className="block text-[var(--accent-blue)] mt-0.5">{job.schedule}</span>
-                    {job.description ? (
-                      <span className="block text-[var(--text-tertiary)] mt-0.5 line-clamp-2">{job.description}</span>
-                    ) : null}
-                    {job.lastRun ? (
-                      <span className="block text-[var(--text-tertiary)] mt-0.5">
-                        Last: {new Date(job.lastRun).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" })}
-                      </span>
-                    ) : null}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
 
         <div className="text-[9px] font-semibold uppercase tracking-wider text-[var(--text-tertiary)] mb-1">
           Tools

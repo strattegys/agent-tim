@@ -9,6 +9,7 @@ import {
 } from "@/lib/db";
 import { normalizeUnipileDsn } from "@/lib/unipile-profile";
 import { isLinkedInAutomationDisabled } from "@/lib/linkedin-automation-gate";
+import { getPerfSnapshot, recordServiceLatency, recordUiLatency } from "@/lib/perf-metrics";
 
 export const runtime = "nodejs";
 
@@ -142,6 +143,7 @@ async function probeHttp(
     });
     clearTimeout(timer);
     const ms = Date.now() - t0;
+    recordServiceLatency(ms, res.ok || (res.status >= 300 && res.status < 400) || res.status === 401 || res.status === 403);
     if (res.ok || (res.status >= 300 && res.status < 400) || res.status === 401 || res.status === 403) {
       return { id, label, status: "ok", ms };
     }
@@ -149,6 +151,7 @@ async function probeHttp(
   } catch (e) {
     clearTimeout(timer);
     const msg = e instanceof Error ? e.message : String(e);
+    recordServiceLatency(Date.now() - t0, false);
     return { id, label, status: "down", detail: msg.includes("abort") ? "timeout" : msg.slice(0, 48) };
   }
 }
@@ -202,6 +205,7 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
     const ms = Date.now() - t0;
     await client.end();
     if (!rows[0]?.ok) {
+      recordServiceLatency(ms, false);
       return {
         id: DATA_PLATFORM_ID,
         label: DATA_PLATFORM_LABEL,
@@ -211,6 +215,7 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
           `schema incomplete (no _workflow_item) — run web/scripts/migrate-workflows.sql on this CRM DB · ${tierHint}`,
       };
     }
+    recordServiceLatency(ms, true);
     return {
       id: DATA_PLATFORM_ID,
       label: DATA_PLATFORM_LABEL,
@@ -257,6 +262,7 @@ async function probeCrmPostgres(): Promise<ProbeResult> {
         );
       }
     }
+    recordServiceLatency(Date.now() - t0, false);
     return {
       id: DATA_PLATFORM_ID,
       label: DATA_PLATFORM_LABEL,
@@ -325,6 +331,7 @@ async function probeUnipile(): Promise<ProbeResult> {
     });
     clearTimeout(timer);
     const ms = Date.now() - t0;
+    recordServiceLatency(ms, res.ok);
 
     if (res.ok) {
       let detail = accountId ? `acct ${accountId.slice(0, 8)}…` : "API OK";
@@ -376,6 +383,7 @@ async function probeUnipile(): Promise<ProbeResult> {
   } catch (e) {
     clearTimeout(timer);
     const msg = e instanceof Error ? e.message : String(e);
+    recordServiceLatency(Date.now() - t0, false);
     return {
       id,
       label,
@@ -392,6 +400,7 @@ async function computeSystemStatusPayload(): Promise<{
   checkedAt: string;
   services: ProbeResult[];
   alerts: SystemStatusAlert[];
+  perf: ReturnType<typeof getPerfSnapshot>;
 }> {
   const siteArticles = process.env.SITE_API_URL?.trim() || "https://strattegys.com/api/articles";
   let siteOrigin = "https://strattegys.com";
@@ -451,6 +460,7 @@ async function computeSystemStatusPayload(): Promise<{
     checkedAt: new Date().toISOString(),
     services,
     alerts: buildSystemAlerts(),
+    perf: getPerfSnapshot(),
   };
 }
 
@@ -458,6 +468,7 @@ function degradedPayload(message: string): {
   checkedAt: string;
   services: ProbeResult[];
   alerts: SystemStatusAlert[];
+  perf: ReturnType<typeof getPerfSnapshot>;
 } {
   let alerts: SystemStatusAlert[] = [];
   try {
@@ -468,6 +479,7 @@ function degradedPayload(message: string): {
   return {
     checkedAt: new Date().toISOString(),
     alerts,
+    perf: getPerfSnapshot(),
     services: [
       { id: "web", label: "Command Central", status: "ok", ms: 0 },
       {
@@ -506,12 +518,19 @@ function degradedPayload(message: string): {
 
 /** GET /api/system-status — lightweight reachability checks (server-side only). */
 export async function GET() {
+  const t0 = Date.now();
   try {
     const payload = await computeSystemStatusPayload();
+    const ms = Date.now() - t0;
+    recordUiLatency(ms, true);
+    console.info(`[perf][api/system-status] ${ms}ms`);
     return NextResponse.json(payload);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("[api/system-status] uncaught", e);
+    const ms = Date.now() - t0;
+    recordUiLatency(ms, false);
+    console.warn(`[perf][api/system-status] failed ${ms}ms :: ${msg.slice(0, 120)}`);
     return NextResponse.json(
       degradedPayload(`Status handler crashed — check web server logs: ${msg}`)
     );

@@ -46,6 +46,21 @@ interface SystemNotice {
   message: string;
 }
 
+interface PerfBucketSummary {
+  count: number;
+  errors: number;
+  lastMs: number;
+  avgMs: number;
+  p95Ms: number;
+  lastAt: string | null;
+}
+
+interface PerfSnapshot {
+  db: PerfBucketSummary;
+  service: PerfBucketSummary;
+  ui: PerfBucketSummary;
+}
+
 function serviceSubline(s: ServiceRow): string {
   if (s.status === "down") return s.detail || "unreachable";
   if (s.status === "skipped") return s.detail || "not configured";
@@ -181,7 +196,7 @@ interface StatusRailProps {
   labMode?: StatusRailLabMode;
   /** Shown in the rail header when `labMode` is `devNeutral` (e.g. active agent display name). */
   devLayoutAgentLabel?: string | null;
-  /** Selected chat agent — drives the compact cron/tools block in the rail. */
+  /** Selected chat agent — drives the compact tools/system-prompt block in the rail. */
   activeAgent: AgentConfig;
   /** When true, the main column shows full Agent info; rail hides the compact block to avoid duplication. */
   workPanelShowsFullAgentInfo: boolean;
@@ -375,6 +390,7 @@ export default function StatusRail({
   const [systemStatusFetchHint, setSystemStatusFetchHint] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<NotificationRow[]>([]);
   const [systemNotices, setSystemNotices] = useState<SystemNotice[]>([]);
+  const [perfSnapshot, setPerfSnapshot] = useState<PerfSnapshot | null>(null);
   const [reconnectBusy, setReconnectBusy] = useState(false);
   const [reconnectNote, setReconnectNote] = useState<string | null>(null);
   const [agentOps, setAgentOps] = useState<Record<string, StatusRailAgentRow> | null>(null);
@@ -425,11 +441,12 @@ export default function StatusRail({
   }, []);
 
   const fetchStatus = useCallback(() => {
+    const reqStartedAt = Date.now();
     const ac = new AbortController();
     const tid = window.setTimeout(() => ac.abort(), SYSTEM_STATUS_FETCH_MS);
     fetch("/api/system-status", { credentials: "include", signal: ac.signal })
       .then(async (r) => {
-        let data: { services?: unknown; alerts?: unknown; error?: string } = {};
+        let data: { services?: unknown; alerts?: unknown; error?: string; perf?: unknown } = {};
         try {
           data = (await r.json()) as typeof data;
         } catch {
@@ -462,6 +479,7 @@ export default function StatusRail({
           ]);
           if (Array.isArray(data.alerts)) setSystemNotices(data.alerts as SystemNotice[]);
           else setSystemNotices([]);
+          if (data.perf && typeof data.perf === "object") setPerfSnapshot(data.perf as PerfSnapshot);
           return;
         }
 
@@ -470,6 +488,10 @@ export default function StatusRail({
         else setServices([]);
         if (Array.isArray(data.alerts)) setSystemNotices(data.alerts as SystemNotice[]);
         else setSystemNotices([]);
+        if (data.perf && typeof data.perf === "object") setPerfSnapshot(data.perf as PerfSnapshot);
+        else setPerfSnapshot(null);
+        const elapsedMs = Date.now() - reqStartedAt;
+        console.info(`[perf][ui/status-rail] /api/system-status ${elapsedMs}ms`);
       })
       .catch((e) => {
         const aborted = e instanceof DOMException && e.name === "AbortError";
@@ -516,9 +538,34 @@ export default function StatusRail({
           setServices([]);
         }
         setSystemNotices([]);
+        setPerfSnapshot(null);
       })
       .finally(() => clearTimeout(tid));
   }, []);
+
+  const perfFooter = useMemo(() => {
+    if (!perfSnapshot) {
+      return {
+        ui: "avg --ms  p95 --ms",
+        db: "avg --ms  p95 --ms",
+        svc: "avg --ms  p95 --ms",
+        err: "0/0",
+        sampleCount: 0,
+      };
+    }
+    const db = perfSnapshot.db;
+    const svc = perfSnapshot.service;
+    const ui = perfSnapshot.ui;
+    const totalErrors = ui.errors + db.errors + svc.errors;
+    const totalCount = ui.count + db.count + svc.count;
+    return {
+      ui: `avg ${ui.avgMs}ms  p95 ${ui.p95Ms}ms`,
+      db: `avg ${db.avgMs}ms  p95 ${db.p95Ms}ms`,
+      svc: `avg ${svc.avgMs}ms  p95 ${svc.p95Ms}ms`,
+      err: `${totalErrors}/${totalCount}`,
+      sampleCount: totalCount,
+    };
+  }, [perfSnapshot]);
 
   const fetchNotifications = useCallback(() => {
     fetch("/api/notifications")
@@ -805,6 +852,27 @@ export default function StatusRail({
         />
         </div>
         )}
+      </div>
+      <div className="shrink-0 border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-2.5 py-2">
+        <div className="grid grid-cols-3 gap-x-3 gap-y-1 font-mono text-[9px] leading-snug">
+          <p className="text-[var(--text-tertiary)]">
+            <span className="text-[var(--text-secondary)] font-semibold">UI</span>{" "}
+            {perfFooter.ui}
+          </p>
+          <p className="text-[var(--text-tertiary)]">
+            <span className="text-[var(--text-secondary)] font-semibold">DB</span>{" "}
+            {perfFooter.db}
+          </p>
+          <p className="text-[var(--text-tertiary)]">
+            <span className="text-[var(--text-secondary)] font-semibold">SVC</span>{" "}
+            {perfFooter.svc}
+          </p>
+        </div>
+        <p className="mt-1 font-mono text-[9px] leading-snug text-[var(--text-tertiary)]">
+          <span className="text-[var(--text-secondary)] font-semibold">Errors</span> {perfFooter.err}
+          {"  "}·{"  "}
+          <span className="text-[var(--text-secondary)] font-semibold">Samples</span> {perfFooter.sampleCount}
+        </p>
       </div>
     </div>
   );

@@ -395,7 +395,7 @@ function workflowTypeFilterLabel(wt: string): string {
 
 const POLL_INTERVAL_MS = 30_000;
 const POLL_INTERVAL_HIDDEN_MS = 120_000;
-const TIM_QUEUE_PAGE = 120;
+const TIM_QUEUE_PAGE = 80;
 /** Cards per page in the sidebar list (keep DOM small). */
 const TIM_QUEUE_LIST_PAGE_SIZE = 5;
 /** Workflow rows only — skips linkedinInboundFeed on the server (faster first paint). */
@@ -415,6 +415,7 @@ async function fetchTimWorkflowPage(): Promise<TimTasksPage> {
     ownerAgent: "tim",
     messagingOnly: "1",
     linkedinInboundFeed: "0",
+    fast: "1",
     limit: String(TIM_QUEUE_PAGE),
     offset: "0",
   });
@@ -681,6 +682,7 @@ export default function TimMessagesPanel({
         ownerAgent: "tim",
         messagingOnly: "1",
         linkedinInboundFeed: "0",
+        fast: "1",
         limit: String(TIM_QUEUE_PAGE),
         offset: String(swrPage.nextOffset),
       });

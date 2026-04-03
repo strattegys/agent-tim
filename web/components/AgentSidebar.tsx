@@ -19,6 +19,7 @@ interface AgentSidebarProps {
   timMessagingTaskCount?: number;
   timUnifiedMessagingCount?: number;
   ghostContentTaskCount?: number;
+  marniWorkQueueCount?: number;
   suziDueReminderCount?: number;
 }
 
@@ -30,12 +31,14 @@ export default function AgentSidebar({
   timMessagingTaskCount = 0,
   timUnifiedMessagingCount = 0,
   ghostContentTaskCount = 0,
+  marniWorkQueueCount = 0,
   suziDueReminderCount = 0,
 }: AgentSidebarProps) {
   const workBadges = {
     timMessagingTaskCount,
     timUnifiedMessagingCount,
     ghostContentTaskCount,
+    marniWorkQueueCount,
     suziDueReminderCount,
   };
   return (

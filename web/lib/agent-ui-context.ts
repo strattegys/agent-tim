@@ -42,6 +42,8 @@ export interface AgentUiContextInput {
    * Ghost: when a content-queue row is selected, `formatGhostWorkQueueContext` fills workQueueContext.
    */
   ghostHasWorkQueueSelection?: boolean;
+  /** Marni: distribution work-queue row selected (work panel queue tab). */
+  marniHasWorkQueueSelection?: boolean;
   fridayTab?: FridayDashboardTab;
   /** Friday Architecture tab: which inner pane is active. */
   fridayArchitecturePane?: FridayArchitecturePane;
@@ -57,6 +59,8 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   if (agentId === "suzi") return null;
 
   if (agentId === "ghost" && input.ghostHasWorkQueueSelection) return null;
+
+  if (agentId === "marni" && input.marniHasWorkQueueSelection) return null;
 
   // Tim: never duplicate or dilute row-level instructions
   if (agentId === "tim") {
@@ -134,7 +138,7 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
   if (rightPanel === "marni-work" && agentId === "marni") {
     return (
       "## Marni — UI (this message only)\n" +
-      "Work panel — **Work queue** (distribution pipeline board). Knowledge base: **book** icon next to Agent info. Use workflow_items for content-distribution as in your prompt."
+      "Work panel is open — **Work queue** tab lists distribution items; **Board** is the Kanban. With **no** row selected, pick a queue item to ground LinkedIn draft work. Knowledge base: **book** icon. Use workflow_items for content-distribution as in your prompt."
     );
   }
 

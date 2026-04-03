@@ -49,6 +49,7 @@ import {
  * - ownerAgent=tim (default): packaged workflows only if `_package` exists and `stage` is ACTIVE; `packageId` IS NULL still shows (general inbox, connection intake, etc.). Pass includeInactivePackages=1 to include non-ACTIVE packages (planner / ops).
  * - ownerAgent=tim + humanTaskOpen column: queue is **human steps only** (`humanTaskOpen = true`), plus warm-outreach **MESSAGED** (waiting on LinkedIn; flag intentionally false — see syncHumanTaskOpenForItem).
  * - limit / offset — with ownerAgent=tim on full GET (not summary): paginate (default limit 80, max 150). Response includes hasMore and nextOffset when applicable.
+ * - distributionOnly=1 + ownerAgent=marni: content-distribution pipeline queue (all stages RECEIVED→POSTED) with humanTaskOpen rows plus POSTED rows with future dueDate (scheduled). Paginated (default limit 80, max 150).
  * - messagingOnly=1 + ownerAgent=tim: rows ordered by **last LinkedIn send/receive time** when known (receipt `messageSentAt` / artifact stages MESSAGED·REPLY_SENT·LINKEDIN_INBOUND·CONNECTION_ACCEPTED), else **updatedAt**, else **createdAt**.
  */
 /** Keep in sync: SQL `IN` below and messaging-tab filtering in this route. */
@@ -77,6 +78,15 @@ const MESSAGING_ITEM_STAGES_LIST = [
 const MESSAGING_ITEM_STAGES = new Set<string>(MESSAGING_ITEM_STAGES_LIST);
 
 const MESSAGING_ITEM_STAGES_SQL_IN = MESSAGING_ITEM_STAGES_LIST.map((s) => `'${s}'`).join(", ");
+
+/** Marni distribution work queue: all pipeline stages + optional “scheduled” POSTED rows (future dueDate). */
+const MARNI_DISTRIBUTION_STAGES_LIST = [
+  "RECEIVED",
+  "CONN_MSG_DRAFTED",
+  "POST_DRAFTED",
+  "POSTED",
+] as const;
+const MARNI_DISTRIBUTION_STAGES_SQL_IN = MARNI_DISTRIBUTION_STAGES_LIST.map((s) => `'${s}'`).join(", ");
 
 function isMissingPackageNumberColumn(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
@@ -602,6 +612,26 @@ function replyToCloseWaitingHumanCopy(stageKey: string, dueDate: string | null):
 const DEFAULT_TIM_TASK_LIMIT = 120;
 const MAX_TIM_TASK_LIMIT = 150;
 
+const DEFAULT_MARNI_TASK_LIMIT = 80;
+const MAX_MARNI_TASK_LIMIT = 150;
+
+function parseMarniPagination(
+  ownerAgentFilter: string | null,
+  summaryOnly: boolean,
+  searchParams: URLSearchParams,
+  marniDistributionOnly: boolean
+): { limit: number; offset: number } | null {
+  if (ownerAgentFilter !== "marni" || summaryOnly || !marniDistributionOnly) return null;
+  const limitRaw = searchParams.get("limit");
+  const offsetRaw = searchParams.get("offset");
+  const limit = Math.min(
+    MAX_MARNI_TASK_LIMIT,
+    Math.max(1, parseInt(limitRaw || String(DEFAULT_MARNI_TASK_LIMIT), 10) || DEFAULT_MARNI_TASK_LIMIT)
+  );
+  const offset = Math.max(0, parseInt(offsetRaw || "0", 10) || 0);
+  return { limit, offset };
+}
+
 function parseTimPagination(
   ownerAgentFilter: string | null,
   summaryOnly: boolean,
@@ -626,14 +656,25 @@ async function fetchHumanTaskRows(
   useWorkflowItemTypeCol: boolean,
   ownerAgentLower: string | null,
   pagination: { limit: number; offset: number } | null,
-  messagingOnly: boolean
+  messagingOnly: boolean,
+  marniDistributionOnly: boolean
 ): Promise<QueueRow[]> {
   const itemTypeSql = useWorkflowItemTypeCol
     ? 'w."itemType"'
     : `'person'::text AS "itemType"`;
   let humanOpenSql = "";
   if (useHumanTaskOpenCol) {
-    if (ownerAgentLower === "tim") {
+    if (ownerAgentLower === "marni" && marniDistributionOnly) {
+      /* Full distribution pipeline in Marni’s work queue + optional scheduled POSTED (future dueDate). */
+      humanOpenSql = `(
+        wi."humanTaskOpen" = true
+        OR (
+          UPPER(TRIM(wi.stage::text)) = 'POSTED'
+          AND wi."dueDate" IS NOT NULL
+          AND wi."dueDate" > NOW()
+        )
+      ) AND `;
+    } else if (ownerAgentLower === "tim") {
       /* Human-in-the-loop only: trust persisted flag (synced from board requiresHuman + templates).
        * Exception: warm-outreach MESSAGED keeps humanTaskOpen=false while waiting on LinkedIn — still list for context.
        * Exception: packaged cold outreach INITIATED/ACCEPTED often has requiresHuman=false — still show in Tim messaging. */
@@ -674,6 +715,11 @@ async function fetchHumanTaskRows(
       ? ` AND UPPER(TRIM(wi.stage::text)) IN (${MESSAGING_ITEM_STAGES_SQL_IN})`
       : "";
 
+  const marniStagesWhere =
+    ownerAgentLower === "marni" && marniDistributionOnly
+      ? ` AND UPPER(TRIM(wi.stage::text)) IN (${MARNI_DISTRIBUTION_STAGES_SQL_IN})`
+      : "";
+
   const humanOpenSelect = useHumanTaskOpenCol ? ', wi."humanTaskOpen" AS "humanTaskOpen"' : "";
   const baseSelectCols = `wi.id, wi."workflowId", wi.stage, wi."sourceType", wi."sourceId", wi."dueDate", wi."createdAt",
             wi."updatedAt",
@@ -684,7 +730,7 @@ async function fetchHumanTaskRows(
      INNER JOIN "_workflow" w ON w.id = wi."workflowId"
      LEFT JOIN "_board" b ON b.id = w."boardId" AND b."deletedAt" IS NULL
      ${joinPackage}
-     WHERE ${humanOpenSql}${whereBody}${messagingStagesWhere}`;
+     WHERE ${humanOpenSql}${whereBody}${messagingStagesWhere}${marniStagesWhere}`;
 
   if (ownerAgentLower === "tim" && messagingOnly) {
     const lastMsgInnerCoalesced = `
@@ -875,6 +921,18 @@ export async function GET(req: NextRequest) {
     req.nextUrl.searchParams.get("includeInactivePackages") === "true";
   const timOpsQueueOnly = ownerAgentFilter === "tim" && !includeInactivePackages;
   const timPagination = parseTimPagination(ownerAgentFilter, summaryOnly, req.nextUrl.searchParams);
+  const marniDistributionOnly =
+    ownerAgentFilter === "marni" &&
+    (req.nextUrl.searchParams.get("distributionOnly") === "1" ||
+      req.nextUrl.searchParams.get("distributionOnly") === "true");
+  const marniPagination = parseMarniPagination(
+    ownerAgentFilter,
+    summaryOnly,
+    req.nextUrl.searchParams,
+    marniDistributionOnly
+  );
+  /** When set, Marni’s distribution queue uses its own LIMIT/OFFSET (not Tim’s). */
+  const effectivePagination = marniPagination ?? timPagination;
   const linkedinInboundFeedParam = req.nextUrl.searchParams.get("linkedinInboundFeed");
   const includeLinkedinInboundFeed =
     linkedinInboundFeedParam == null ||
@@ -982,8 +1040,9 @@ export async function GET(req: NextRequest) {
           useHumanTaskOpenCol,
           useWorkflowItemTypeCol,
           ownerAgentFilter,
-          timPagination,
-          messagingOnly
+          effectivePagination,
+          messagingOnly,
+          marniDistributionOnly
         );
         break;
       } catch (e) {
@@ -1261,6 +1320,14 @@ export async function GET(req: NextRequest) {
         };
       }
 
+      const scheduledPostPending =
+        workflowTypeId === "content-distribution" &&
+        stageKey === "POSTED" &&
+        item.dueDate != null &&
+        String(item.dueDate).trim() !== "" &&
+        !Number.isNaN(new Date(String(item.dueDate)).getTime()) &&
+        new Date(String(item.dueDate)).getTime() > Date.now();
+
       const waitingReplyToClose =
         workflowTypeId === "reply-to-close" &&
         (stageKey === "AWAITING_THEIR_REPLY" ||
@@ -1277,6 +1344,29 @@ export async function GET(req: NextRequest) {
           stageLabel: rtcWaitLabel,
           humanAction: replyToCloseWaitingHumanCopy(stageKey, item.dueDate),
         };
+      }
+
+      if (scheduledPostPending && item.dueDate) {
+        try {
+          const d = new Date(String(item.dueDate));
+          const when = d.toLocaleString(undefined, {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          });
+          stageInfo = {
+            stageLabel: "Scheduled",
+            humanAction: `Slated for **${when}** (from workflow due date). Open artifacts to review copy before publish if needed.`,
+          };
+        } catch {
+          stageInfo = {
+            stageLabel: "Scheduled",
+            humanAction:
+              "Future publish time set on this row (due date). Review artifacts or adjust the due date in the board if your process uses it for scheduling.",
+          };
+        }
       }
 
       let title = "Unknown";
@@ -1545,6 +1635,12 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    if (marniDistributionOnly) {
+      for (let i = tasks.length - 1; i >= 0; i--) {
+        if (tasks[i].workflowType !== "content-distribution") tasks.splice(i, 1);
+      }
+    }
+
     const count =
       ownerAgentFilter === "tim"
         ? tasks.filter((t) => !t.waitingFollowUp).length
@@ -1575,6 +1671,17 @@ export async function GET(req: NextRequest) {
         linkedinInboundFeed,
         count,
         warmOutreachDaily,
+        hasMore: sqlHasMore,
+        nextOffset,
+      });
+    }
+
+    if (ownerAgentFilter === "marni" && marniDistributionOnly && marniPagination != null) {
+      const sqlHasMore = rows.length === marniPagination.limit;
+      const nextOffset = sqlHasMore ? marniPagination.offset + marniPagination.limit : null;
+      return NextResponse.json({
+        tasks,
+        count,
         hasMore: sqlHasMore,
         nextOffset,
       });

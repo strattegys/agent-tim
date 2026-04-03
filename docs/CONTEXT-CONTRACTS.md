@@ -15,6 +15,7 @@ When a focused work surface supplies enough grounding, the client sends `session
 |----------|----------|-----------|-----------|
 | Tim, work-queue row selected | `SESSION_HISTORY_FOCUS_TIM_WORK_ITEM` | 24 | Prospect + LinkedIn thread live in `workQueueContext`; long Govind↔Tim chat is usually noise. |
 | Ghost, content-queue row selected | `SESSION_HISTORY_FOCUS_GHOST_WORK` | 24 | Same idea for content workflow. |
+| Marni, distribution-queue row selected | `SESSION_HISTORY_FOCUS_MARNI_WORK` | 24 | Item + artifact focus live in `formatMarniWorkQueueContext`. |
 | Suzi, any focused card (intake / punch / reminder / note) | `SESSION_HISTORY_FOCUS_SUZI_WORK` | 14 | Ids and copy are in `formatSuziWorkPanelContext`; prefer tools with explicit ids over replaying old chat. |
 
 If none of the above applies, **N is omitted** and the full session history is sent (unchanged legacy behavior).

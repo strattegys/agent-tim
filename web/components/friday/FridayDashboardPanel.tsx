@@ -51,7 +51,8 @@ export default function FridayDashboardPanel({
       {
         key: "architecture",
         label: "Architecture",
-        title: "Infrastructure diagram and visual code import graphs (dependency-cruiser → Mermaid)",
+        title:
+          "Nine machine-derived pillars (Platform / Interfaces / Domain) + curated infra + lib graph — Mermaid from public/architecture",
       },
       { key: "cron", label: "Cron", title: "All scheduled jobs — schedule, last run, status" },
     ];

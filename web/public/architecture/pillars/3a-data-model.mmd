@@ -1,0 +1,24 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 3a Domain — persisted tables (SQL migrations)
+flowchart LR
+    subgraph TBL["Tables from web/scripts/migrate*.sql"]
+        TB__agent_knowledge["_agent_knowledge"]
+        TB__board["_board"]
+        TB__content_item["_content_item"]
+        TB__intake["_intake"]
+        TB__kb_research_run["_kb_research_run"]
+        TB__kb_topic["_kb_topic"]
+        TB__linkedin_inbound_receipt["_linkedin_inbound_receipt"]
+        TB__memory["_memory"]
+        TB__note["_note"]
+        TB__package["_package"]
+        TB__punch_list["_punch_list"]
+        TB__punch_list_action["_punch_list_action"]
+        TB__reminder["_reminder"]
+        TB__unipile_webhook_inbox["_unipile_webhook_inbox"]
+        TB__usage_event["_usage_event"]
+        TB__workflow_item["_workflow_item"]
+        TB__workflow_type_custom["_workflow_type_custom"]
+    end
+    N["No inferred FK graph — add FKs or a schema manifest later for ER edges."]
+    style N fill:#fff7ed,stroke:#ea580c

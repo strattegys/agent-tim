@@ -1,0 +1,37 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 3b Domain — agents, tools, delegation
+flowchart TB
+    subgraph AG_friday["Friday (friday)"]
+        T_friday["tools: workflow_manager, package_manager, workflow_type_definitions, web_search, memory"]
+        D_friday["delegates → "]
+    end
+    subgraph AG_ghost["Ghost (ghost)"]
+        T_ghost["tools: web_search, memory, delegate_task, twenty_crm, workflow_items, publish_article, article_builder"]
+        D_ghost["delegates → marni, scout"]
+    end
+    subgraph AG_king["King (king)"]
+        T_king["tools: web_search, memory, cost_summary"]
+        D_king["delegates → "]
+    end
+    subgraph AG_marni["Marni (marni)"]
+        T_marni["tools: web_search, memory, knowledge_search, knowledge_topic_create, linkedin, delegate_task, twenty_crm, workflow_items"]
+        D_marni["delegates → tim"]
+    end
+    subgraph AG_penny["Penny (penny)"]
+        T_penny["tools: package_manager, twenty_crm, web_search, memory, delegate_task"]
+        D_penny["delegates → tim, scout, ghost, marni"]
+    end
+    subgraph AG_scout["Scout (scout)"]
+        T_scout["tools: web_search, twenty_crm, linkedin, memory, delegate_task, workflow_items"]
+        D_scout["delegates → tim"]
+    end
+    subgraph AG_suzi["Suzi (suzi)"]
+        T_suzi["tools: web_search, memory, reminders, punch_list, notes, intake"]
+        D_suzi["delegates → "]
+    end
+    subgraph AG_tim["Tim (tim)"]
+        T_tim["tools: twenty_crm, web_search, memory, knowledge_search, knowledge_topic_create, delegate_task, workflow_items"]
+        D_tim["delegates → scout"]
+    end
+    SRC["Source: web/lib/agent-registry.ts"]
+    style SRC fill:#ede9fe,stroke:#7c3aed

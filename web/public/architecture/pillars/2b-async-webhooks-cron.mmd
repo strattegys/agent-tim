@@ -1,0 +1,32 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 2b Interfaces — async, webhooks, crons
+flowchart TB
+    subgraph WH["/api/webhooks"]
+        W_webhooks_intake_inbound______segments__["/webhooks/intake-inbound/[[...segments]]"]
+        W_webhooks_unipile["/webhooks/unipile"]
+    end
+    subgraph CRAPI["/api/cron (HTTP control plane)"]
+        CP_cron_pause["/cron/pause"]
+    end
+    subgraph DEVAPI["/api/dev (operator routes)"]
+        D_dev_observability_edge_logs["/dev/observability/edge-logs"]
+        D_dev_observability["/dev/observability"]
+        D_dev_replay_unipile_inbound["/dev/replay-unipile-inbound"]
+        D_dev_seed_tim_test_queue["/dev/seed-tim-test-queue"]
+        D_dev_unipile_pipeline_health["/dev/unipile-pipeline-health"]
+    end
+    subgraph CR["node-cron jobs (catalog)"]
+        C_heartbeat_suzi["heartbeat-suzi<br/><small>*/5 * * * * · suzi</small>"]
+        C_crm_backup["crm-backup<br/><small>0 2 * * * · friday</small>"]
+        C_linkedin_connections["linkedin-connections<br/><small>*/30 * * * * · friday</small>"]
+        C_warm_outreach_discovery["warm-outreach-discovery<br/><small>*/30 * * * * · friday</small>"]
+        C_daily_target_research["daily-target-research<br/><small>0 8 * * 1-5 · friday</small>"]
+        C_heartbeat_friday["heartbeat-friday<br/><small>*/10 * * * * · friday</small>"]
+        C_marni_kb_cadence["marni-kb-cadence<br/><small>23 * * * * · marni</small>"]
+        C_holiday_sync["holiday-sync<br/><small>17 3 1 * * · friday</small>"]
+        C_unipile_webhook_inbox_drain["unipile-webhook-inbox-drain<br/><small>* * * * * · friday</small>"]
+        C_linkedin_inbound_catchup["linkedin-inbound-catchup<br/><small>*/10 * * * * · friday</small>"]
+        C_anthropic_cost_sync["anthropic-cost-sync<br/><small>0 6 * * 0 · friday</small>"]
+    end
+    N["Catalog: web/lib/cron-job-catalog.ts · handlers: web/lib/cron.ts"]
+    style N fill:#fef3c7,stroke:#d97706

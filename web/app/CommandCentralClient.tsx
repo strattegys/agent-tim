@@ -496,7 +496,8 @@ export default function CommandCentralClient() {
     if (isFridayArchitectureTabHidden() && t === "architecture") t = "goals";
     return t;
   });
-  const [fridayArchitecturePane, setFridayArchitecturePane] = useState<FridayArchitecturePane>("infra");
+  const [fridayArchitecturePane, setFridayArchitecturePane] =
+    useState<FridayArchitecturePane>("p1a");
 
   const { data: fridayCronData } = useCronStatus(activeAgent === "friday");
   const fridayCronErrorJobs = useMemo(

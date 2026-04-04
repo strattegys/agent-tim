@@ -1,0 +1,149 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 2a Interfaces — HTTP API surface
+flowchart TB
+    subgraph A1["/api/agent-avatar"]
+        R__agent_avatar["/agent-avatar<br/><small>GET,POST</small>"]
+    end
+    subgraph A2["/api/agent-config"]
+        R__agent_config["/agent-config<br/><small>GET</small>"]
+    end
+    subgraph A3["/api/agent-summary"]
+        R__agent_summary["/agent-summary<br/><small>GET</small>"]
+    end
+    subgraph A4["/api/auth"]
+        R__auth_____nextauth_["/auth/[...nextauth]<br/><small>?</small>"]
+    end
+    subgraph A5["/api/beehiiv"]
+        R__beehiiv["/beehiiv<br/><small>POST</small>"]
+    end
+    subgraph A6["/api/chat"]
+        R__chat["/chat<br/><small>GET</small>"]
+        R__chat_stream["/chat/stream<br/><small>POST</small>"]
+    end
+    subgraph A7["/api/costs"]
+        R__costs_ingest["/costs/ingest<br/><small>POST</small>"]
+        R__costs_summary["/costs/summary<br/><small>GET</small>"]
+        R__costs_sync_anthropic["/costs/sync-anthropic<br/><small>POST</small>"]
+    end
+    subgraph A8["/api/crm"]
+        R__crm_alerts["/crm/alerts<br/><small>GET</small>"]
+        R__crm_artifact_chat["/crm/artifact-chat<br/><small>POST</small>"]
+        R__crm_artifacts__id_["/crm/artifacts/[id]<br/><small>PATCH</small>"]
+        R__crm_artifacts["/crm/artifacts<br/><small>GET,POST,PATCH</small>"]
+        R__crm_artifacts_update["/crm/artifacts/update<br/><small>POST</small>"]
+        R__crm_boards["/crm/boards<br/><small>GET,POST,PATCH,DELETE</small>"]
+        R__crm_content_item["/crm/content-item<br/><small>PATCH</small>"]
+        R__crm_directory_companies["/crm/directory/companies<br/><small>GET</small>"]
+        R__crm_directory_contacts["/crm/directory/contacts<br/><small>GET</small>"]
+        R__crm_human_tasks_resolve["/crm/human-tasks/resolve<br/><small>POST</small>"]
+        R__crm_human_tasks["/crm/human-tasks<br/><small>GET</small>"]
+        R__crm_human_tasks_sync_warm_person["/crm/human-tasks/sync-warm-person<br/><small>POST</small>"]
+        R__crm_notes["/crm/notes<br/><small>GET,POST</small>"]
+        R__crm_packages_activate["/crm/packages/activate<br/><small>POST</small>"]
+        R__crm_packages_orphan_workflows["/crm/packages/orphan-workflows<br/><small>GET,POST</small>"]
+        R__crm_packages_progress["/crm/packages/progress<br/><small>GET</small>"]
+        R__crm_packages_reset["/crm/packages/reset<br/><small>POST</small>"]
+        R__crm_packages["/crm/packages<br/><small>GET,POST,PATCH,DELETE</small>"]
+        R__crm_packages_simulate["/crm/packages/simulate<br/><small>POST</small>"]
+        R__crm_packages_upload_image["/crm/packages/upload-image<br/><small>POST</small>"]
+        R__crm_person_contact_insight["/crm/person/contact-insight<br/><small>GET</small>"]
+        R__crm_person_linkedin_thread["/crm/person/linkedin-thread<br/><small>GET</small>"]
+        R__crm_person["/crm/person<br/><small>GET</small>"]
+        R__crm_reconnect_db["/crm/reconnect-db<br/><small>POST</small>"]
+        R__crm_scout_queue["/crm/scout-queue<br/><small>GET</small>"]
+        R__crm_warm_outreach_backfill_replied_inbound["/crm/warm-outreach/backfill-replied-inbound<br/><small>POST</small>"]
+        R__crm_warm_outreach_discovery_tick["/crm/warm-outreach/discovery-tick<br/><small>GET,POST</small>"]
+        R__crm_workflow_items_rollback_to_idea["/crm/workflow-items/rollback-to-idea<br/><small>POST</small>"]
+        R__crm_workflow_items["/crm/workflow-items<br/><small>GET,POST,PATCH,DELETE</small>"]
+        R__crm_workflow_stats["/crm/workflow-stats<br/><small>GET</small>"]
+        R__crm_workflow_throughput["/crm/workflow-throughput<br/><small>GET</small>"]
+        R__crm_workflow_type_definitions__id_["/crm/workflow-type-definitions/[id]<br/><small>PATCH,DELETE</small>"]
+        R__crm_workflow_type_definitions["/crm/workflow-type-definitions<br/><small>GET,POST</small>"]
+        R__crm_workflows["/crm/workflows<br/><small>GET,POST,PATCH</small>"]
+    end
+    subgraph A9["/api/cron"]
+        R__cron_pause["/cron/pause<br/><small>POST</small>"]
+    end
+    subgraph A10["/api/cron-status"]
+        R__cron_status["/cron-status<br/><small>GET</small>"]
+    end
+    subgraph A11["/api/dashboard-stream"]
+        R__dashboard_stream["/dashboard-stream<br/><small>GET</small>"]
+    end
+    subgraph A12["/api/dashboard-sync"]
+        R__dashboard_sync["/dashboard-sync<br/><small>GET</small>"]
+    end
+    subgraph A13["/api/dev"]
+        R__dev_observability_edge_logs["/dev/observability/edge-logs<br/><small>GET,POST</small>"]
+        R__dev_observability["/dev/observability<br/><small>GET,POST</small>"]
+        R__dev_replay_unipile_inbound["/dev/replay-unipile-inbound<br/><small>POST</small>"]
+        R__dev_seed_tim_test_queue["/dev/seed-tim-test-queue<br/><small>POST</small>"]
+        R__dev_unipile_pipeline_health["/dev/unipile-pipeline-health<br/><small>GET</small>"]
+    end
+    subgraph A14["/api/health"]
+        R__health["/health<br/><small>GET</small>"]
+    end
+    subgraph A15["/api/heartbeat"]
+        R__heartbeat["/heartbeat<br/><small>POST</small>"]
+    end
+    subgraph A16["/api/intake"]
+        R__intake["/intake<br/><small>GET,POST</small>"]
+    end
+    subgraph A17["/api/marni-kb"]
+        R__marni_kb_chunks["/marni-kb/chunks<br/><small>GET</small>"]
+        R__marni_kb_ping["/marni-kb/ping<br/><small>GET</small>"]
+        R__marni_kb_query["/marni-kb/query<br/><small>POST</small>"]
+        R__marni_kb_research["/marni-kb/research<br/><small>POST</small>"]
+        R__marni_kb_runs["/marni-kb/runs<br/><small>GET</small>"]
+        R__marni_kb_topics__id_["/marni-kb/topics/[id]<br/><small>GET,PATCH,DELETE</small>"]
+        R__marni_kb_topics["/marni-kb/topics<br/><small>GET,POST</small>"]
+    end
+    subgraph A18["/api/memory-health"]
+        R__memory_health["/memory-health<br/><small>GET</small>"]
+    end
+    subgraph A19["/api/notes"]
+        R__notes["/notes<br/><small>GET,POST</small>"]
+    end
+    subgraph A20["/api/notifications"]
+        R__notifications["/notifications<br/><small>GET</small>"]
+    end
+    subgraph A21["/api/penny"]
+        R__penny_accounts["/penny/accounts<br/><small>GET</small>"]
+    end
+    subgraph A22["/api/punch-list"]
+        R__punch_list_actions["/punch-list/actions<br/><small>POST,PATCH</small>"]
+        R__punch_list["/punch-list<br/><small>GET,POST,PATCH,DELETE</small>"]
+    end
+    subgraph A23["/api/reminders"]
+        R__reminders["/reminders<br/><small>GET,POST,PATCH,DELETE</small>"]
+    end
+    subgraph A24["/api/status-rail-agents"]
+        R__status_rail_agents["/status-rail-agents<br/><small>GET</small>"]
+    end
+    subgraph A25["/api/suzi"]
+        R__suzi_dashboard_events["/suzi/dashboard-events<br/><small>GET</small>"]
+        R__suzi_dashboard_links["/suzi/dashboard-links<br/><small>GET</small>"]
+        R__suzi_weather["/suzi/weather<br/><small>GET</small>"]
+    end
+    subgraph A26["/api/system-prompt"]
+        R__system_prompt["/system-prompt<br/><small>GET</small>"]
+    end
+    subgraph A27["/api/system-status"]
+        R__system_status["/system-status<br/><small>GET</small>"]
+    end
+    subgraph A28["/api/tim-kb"]
+        R__tim_kb_pdf["/tim-kb/pdf<br/><small>GET,POST</small>"]
+        R__tim_kb_sync_crm["/tim-kb/sync-crm<br/><small>GET,POST</small>"]
+    end
+    subgraph A29["/api/tools"]
+        R__tools["/tools<br/><small>GET</small>"]
+    end
+    subgraph A30["/api/tts"]
+        R__tts["/tts<br/><small>POST</small>"]
+    end
+    subgraph A31["/api/webhooks"]
+        R__webhooks_intake_inbound______segments__["/webhooks/intake-inbound/[[...segments]]<br/><small>GET,POST</small>"]
+        R__webhooks_unipile["/webhooks/unipile<br/><small>GET,POST</small>"]
+    end
+    LEG["Derived from app/api/**/route.ts exports (GET/POST/…)."]
+    style LEG fill:#eef2ff,stroke:#6366f1

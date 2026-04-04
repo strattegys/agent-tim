@@ -1,0 +1,15 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 2c Interfaces — client routes / pages
+flowchart TB
+    subgraph PG["App Router pages (page.tsx)"]
+        P__["/"]
+        P__backend_only["/backend-only"]
+        P__chat["/chat"]
+        P__kanban["/kanban"]
+        P__login["/login"]
+        P__m["/m"]
+        P__m__agentId_["/m/[agentId]"]
+        P__reminders["/reminders"]
+    end
+    LEG["Command Central shell lives in app/CommandCentralClient.tsx — not every page is linked from nav."]
+    style LEG fill:#ecfdf5,stroke:#059669

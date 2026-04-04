@@ -1,0 +1,410 @@
+flowchart LR
+
+subgraph 0["app"]
+1["CommandCentralClient.tsx"]
+subgraph 2["api"]
+3[" "]
+end
+4["apple-icon.tsx"]
+subgraph 5["backend-only"]
+6[" "]
+end
+subgraph 7["chat"]
+8[" "]
+end
+9["error.tsx"]
+A["globals.css"]
+subgraph B["kanban"]
+C[" "]
+end
+D["layout.tsx"]
+subgraph E["login"]
+F[" "]
+end
+subgraph G["m"]
+H[" "]
+end
+I["manifest.ts"]
+J["page.tsx"]
+subgraph K["reminders"]
+L[" "]
+end
+subgraph M["share-intake"]
+N[" "]
+end
+end
+subgraph O["components"]
+P["AgentAvatar.tsx"]
+Q["AgentInfoPanel.tsx"]
+R["AgentPanelPrinciples.tsx"]
+S["AgentSidebar.tsx"]
+T["ChatInput.tsx"]
+U["ChatWindow.tsx"]
+V["CronWarmup.tsx"]
+W["FridayLabLogDock.tsx"]
+X["LocalDevMobileCheckInChips.tsx"]
+Y["MessageBubble.tsx"]
+Z["PushToTalk.tsx"]
+10["StatusRail.tsx"]
+11["StatusRailAgentInspector.tsx"]
+12["TimLabLogDock.tsx"]
+13["VoicePlayer.tsx"]
+subgraph 14["agents"]
+15[" "]
+end
+subgraph 16["friday"]
+17[" "]
+end
+subgraph 18["ghost"]
+19[" "]
+end
+subgraph 1A["icons"]
+1B[" "]
+end
+subgraph 1C["kanban"]
+1D[" "]
+end
+subgraph 1E["king"]
+1F[" "]
+end
+subgraph 1G["marni"]
+1H[" "]
+end
+subgraph 1I["mobile"]
+1J[" "]
+end
+subgraph 1K["penny"]
+1L[" "]
+end
+subgraph 1M["scout"]
+1N[" "]
+end
+subgraph 1O["shared"]
+1P[" "]
+end
+subgraph 1Q["suzi"]
+1R[" "]
+end
+subgraph 1S["tim"]
+1T[" "]
+end
+end
+subgraph 1U["lib"]
+1V["agent-config.ts"]
+1W["agent-frontend.ts"]
+1X["agent-llm.ts"]
+1Y["agent-registry.ts"]
+1Z["agent-spec.ts"]
+20["agent-ui-context.ts"]
+21["agent-work-badges.ts"]
+22["anthropic-admin-sync.ts"]
+23["anthropic-chat.ts"]
+24["app-brand.ts"]
+25["attach-person-to-workflow.ts"]
+26["auth.ts"]
+27["backend-only-ui.ts"]
+28["board-types.ts"]
+29["brave-search.ts"]
+2A["chat-sidebar-attention.ts"]
+2B["chat-stream-options.ts"]
+2C["command-central-url.ts"]
+2D["compress-avatar-image.ts"]
+2E["cron-job-catalog.ts"]
+2F["cron-pause.ts"]
+2G["cron-runtime-context.ts"]
+2H["cron.ts"]
+2I["dashboard-sync-hub.ts"]
+2J["dashboard-sync-server.ts"]
+2K["dashboard-sync-types.ts"]
+2L["db.ts"]
+2M["dev-store.ts"]
+2N["dev-tim-test-queue-seed.ts"]
+2O["embeddings.ts"]
+2P["ensure-tim-linkedin-system-package-workflow.ts"]
+2Q["events.ts"]
+2R["friday-architecture-visibility.ts"]
+2S["gemini-api-key.ts"]
+2T["gemini.ts"]
+2U["ghost-work-context.ts"]
+2V["groq-chat.ts"]
+2W["groq-completion.ts"]
+2X["groq-debug-log.ts"]
+2Y["heartbeat.ts"]
+2Z["holidays.ts"]
+30["intake.ts"]
+31["kb-studio.ts"]
+32["kb-topic-constants.ts"]
+33["linkedin-automation-gate.ts"]
+34["linkedin-connection-intake.ts"]
+35["linkedin-crm.ts"]
+36["linkedin-general-inbox.ts"]
+37["linkedin-inbound-catchup.ts"]
+38["linkedin-inbound-receipt.ts"]
+39["linkedin-inbound-unipile-sender.ts"]
+3A["linkedin-person-identity.ts"]
+3B["linkedin-webhook.ts"]
+3C["llm-usage-log.ts"]
+3D["load-web-env-local.ts"]
+3E["main-ui-gate.ts"]
+3F["marni-corpus-terms.ts"]
+3G["marni-kb-api-read.ts"]
+3H["marni-kb.ts"]
+3I["marni-work-context.ts"]
+3J["marni-work-panel.ts"]
+3K["memory-health.ts"]
+3L["memory.ts"]
+3M["migrate-orphan-workflows-to-packages.ts"]
+3N["notes.ts"]
+3O["notification-filters.ts"]
+3P["notifications.ts"]
+3Q["observability-edge-http.ts"]
+3R["observability-gate.ts"]
+3S["observability-log-buffer.ts"]
+3T["observability-runtime.ts"]
+3U["ollama-chat.ts"]
+3V["package-brief-artifact.ts"]
+3W["package-delete.ts"]
+3X["package-presets.ts"]
+3Y["package-simulation.ts"]
+subgraph 3Z["package-spec-briefs"]
+40[" "]
+end
+41["package-types.ts"]
+42["package-use-fake-data.ts"]
+43["pdf-extract.ts"]
+44["penny-accounts-types.ts"]
+45["perf-metrics.ts"]
+46["person-packaged-workflow-exclusivity.ts"]
+47["public-ref.ts"]
+48["punch-list-columns.ts"]
+49["punch-list.ts"]
+4A["reminders.ts"]
+4B["reply-to-close-cadence.ts"]
+4C["reply-to-close-promote.ts"]
+4D["scout-queue.ts"]
+4E["session-store.ts"]
+4F["site-articles-url.ts"]
+4G["status-rail-agents-types.ts"]
+4H["suzi-personal-dashboard-config.ts"]
+4I["suzi-work-panel.ts"]
+4J["swr-fetcher.ts"]
+4K["system-prompt.ts"]
+4L["tasks.ts"]
+4M["tim-chat-debug.ts"]
+4N["tim-crm-knowledge-sync.ts"]
+4O["tim-linkedin-inbound-feed.ts"]
+4P["tim-linkedin-send-chat-gate.ts"]
+4Q["tim-warm-groq-context.ts"]
+4R["tim-work-context.ts"]
+4S["tool-args-normalize.ts"]
+subgraph 4T["tools"]
+4U[" "]
+end
+4V["tts-queue.ts"]
+4W["tts.ts"]
+4X["unipile-inbound-replay.ts"]
+4Y["unipile-observability-buffer.ts"]
+4Z["unipile-person-chat-thread.ts"]
+50["unipile-profile.ts"]
+51["unipile-replay-crm-guard.ts"]
+52["unipile-send.ts"]
+53["unipile-webhook-inbox.ts"]
+54["usage-event-summary-types.ts"]
+55["usage-events.ts"]
+56["use-cron-status.ts"]
+57["use-document-visible.ts"]
+58["vector-memory.ts"]
+59["warm-contact-intake-apply.ts"]
+5A["warm-contact-intake-parse.ts"]
+5B["warm-discovery-item.ts"]
+5C["warm-outreach-cadence.ts"]
+5D["warm-outreach-daily-progress.ts"]
+5E["warm-outreach-discovery.ts"]
+5F["warm-outreach-draft.ts"]
+5G["warm-outreach-followup-due.ts"]
+5H["warm-outreach-inbound-reply.ts"]
+5I["warm-outreach-researching-guard.ts"]
+5J["warm-replied-inbound-backfill.ts"]
+5K["wmo-weather.ts"]
+5L["workflow-board-pipeline-visual.ts"]
+5M["workflow-item-human-task.ts"]
+5N["workflow-model-validate.ts"]
+5O["workflow-observability-buffer.ts"]
+5P["workflow-registry.ts"]
+5Q["workflow-spec.ts"]
+5R["workflow-throughput-types.ts"]
+5S["workflow-type-definition-validate.ts"]
+5T["workflow-types.ts"]
+end
+3-->33
+3-->3B
+3-->53
+D-->A
+J-->1
+S-->P
+T-->Z
+U-->Y
+17-->P
+19-->1P
+19-->1T
+1L-->P
+1L-->1P
+1T-->1P
+1V-->1Y
+1V-->1Z
+1W-->1Y
+1W-->1Z
+1X-->1V
+1X-->23
+1X-->2T
+1X-->2V
+1Y-->1Z
+20-->1W
+22-->55
+23-->1V
+23-->2B
+23-->2T
+23-->3C
+23-->3L
+23-->4E
+23-->4K
+23-->4S
+23-->4U
+29-->3D
+2B-->4E
+2E-->1Y
+2G-->24
+2H-->1X
+2H-->1Y
+2H-->1Z
+2H-->22
+2H-->2E
+2H-->2F
+2H-->2G
+2H-->2L
+2H-->2Y
+2H-->2Z
+2H-->33
+2H-->35
+2H-->37
+2H-->3H
+2H-->53
+2H-->5E
+2H-->5O
+2H-->5Q
+2L-->24
+2L-->2M
+2L-->45
+2O-->2S
+2O-->3C
+2T-->1V
+2T-->2B
+2T-->2S
+2T-->3C
+2T-->3L
+2T-->4E
+2T-->4K
+2T-->4S
+2T-->4U
+2V-->1V
+2V-->2B
+2V-->2T
+2V-->2X
+2V-->3C
+2V-->3L
+2V-->4E
+2V-->4K
+2V-->4S
+2V-->4U
+2Y-->1X
+2Y-->2I
+2Y-->3L
+2Y-->3P
+2Y-->4A
+2Y-->4L
+2Y-->5D
+2Y-->5E
+2Z-->2L
+30-->2L
+30-->47
+35-->34
+35-->50
+35-->55
+3B-->33
+3B-->35
+3B-->39
+3B-->3P
+3B-->4Y
+3B-->5H
+3C-->55
+3H-->29
+3H-->2L
+3H-->2O
+3H-->2S
+3H-->31
+3H-->32
+3H-->3D
+3K-->1V
+3K-->1Y
+3K-->2L
+3K-->2O
+3K-->2S
+3L-->1V
+3L-->2S
+3L-->58
+3M-->2L
+3N-->2L
+3N-->47
+3U-->1V
+3U-->2B
+3U-->2T
+3U-->3L
+3U-->4E
+3U-->4K
+3U-->4S
+3U-->4U
+49-->2L
+49-->47
+4A-->2L
+4A-->47
+4I-->47
+4K-->1V
+4K-->3L
+4K-->58
+4N-->2L
+4N-->3A
+4N-->3H
+4N-->50
+4U-->55
+4U-->1X
+4U-->4L
+4U-->30
+4U-->47
+4U-->3H
+4U-->1V
+4U-->3L
+4U-->58
+4U-->3N
+4U-->2L
+4U-->41
+4U-->5P
+4U-->49
+4U-->48
+4U-->4A
+4U-->25
+4U-->4P
+4U-->5S
+52-->4Y
+52-->50
+55-->2L
+55-->54
+58-->2L
+58-->2O
+5D-->2L
+5D-->5E
+5E-->2L
+5E-->3V
+5E-->5B
+5E-->5G
+5E-->5M
+5E-->5P

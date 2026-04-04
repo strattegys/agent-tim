@@ -1,0 +1,118 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 1c Platform — configuration surface (.env.local.example)
+flowchart TB
+    subgraph G1["AGENT… (1)"]
+        E_AGENT_ROOT["AGENT_ROOT"]
+    end
+    subgraph G2["ALLOWED… (1)"]
+        E_ALLOWED_EMAIL["ALLOWED_EMAIL"]
+    end
+    subgraph G3["ANTHROPIC… (4)"]
+        E_ANTHROPIC_API_KEY["ANTHROPIC_API_KEY"]
+        E_ANTHROPIC_ARTICLE_MODEL["ANTHROPIC_ARTICLE_MODEL"]
+        E_ANTHROPIC_ARTICLE_STRUCTURED_FALLBACK_MODEL["ANTHROPIC_ARTICLE_STRUCTURED_FALLBACK_MODEL"]
+        E_ANTHROPIC_ARTICLE_LEGACY_FALLBACK_MODEL["ANTHROPIC_ARTICLE_LEGACY_FALLBACK_MODEL"]
+    end
+    subgraph G4["APP… (1)"]
+        E_APP_INTERNAL_URL["APP_INTERNAL_URL"]
+    end
+    subgraph G5["AVATAR… (1)"]
+        E_AVATAR_DIR["AVATAR_DIR"]
+    end
+    subgraph G6["BRAVE… (1)"]
+        E_BRAVE_SEARCH_API_KEY["BRAVE_SEARCH_API_KEY"]
+    end
+    subgraph G7["CC… (5)"]
+        E_CC_CRON_PAUSED_IDS["CC_CRON_PAUSED_IDS"]
+        E_CC_PUBLIC_APP_UI["CC_PUBLIC_APP_UI"]
+        E_CC_PUBLIC_APP_UI["CC_PUBLIC_APP_UI"]
+        E_CC_AGENT_CHAT_PROFILE["CC_AGENT_CHAT_PROFILE"]
+        E_CC_HOSTED_APP_URL["CC_HOSTED_APP_URL"]
+    end
+    subgraph G8["CHAT… (1)"]
+        E_CHAT_EPHEMERAL_AGENTS["CHAT_EPHEMERAL_AGENTS"]
+    end
+    subgraph G9["CONNECTSAFELY… (2)"]
+        E_CONNECTSAFELY_API_KEY["CONNECTSAFELY_API_KEY"]
+        E_CONNECTSAFELY_ACCOUNT_ID["CONNECTSAFELY_ACCOUNT_ID"]
+    end
+    subgraph G10["CRM… (6)"]
+        E_CRM_DB_HOST["CRM_DB_HOST"]
+        E_CRM_DB_PORT["CRM_DB_PORT"]
+        E_CRM_DB_NAME["CRM_DB_NAME"]
+        E_CRM_DB_USER["CRM_DB_USER"]
+        E_CRM_DB_PASSWORD["CRM_DB_PASSWORD"]
+        E_CRM_DB_SEARCH_PATH["CRM_DB_SEARCH_PATH"]
+    end
+    subgraph G11["DATABASE… (1)"]
+        E_DATABASE_URL["DATABASE_URL"]
+    end
+    subgraph G12["DEV… (1)"]
+        E_DEV_UNIPILE_INBOUND_REPLAY["DEV_UNIPILE_INBOUND_REPLAY"]
+    end
+    subgraph G13["DISABLE… (1)"]
+        E_DISABLE_SUZI_REMINDER_HEARTBEAT["DISABLE_SUZI_REMINDER_HEARTBEAT"]
+    end
+    subgraph G14["GEMINI… (1)"]
+        E_GEMINI_API_KEY["GEMINI_API_KEY"]
+    end
+    subgraph G15["GOOGLE… (2)"]
+        E_GOOGLE_CLIENT_ID["GOOGLE_CLIENT_ID"]
+        E_GOOGLE_CLIENT_SECRET["GOOGLE_CLIENT_SECRET"]
+    end
+    subgraph G16["GROQ… (3)"]
+        E_GROQ_API_KEY["GROQ_API_KEY"]
+        E_GROQ_CHAT_DEBUG["GROQ_CHAT_DEBUG"]
+        E_GROQ_CHAT_MODEL["GROQ_CHAT_MODEL"]
+    end
+    subgraph G17["INTAKE… (2)"]
+        E_INTAKE_INBOUND_WEBHOOK_SECRET["INTAKE_INBOUND_WEBHOOK_SECRET"]
+        E_INTAKE_INBOUND_ALLOWED_FROM["INTAKE_INBOUND_ALLOWED_FROM"]
+    end
+    subgraph G18["INTERNAL… (1)"]
+        E_INTERNAL_API_KEY["INTERNAL_API_KEY"]
+    end
+    subgraph G19["INWORLD… (2)"]
+        E_INWORLD_TTS_KEY["INWORLD_TTS_KEY"]
+        E_INWORLD_VOICE_ID["INWORLD_VOICE_ID"]
+    end
+    subgraph G20["LINKEDIN… (2)"]
+        E_LINKEDIN_AUTOMATION_DISABLED["LINKEDIN_AUTOMATION_DISABLED"]
+        E_LINKEDIN_SELF_PROVIDER_ID["LINKEDIN_SELF_PROVIDER_ID"]
+    end
+    subgraph G21["NEXT… (1)"]
+        E_NEXT_PUBLIC_HIDE_ARCHITECTURE_TAB["NEXT_PUBLIC_HIDE_ARCHITECTURE_TAB"]
+    end
+    subgraph G22["NEXTAUTH… (2)"]
+        E_NEXTAUTH_SECRET["NEXTAUTH_SECRET"]
+        E_NEXTAUTH_URL["NEXTAUTH_URL"]
+    end
+    subgraph G23["OBSERVATION… (1)"]
+        E_OBSERVATION_POST_API["OBSERVATION_POST_API"]
+    end
+    subgraph G24["PROJECT… (1)"]
+        E_PROJECT_SERVER_RAINBOW_URL["PROJECT_SERVER_RAINBOW_URL"]
+    end
+    subgraph G25["SUZI… (1)"]
+        E_SUZI_REMINDER_BELL_COOLDOWN_FILE["SUZI_REMINDER_BELL_COOLDOWN_FILE"]
+    end
+    subgraph G26["TIM… (2)"]
+        E_TIM_CHAT_CONTEXT_DEBUG["TIM_CHAT_CONTEXT_DEBUG"]
+        E_TIM_LAB_UNIPILE_LOG["TIM_LAB_UNIPILE_LOG"]
+    end
+    subgraph G27["TOOL… (1)"]
+        E_TOOL_SCRIPTS_PATH["TOOL_SCRIPTS_PATH"]
+    end
+    subgraph G28["TWENTY… (2)"]
+        E_TWENTY_CRM_API_KEY["TWENTY_CRM_API_KEY"]
+        E_TWENTY_CRM_URL["TWENTY_CRM_URL"]
+    end
+    subgraph G29["UNIPILE… (5)"]
+        E_UNIPILE_API_KEY["UNIPILE_API_KEY"]
+        E_UNIPILE_DSN["UNIPILE_DSN"]
+        E_UNIPILE_ACCOUNT_ID["UNIPILE_ACCOUNT_ID"]
+        E_UNIPILE_WEBHOOK_SECRET["UNIPILE_WEBHOOK_SECRET"]
+        E_UNIPILE_REPLAY_ALLOW_REMOTE_CRM["UNIPILE_REPLAY_ALLOW_REMOTE_CRM"]
+    end
+    SRC["Source: web/.env.local.example — commented keys shown dashed in legend only; see file for docs"]
+    style SRC fill:#f1f5f9,stroke:#64748b

@@ -1,0 +1,12 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 1a Platform — runtime topology
+flowchart TB
+    subgraph svc["Docker Compose services"]
+    crm_db["crm-db"]
+    caddy["caddy"]
+    web["web"]
+    caddy --> web
+    web --> crm_db
+    end
+    N["Derived from root docker-compose.yml (services + depends_on). Ports/volumes: see compose file."]
+    style N fill:#fff,stroke:#94a3b8

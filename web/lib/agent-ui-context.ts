@@ -28,8 +28,24 @@ export type FridayDashboardTab =
   | "cron"
   | "architecture";
 
-/** Sub-view inside Friday’s Architecture tab (infrastructure diagram vs code dependency report). */
-export type FridayArchitecturePane = "infra" | "code";
+/**
+ * Sub-view inside Friday’s Architecture tab — nine machine-derived pillars (3 principals × 3 sub-views).
+ * See `public/architecture/pillars/*.mmd` and `npm run architecture:generate`.
+ */
+export type FridayArchitecturePane =
+  | "p1a"
+  | "p1b"
+  | "p1c"
+  | "p2a"
+  | "p2b"
+  | "p2c"
+  | "p3a"
+  | "p3b"
+  | "p3c"
+  /** Curated infra story (manual `infra-overview.mmd`) */
+  | "infra_curated"
+  /** Library-only dependency graph (depcruise `graph-lib.mmd`) */
+  | "code_lib";
 
 export interface AgentUiContextInput {
   agentId: string;
@@ -166,11 +182,21 @@ export function formatAgentUiContext(input: AgentUiContextInput): string | null 
     } else if (tab === "cron") {
       label = "Cron hub (all scheduled jobs, status, last run)";
     } else if (tab === "architecture") {
-      const sub =
-        input.fridayArchitecturePane === "code"
-          ? "Code Graph (visual import map: overview + lib)"
-          : "Infrastructure (high-level deploy and services diagram)";
-      label = `Architecture — ${sub}`;
+      const p = input.fridayArchitecturePane ?? "p1a";
+      const names: Record<FridayArchitecturePane, string> = {
+        p1a: "P1a Runtime topology (compose)",
+        p1b: "P1b Edge & session (middleware)",
+        p1c: "P1c Config (.env.example map)",
+        p2a: "P2a HTTP API surface",
+        p2b: "P2b Webhooks, cron API, job catalog",
+        p2c: "P2c App pages / routes",
+        p3a: "P3a Data tables (SQL migrations)",
+        p3b: "P3b Agents & tools",
+        p3c: "P3c Module graph (depcruise)",
+        infra_curated: "Curated infra overview (manual)",
+        code_lib: "Code graph — lib only (depcruise)",
+      };
+      label = `Architecture — ${names[p]}`;
     } else {
       label = "Dashboard (workflow throughput vs targets)";
     }

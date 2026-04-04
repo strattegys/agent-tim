@@ -52,7 +52,9 @@
     "migrate:linkedin-connection-intake": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/migrate-linkedin-connection-intake-items.ts",
     "backfill:tim-human-task-open": "node -r ./scripts/empty-server-only.cjs --import tsx ./scripts/backfill-tim-human-task-open.ts",
     "cleanup:person-dupes": "node --env-file=.env.local -r ./scripts/empty-server-only.cjs --import tsx ./scripts/cleanup-person-duplicates.ts",
-    "architecture:report": "node -e \"require('fs').mkdirSync('public/architecture/depcruise',{recursive:true})\" && depcruise --config .dependency-cruiser.cjs --output-type mermaid --output-to public/architecture/depcruise/graph.mmd --collapse 2 app components lib && depcruise --config .dependency-cruiser.cjs --output-type mermaid --output-to public/architecture/depcruise/graph-lib.mmd --collapse 2 lib"
+    "architecture:generate": "npx tsx scripts/architecture/generate-pillars.ts",
+    "architecture:report": "npm run architecture:generate",
+    "architecture:check": "npm run architecture:generate && git diff --exit-code -- public/architecture/pillars public/architecture/depcruise"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

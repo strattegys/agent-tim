@@ -1,0 +1,19 @@
+%% Auto-generated — npm run architecture:generate (web/)
+%% 1b Platform — edge & session boundary
+flowchart LR
+    subgraph edge["Edge / middleware"] 
+    MW["Next.js middleware + Auth.js"]
+    end
+    subgraph pub["Public path patterns (isPublicPath)"] 
+    P__api_crm_human_tasks_resolve["/api/crm/human-tasks/resolve"]
+    P__api_health["/api/health"]
+    P__api_marni_kb_ping["/api/marni-kb/ping"]
+    P__backend_only["/backend-only"]
+    P__favicon_ico["/favicon.ico"]
+    P__login["/login"]
+    P__share_intake["/share-intake"]
+    P__sw_js["/sw.js"]
+    end
+    MW --> pub
+    NOTE["Session required elsewhere; INTERNAL_API_KEY + Unipile resolve bypass documented in middleware.ts"]
+    style NOTE fill:#fff8e1,stroke:#ca8a04

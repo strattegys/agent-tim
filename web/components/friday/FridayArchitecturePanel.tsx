@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FridayArchitecturePane } from "@/lib/agent-ui-context";
 
 const ArchitectureMermaidView = dynamic(() => import("./ArchitectureMermaidView"), {
@@ -11,10 +11,105 @@ const ArchitectureMermaidView = dynamic(() => import("./ArchitectureMermaidView"
   ),
 });
 
-const GRAPH_OVERVIEW = "/architecture/depcruise/graph.mmd";
 const GRAPH_LIB = "/architecture/depcruise/graph-lib.mmd";
 
-type CodeVisual = "overview" | "lib";
+const PANE_TO_PATH: Record<FridayArchitecturePane, string> = {
+  p1a: "/architecture/pillars/1a-runtime-topology.mmd",
+  p1b: "/architecture/pillars/1b-edge-trust.mmd",
+  p1c: "/architecture/pillars/1c-config-env.mmd",
+  p2a: "/architecture/pillars/2a-api-surface.mmd",
+  p2b: "/architecture/pillars/2b-async-webhooks-cron.mmd",
+  p2c: "/architecture/pillars/2c-client-navigation.mmd",
+  p3a: "/architecture/pillars/3a-data-model.mmd",
+  p3b: "/architecture/pillars/3b-agents-tools.mmd",
+  p3c: "/architecture/pillars/3c-module-boundaries.mmd",
+  infra_curated: "/architecture/infra-overview.mmd",
+  code_lib: GRAPH_LIB,
+};
+
+type Principal = "p1" | "p2" | "p3";
+
+const PRINCIPAL_LABEL: Record<Principal, string> = {
+  p1: "Platform",
+  p2: "Interfaces",
+  p3: "Domain",
+};
+
+const PANE_META: Record<
+  FridayArchitecturePane,
+  { principal: Principal; sub: "a" | "b" | "c" | "x"; label: string; hint: string }
+> = {
+  p1a: {
+    principal: "p1",
+    sub: "a",
+    label: "Runtime",
+    hint: "Docker Compose services and depends_on (root docker-compose.yml)",
+  },
+  p1b: {
+    principal: "p1",
+    sub: "b",
+    label: "Edge & trust",
+    hint: "Middleware + public path patterns from middleware.ts",
+  },
+  p1c: {
+    principal: "p1",
+    sub: "c",
+    label: "Configuration",
+    hint: "Env keys grouped from .env.local.example",
+  },
+  p2a: {
+    principal: "p2",
+    sub: "a",
+    label: "HTTP API",
+    hint: "app/api/**/route.ts — methods per route group",
+  },
+  p2b: {
+    principal: "p2",
+    sub: "b",
+    label: "Async & crons",
+    hint: "Webhooks, /api/cron, /api/dev, node-cron catalog",
+  },
+  p2c: {
+    principal: "p2",
+    sub: "c",
+    label: "Pages",
+    hint: "App Router page.tsx paths (non-api)",
+  },
+  p3a: {
+    principal: "p3",
+    sub: "a",
+    label: "Data model",
+    hint: "CREATE TABLE from web/scripts/migrate*.sql",
+  },
+  p3b: {
+    principal: "p3",
+    sub: "b",
+    label: "Agents",
+    hint: "Tools and delegation from agent-registry.ts",
+  },
+  p3c: {
+    principal: "p3",
+    sub: "c",
+    label: "Modules",
+    hint: "dependency-cruiser (app + components + lib, collapsed)",
+  },
+  infra_curated: {
+    principal: "p1",
+    sub: "x",
+    label: "Curated infra",
+    hint: "Hand-maintained story — public/architecture/infra-overview.mmd",
+  },
+  code_lib: {
+    principal: "p3",
+    sub: "x",
+    label: "Lib graph",
+    hint: "dependency-cruiser lib/ only (finer detail)",
+  },
+};
+
+function principalForPane(p: FridayArchitecturePane): Principal {
+  return PANE_META[p].principal;
+}
 
 interface FridayArchitecturePanelProps {
   architecturePane: FridayArchitecturePane;
@@ -25,182 +120,136 @@ export default function FridayArchitecturePanel({
   architecturePane,
   onArchitecturePaneChange,
 }: FridayArchitecturePanelProps) {
-  const [infraMmd, setInfraMmd] = useState<string | null>(null);
-  const [infraError, setInfraError] = useState<string | null>(null);
+  const [mmd, setMmd] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [exists, setExists] = useState<boolean | null>(null);
 
-  const [codeVisual, setCodeVisual] = useState<CodeVisual>("overview");
-  const [codeMmd, setCodeMmd] = useState<string | null>(null);
-  const [codeError, setCodeError] = useState<string | null>(null);
-  const [codeReportOk, setCodeReportOk] = useState<boolean | null>(null);
+  const path = PANE_TO_PATH[architecturePane];
+
+  const principal = principalForPane(architecturePane);
+  const subPanes = useMemo(() => {
+    const core: FridayArchitecturePane[] = ["p1a", "p1b", "p1c"];
+    if (principal === "p2") return ["p2a", "p2b", "p2c"] as const;
+    if (principal === "p3")
+      return ["p3a", "p3b", "p3c", "code_lib"] as FridayArchitecturePane[];
+    return [...core, "infra_curated"] as FridayArchitecturePane[];
+  }, [principal]);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/architecture/infra-overview.mmd")
+    setExists(null);
+    fetch(path, { method: "HEAD" })
       .then((r) => {
-        if (!r.ok) throw new Error(`Could not load diagram (${r.status})`);
+        if (!cancelled) setExists(r.ok);
+      })
+      .catch(() => {
+        if (!cancelled) setExists(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setMmd(null);
+    setLoadError(null);
+    fetch(path)
+      .then((r) => {
+        if (!r.ok) throw new Error(`Could not load (${r.status})`);
         return r.text();
       })
       .then((text) => {
         if (!cancelled) {
-          setInfraMmd(text);
-          setInfraError(null);
+          setMmd(text);
+          setLoadError(null);
         }
       })
       .catch((e: unknown) => {
-        if (!cancelled) setInfraError(e instanceof Error ? e.message : "Load failed");
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : "Load failed");
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [path]);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetch(GRAPH_OVERVIEW, { method: "HEAD" })
-      .then((r) => {
-        if (!cancelled) setCodeReportOk(r.ok);
-      })
-      .catch(() => {
-        if (!cancelled) setCodeReportOk(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (architecturePane !== "code") return;
-    const path = codeVisual === "overview" ? GRAPH_OVERVIEW : GRAPH_LIB;
-    let cancelled = false;
-    setCodeMmd(null);
-    setCodeError(null);
-    fetch(path)
-      .then((r) => {
-        if (!r.ok) throw new Error(`Could not load ${path} (${r.status})`);
-        return r.text();
-      })
-      .then((text) => {
-        if (!cancelled) setCodeMmd(text);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setCodeError(e instanceof Error ? e.message : "Load failed");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [architecturePane, codeVisual]);
-
-  const subTabs: { key: FridayArchitecturePane; label: string }[] = [
-    { key: "infra", label: "Infrastructure" },
-    { key: "code", label: "Code Graph" },
-  ];
-
-  const codeSubTabs: { key: CodeVisual; label: string; hint: string }[] = [
-    { key: "overview", label: "Overview", hint: "app · components · lib (folders collapsed)" },
-    { key: "lib", label: "Library", hint: "shared lib/ modules and how they import each other" },
-  ];
+  const meta = PANE_META[architecturePane];
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-[var(--bg-primary)]">
-      <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
-        {subTabs.map((st) => {
-          const active = architecturePane === st.key;
-          return (
-            <button
-              key={st.key}
-              type="button"
-              onClick={() => onArchitecturePaneChange(st.key)}
-              className={`text-xs px-2.5 py-1 rounded transition-colors ${
-                active
-                  ? "font-semibold text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--border-color)]"
-                  : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              {st.label}
-            </button>
-          );
-        })}
+      <div className="shrink-0 flex flex-col gap-1.5 px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]">
+        <div className="flex flex-wrap items-center gap-1">
+          {(["p1", "p2", "p3"] as const).map((pid) => {
+            const active = principal === pid;
+            const first =
+              pid === "p1" ? "p1a" : pid === "p2" ? "p2a" : "p3a";
+            return (
+              <button
+                key={pid}
+                type="button"
+                onClick={() => {
+                  if (!active) onArchitecturePaneChange(first);
+                }}
+                className={`text-xs px-2.5 py-1 rounded transition-colors ${
+                  active
+                    ? "font-semibold text-[var(--text-primary)] bg-[var(--bg-primary)] border border-[var(--border-color)]"
+                    : "font-medium text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {PRINCIPAL_LABEL[pid]}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-1">
+          {subPanes.map((key) => {
+            const m = PANE_META[key];
+            const active = architecturePane === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                title={m.hint}
+                onClick={() => onArchitecturePaneChange(key)}
+                className={`text-xs px-2 py-0.5 rounded ${
+                  active
+                    ? "font-semibold bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-color)]"
+                    : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                {m.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {architecturePane === "infra" ? (
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-          <p className="shrink-0 text-[11px] text-[var(--text-tertiary)] px-3 py-2 border-b border-[var(--border-color)]">
-            Curated overview (edit{" "}
-            <code className="text-[10px]">public/architecture/infra-overview.mmd</code>). See{" "}
-            <code className="text-[10px]">PROJECT-MEMORY.md</code> for authoritative infra detail.
+      <p className="shrink-0 text-[11px] text-[var(--text-tertiary)] px-3 py-2 border-b border-[var(--border-color)]">
+        <span className="font-medium text-[var(--text-secondary)]">{meta.label}:</span> {meta.hint}
+        {" · "}
+        <code className="text-[10px]">{path.replace(/^\//, "")}</code>
+        {" · "}
+        Regenerate: <code className="text-[10px]">npm run architecture:generate</code> (from{" "}
+        <code className="text-[10px]">web/</code>)
+      </p>
+
+      {exists === false ? (
+        <div className="flex-1 flex flex-col items-start justify-center gap-2 px-4 py-6 text-sm text-[var(--text-secondary)]">
+          <p>
+            Missing <code className="text-xs">{path}</code>. Run from <code className="text-xs">web/</code>:
           </p>
-          {infraError ? (
-            <p className="text-sm text-red-600 dark:text-red-400 px-3 py-2" role="alert">
-              {infraError}
-            </p>
-          ) : infraMmd ? (
-            <ArchitectureMermaidView definition={infraMmd} />
-          ) : (
-            <p className="text-sm text-[var(--text-tertiary)] px-3 py-4">Loading…</p>
-          )}
+          <pre className="text-xs bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-2 overflow-x-auto max-w-full">
+            npm run architecture:generate
+          </pre>
         </div>
+      ) : loadError ? (
+        <p className="text-sm text-red-600 dark:text-red-400 px-3 py-2" role="alert">
+          {loadError}
+        </p>
+      ) : mmd ? (
+        <ArchitectureMermaidView definition={mmd} />
       ) : (
-        <div className="flex-1 flex flex-col overflow-hidden min-h-[200px]">
-          <div className="shrink-0 border-b border-[var(--border-color)] px-3 py-2 space-y-2">
-            <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-              <span className="font-medium text-[var(--text-primary)]">How to read:</span> each box is
-              a file or collapsed folder. An arrow from{" "}
-              <span className="font-mono text-[10px]">A</span> →{" "}
-              <span className="font-mono text-[10px]">B</span> means{" "}
-              <span className="italic">A imports B</span> (TypeScript/JS module graph from{" "}
-              <code className="text-[10px]">dependency-cruiser</code>). This replaces the old matrix
-              view.
-            </p>
-            <div className="flex flex-wrap items-center gap-1">
-              {codeSubTabs.map((ct) => {
-                const active = codeVisual === ct.key;
-                return (
-                  <button
-                    key={ct.key}
-                    type="button"
-                    title={ct.hint}
-                    onClick={() => setCodeVisual(ct.key)}
-                    className={`text-xs px-2 py-0.5 rounded ${
-                      active
-                        ? "font-semibold bg-[var(--bg-primary)] text-[var(--text-primary)] ring-1 ring-[var(--border-color)]"
-                        : "text-[var(--text-tertiary)] hover:text-[var(--text-primary)]"
-                    }`}
-                  >
-                    {ct.label}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[10px] text-[var(--text-tertiary)]">
-              Regenerate graphs from <code className="text-[10px]">COMMAND-CENTRAL/web</code>:{" "}
-              <code className="text-[10px]">npm run architecture:report</code>
-            </p>
-          </div>
-          {codeReportOk === null ? (
-            <p className="text-sm text-[var(--text-tertiary)] px-3 py-4">Checking for reports…</p>
-          ) : codeReportOk === false ? (
-            <div className="flex-1 flex flex-col items-start justify-center gap-2 px-4 py-6 text-sm text-[var(--text-secondary)]">
-              <p>
-                No dependency graphs found (expected <code className="text-xs">{GRAPH_OVERVIEW}</code>
-                ).
-              </p>
-              <p>
-                From <code className="text-xs">COMMAND-CENTRAL/web</code> run:
-              </p>
-              <pre className="text-xs bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded p-2 overflow-x-auto max-w-full">
-                npm run architecture:report
-              </pre>
-            </div>
-          ) : codeError ? (
-            <p className="text-sm text-red-600 dark:text-red-400 px-3 py-2" role="alert">
-              {codeError}
-            </p>
-          ) : codeMmd ? (
-            <ArchitectureMermaidView definition={codeMmd} />
-          ) : (
-            <p className="text-sm text-[var(--text-tertiary)] px-3 py-4">Loading graph…</p>
-          )}
-        </div>
+        <p className="text-sm text-[var(--text-tertiary)] px-3 py-4">Loading…</p>
       )}
     </div>
   );

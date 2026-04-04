@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { getCronJobSeedMetadata } from "@/lib/cron";
+import { getCronJobSeedMetadata } from "@/lib/cron-job-catalog";
 import {
   getHostedCommandCentralOrigin,
   isCommandCentralLocalRuntime,
